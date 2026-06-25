@@ -1,0 +1,25 @@
+{
+  "name": "@repo/testing-evals",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test:evals": "vitest run --exclude '**/*.judge.eval.ts'",
+    "test:judge": "vitest run daily-prioritization.judge.eval",
+    "test": "vitest run --exclude '**/*.judge.eval.ts'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf eval-results/*.json"
+  },
+  "dependencies": {
+    "@repo/shared-schemas": "workspace:*",
+    "agent-runtime": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@repo/config-typescript": "workspace:*",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

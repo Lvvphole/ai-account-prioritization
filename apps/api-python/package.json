@@ -1,0 +1,11 @@
+{
+  "name": "api-python",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated Python (FastAPI) support service. Consumes generated JSON Schemas. Does NOT control the agent runtime.",
+  "scripts": {
+    "build": "python3 -m compileall -q src",
+    "typecheck": "python3 -m compileall -q src",
+    "clean": "find src -name '__pycache__' -type d -prune -exec rm -rf {} + || true"
+  }
+}

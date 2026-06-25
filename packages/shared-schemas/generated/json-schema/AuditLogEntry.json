@@ -1,0 +1,61 @@
+{
+  "$ref": "#/definitions/AuditLogEntry",
+  "definitions": {
+    "AuditLogEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string"
+        },
+        "accountId": {
+          "type": "string"
+        },
+        "actorId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "User or system actor that performed the action."
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "allowed",
+            "blocked",
+            "approved",
+            "rejected"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {}
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "actorId",
+        "action",
+        "decision",
+        "reason",
+        "occurredAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

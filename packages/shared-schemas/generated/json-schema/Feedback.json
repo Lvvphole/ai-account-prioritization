@@ -1,0 +1,56 @@
+{
+  "$ref": "#/definitions/Feedback",
+  "definitions": {
+    "Feedback": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recommendationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accountId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "rejected",
+            "snoozed",
+            "completed",
+            "edited"
+          ]
+        },
+        "comment": {
+          "type": "string"
+        },
+        "editedDraft": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "recommendationId",
+        "accountId",
+        "userId",
+        "verdict",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

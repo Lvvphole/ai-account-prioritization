@@ -1,0 +1,88 @@
+{
+  "$ref": "#/definitions/EvalResult",
+  "definitions": {
+    "EvalResult": {
+      "type": "object",
+      "properties": {
+        "suite": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "deterministic",
+            "llm_judge",
+            "security",
+            "guardrail"
+          ]
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "passRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "caseId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "passed": {
+                "type": "boolean"
+              },
+              "score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "details": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "caseId",
+              "passed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "deploymentBlocking": {
+          "type": "boolean",
+          "default": false
+        },
+        "ranAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "suite",
+        "kind",
+        "passed",
+        "passRate",
+        "threshold",
+        "cases",
+        "ranAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

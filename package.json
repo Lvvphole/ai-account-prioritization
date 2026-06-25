@@ -1,0 +1,29 @@
+{
+  "name": "ai-account-prioritization",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Account Prioritization Agent for B2B Sales Teams — deterministic, eval-gated, human-in-the-loop monorepo.",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:evals": "turbo run test:evals",
+    "test:judge": "pnpm --filter @repo/testing-evals test:judge",
+    "generate:schemas": "pnpm --filter @repo/shared-schemas generate",
+    "build:api-python": "pnpm --filter api-python build",
+    "dev": "turbo run dev",
+    "clean": "turbo run clean",
+    "verify": "bash scripts/verify-production-contract.sh"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}

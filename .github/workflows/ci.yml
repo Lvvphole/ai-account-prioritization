@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build, Typecheck & Evals
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Gate 1: schema generation (TS/Zod -> JSON Schema for Python)
+      - name: Generate schemas
+        run: pnpm generate:schemas
+
+      - name: Fail if generated schemas drifted
+        run: git diff --exit-code -- packages/shared-schemas/generated apps/api-python/src/schemas/generated
+
+      # Gate 2: build everything through Turbo
+      - name: Build
+        run: pnpm build
+
+      # Gate 3: typecheck everything through Turbo
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Gate 4: deterministic evals (runtime path)
+      - name: Run evals
+        run: pnpm test:evals
+
+      # Python support service syntax/build check
+      - name: Build Python support service
+        run: pnpm build:api-python

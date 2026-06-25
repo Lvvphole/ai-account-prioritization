@@ -1,0 +1,83 @@
+product:
+  name: AI Account Prioritization Agent for B2B Sales Teams
+  summary: >-
+    Turns messy B2B CRM/account data into a verified daily sales action plan:
+    which accounts to contact first, why, the next best action, the evidence, and
+    whether it passed safety, schema, permission, and eval gates.
+  planning: Agile Scrum
+  philosophy: Strategic Programming (strict)
+
+execution_rules:
+  - llm_must_not_rank_accounts
+  - deterministic_scoring_decides_rank
+  - typescript_zod_is_schema_source_of_truth
+  - python_consumes_generated_json_schema_only
+  - runtime_guardrails_synchronous_deterministic_low_latency
+  - llm_judge_async_outside_runtime
+  - human_approval_required_for_customer_facing_or_crm_writeback
+  - every_recommendation_has_score_confidence_reasoncodes_signals_nba
+  - no_publish_without_verification
+  - no_unsupported_customer_claims
+  - no_fabricated_facts
+  - every_critical_action_creates_audit_evidence
+  - every_eval_gate_executable_through_turborepo
+  - executor_must_not_self_certify
+  - verifier_owns_completion
+  - on_verification_failure_stop_and_report
+
+architecture:
+  pattern: Turborepo-based modular agentic application architecture
+  design_pattern: co-located agent-module pattern
+  supports:
+    - bounded self-checking human-in-the-loop workflow
+    - deterministic core plus guarded LLM generation
+    - eval-gated CI/CD
+    - shared-schema contract pattern
+    - MCP-compatible tool registry
+
+loop: DISCOVER -> PLAN -> EXECUTE -> VERIFY -> ITERATE
+
+workspaces:
+  apps:
+    - agent-runtime
+    - web
+    - api-python
+  packages:
+    - shared-schemas
+    - testing-evals
+    - config-typescript
+    - config-eslint
+
+paths:
+  schema_source: packages/shared-schemas/src
+  schema_generation: packages/shared-schemas/scripts/generate-json-schemas.ts
+  schema_outputs:
+    - packages/shared-schemas/generated/json-schema
+    - apps/api-python/src/schemas/generated
+  runtime_entry: apps/agent-runtime/src/index.ts
+  orchestrator_state: apps/agent-runtime/src/agents/orchestrator/orchestrator.state.ts
+  runtime_guardrails: apps/agent-runtime/src/agents/orchestrator/orchestrator.guardrails.ts
+  evals: packages/testing-evals/src
+  judge: packages/testing-evals/src/judges/llm-judge.ts
+
+definition_of_done:
+  - pnpm install
+  - pnpm generate:schemas
+  - pnpm build
+  - pnpm typecheck
+  - pnpm test:evals
+optional_gates:
+  - EVAL_JUDGE_ENABLED=true pnpm test:judge
+
+eval_gates:
+  - id: scoring
+    deployment_blocking: true
+  - id: guardrails
+    deployment_blocking: true
+  - id: daily-prioritization
+    deployment_blocking: true
+  - id: security
+    deployment_blocking: true
+  - id: daily-prioritization-judge
+    deployment_blocking_when: EVAL_JUDGE_ENABLED=true
+    runtime_path: false

@@ -1,0 +1,10 @@
+{
+  "extends": "@repo/config-typescript/node.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "eval-results"]
+}

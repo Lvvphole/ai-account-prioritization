@@ -1,0 +1,60 @@
+{
+  "$ref": "#/definitions/Activity",
+  "definitions": {
+    "Activity": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accountId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contactId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "call",
+            "email_outbound",
+            "email_inbound",
+            "meeting",
+            "note",
+            "task",
+            "intent_event"
+          ]
+        },
+        "subject": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdById": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verified": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "id",
+        "accountId",
+        "type",
+        "occurredAt",
+        "createdById"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

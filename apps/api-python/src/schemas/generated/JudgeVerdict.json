@@ -1,0 +1,42 @@
+{
+  "$ref": "#/definitions/JudgeVerdict",
+  "definitions": {
+    "JudgeVerdict": {
+      "type": "object",
+      "properties": {
+        "caseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "model",
+            "heuristic"
+          ]
+        }
+      },
+      "required": [
+        "caseId",
+        "score",
+        "passed",
+        "rationale",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,77 @@
+{
+  "$ref": "#/definitions/Opportunity",
+  "definitions": {
+    "Opportunity": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accountId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "discovery",
+            "qualification",
+            "proposal",
+            "negotiation",
+            "closed_won",
+            "closed_lost"
+          ]
+        },
+        "amountUsd": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0
+        },
+        "probability": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0
+        },
+        "closeDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "isClosed": {
+          "type": "boolean",
+          "default": false
+        },
+        "isWon": {
+          "type": "boolean",
+          "default": false
+        },
+        "nextStep": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "accountId",
+        "name",
+        "stage",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

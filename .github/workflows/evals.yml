@@ -1,0 +1,53 @@
+name: Evals
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+    inputs:
+      enable_judge:
+        description: "Run the async LLM-as-a-judge gate"
+        type: boolean
+        default: true
+
+jobs:
+  deterministic:
+    name: Deterministic Evals
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm generate:schemas
+      - run: pnpm build
+      - name: Deterministic eval gate
+        run: pnpm test:evals
+
+  judge:
+    name: Async LLM-as-a-Judge (non-runtime)
+    runs-on: ubuntu-latest
+    needs: deterministic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm generate:schemas
+      - run: pnpm build
+      - name: Judge eval gate (deployment-blocking)
+        env:
+          # When the secret is absent, the judge degrades to a deterministic
+          # heuristic so this gate is always runnable.
+          EVAL_JUDGE_ENABLED: "true"
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_JUDGE_MODEL: claude-opus-4-8
+        run: pnpm test:judge

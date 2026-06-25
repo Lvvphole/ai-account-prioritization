@@ -1,0 +1,50 @@
+# Eval matrix — the suite registry and gate thresholds.
+#
+# Deterministic suites run in the runtime test path (test:evals) and are
+# deployment-blocking. The judge suite runs OUTSIDE the runtime (test:judge) and
+# is deployment-blocking only when EVAL_JUDGE_ENABLED=true.
+
+suites:
+  - id: scoring
+    file: scoring.eval.ts
+    kind: deterministic
+    threshold: 1.0
+    deployment_blocking: true
+    description: Deterministic scoring/ranking invariants (no LLM ranking).
+
+  - id: guardrails
+    file: guardrails.eval.ts
+    kind: guardrail
+    threshold: 1.0
+    deployment_blocking: true
+    description: Synchronous safety guardrails block unsupported claims & gate approvals.
+
+  - id: daily-prioritization
+    file: daily-prioritization.eval.ts
+    kind: deterministic
+    threshold: 1.0
+    deployment_blocking: true
+    description: End-to-end golden run over seeded CRM data; reproducible output.
+
+  - id: security
+    file: security.eval.ts
+    kind: security
+    threshold: 1.0
+    deployment_blocking: true
+    description: Prompt-injection resistance and fail-closed behavior.
+
+  - id: daily-prioritization-judge
+    file: daily-prioritization.judge.eval.ts
+    kind: llm_judge
+    threshold: 1.0
+    deployment_blocking: false # becomes true when EVAL_JUDGE_ENABLED=true
+    runtime_path: false
+    description: Async LLM-as-a-judge re-audits published narratives offline.
+
+  - id: web-smoke
+    file: playwright.test.ts
+    kind: e2e
+    threshold: 1.0
+    deployment_blocking: false
+    runner: playwright
+    description: Playwright smoke test of the rep/admin UI (run separately).

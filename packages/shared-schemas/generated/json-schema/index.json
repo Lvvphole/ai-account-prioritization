@@ -1,0 +1,19 @@
+{
+  "generatedAt": "DETERMINISTIC",
+  "schemas": [
+    "Account",
+    "Activity",
+    "AnalyticsEvent",
+    "AuditLogEntry",
+    "Contact",
+    "EvalResult",
+    "Feedback",
+    "JudgeVerdict",
+    "NextBestAction",
+    "Opportunity",
+    "PrioritizationRun",
+    "Recommendation",
+    "SourceSignal",
+    "VerificationResult"
+  ]
+}

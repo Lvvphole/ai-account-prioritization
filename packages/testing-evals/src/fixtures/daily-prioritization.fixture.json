@@ -1,0 +1,18 @@
+{
+  "description": "Golden expectations for the deterministic daily prioritization run over the seeded CRM data (owner rep_alex, approvals auto-granted).",
+  "ownerId": "rep_alex",
+  "now": "2026-06-25T07:00:00Z",
+  "autoApprove": true,
+  "expected": {
+    "totalAccountsConsidered": 4,
+    "blockedCount": 1,
+    "publishedOrder": ["acc_001", "acc_003", "acc_002"],
+    "scores": {
+      "acc_001": 73.63,
+      "acc_003": 51.07,
+      "acc_002": 40.2
+    },
+    "topAccountId": "acc_001",
+    "blockedAccountIds": ["acc_004"]
+  }
+}
