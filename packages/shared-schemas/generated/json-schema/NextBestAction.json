@@ -1,0 +1,45 @@
+{
+  "$ref": "#/definitions/NextBestAction",
+  "definitions": {
+    "NextBestAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "call",
+            "send_email",
+            "schedule_meeting",
+            "log_research_note",
+            "request_intro",
+            "escalate_to_manager",
+            "no_action_hold"
+          ]
+        },
+        "customerFacing": {
+          "type": "boolean"
+        },
+        "crmWriteBack": {
+          "type": "boolean",
+          "default": false
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the rep should accomplish."
+        },
+        "draft": {
+          "type": "string",
+          "description": "Optional generated draft (email/call objective/CRM note)."
+        }
+      },
+      "required": [
+        "type",
+        "customerFacing",
+        "objective"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

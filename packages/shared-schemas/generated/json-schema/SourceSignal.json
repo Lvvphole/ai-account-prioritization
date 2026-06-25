@@ -1,0 +1,42 @@
+{
+  "$ref": "#/definitions/SourceSignal",
+  "definitions": {
+    "SourceSignal": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "account",
+            "contact",
+            "opportunity",
+            "activity",
+            "intent",
+            "derived"
+          ]
+        },
+        "refId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Id of the source record this signal points to."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable, factual summary of the signal."
+        },
+        "verified": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "refId",
+        "description",
+        "verified"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

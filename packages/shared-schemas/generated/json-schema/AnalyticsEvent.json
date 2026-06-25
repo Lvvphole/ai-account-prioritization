@@ -1,0 +1,55 @@
+{
+  "$ref": "#/definitions/AnalyticsEvent",
+  "definitions": {
+    "AnalyticsEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "enum": [
+            "run_started",
+            "run_completed",
+            "recommendation_published",
+            "recommendation_blocked",
+            "approval_requested",
+            "approval_granted",
+            "approval_rejected",
+            "crm_writeback_attempted",
+            "email_send_attempted",
+            "guardrail_triggered",
+            "feedback_submitted"
+          ]
+        },
+        "runId": {
+          "type": "string"
+        },
+        "accountId": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {}
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "occurredAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

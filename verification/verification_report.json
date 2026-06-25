@@ -1,0 +1,46 @@
+{
+  "product": "AI Account Prioritization Agent for B2B Sales Teams",
+  "branch": "claude/blissful-cori-y7o91o",
+  "requestedBranchAlias": "feat/production-monorepo-agent-runtime",
+  "verifiedAt": "2026-06-25",
+  "toolchain": {
+    "node": "v22.22.2",
+    "pnpm": "10.33.0",
+    "python": "3.11",
+    "turbo": "2.10.0",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9",
+    "next": "15.5.19"
+  },
+  "gates": [
+    { "id": "install", "command": "pnpm install", "status": "passed" },
+    { "id": "generate_schemas", "command": "pnpm generate:schemas", "status": "passed", "schemasGenerated": 14, "targets": ["packages/shared-schemas/generated/json-schema", "apps/api-python/src/schemas/generated"] },
+    { "id": "build", "command": "pnpm build", "status": "passed", "tasks": 4 },
+    { "id": "typecheck", "command": "pnpm typecheck", "status": "passed", "tasks": 7 },
+    { "id": "test_evals", "command": "pnpm test:evals", "status": "passed", "suites": 4, "tests": 20 },
+    { "id": "test_judge", "command": "EVAL_JUDGE_ENABLED=true pnpm test:judge", "status": "passed", "tests": 4, "mode": "heuristic_fallback_no_api_key" },
+    { "id": "build_api_python", "command": "pnpm build:api-python", "status": "passed" },
+    { "id": "production_contract", "command": "scripts/verify-production-contract.sh", "status": "passed" }
+  ],
+  "evalSuites": [
+    { "id": "scoring", "kind": "deterministic", "tests": 6, "passed": true, "deploymentBlocking": true },
+    { "id": "guardrails", "kind": "guardrail", "tests": 5, "passed": true, "deploymentBlocking": true },
+    { "id": "daily-prioritization", "kind": "deterministic", "tests": 4, "passed": true, "deploymentBlocking": true },
+    { "id": "security", "kind": "security", "tests": 5, "passed": true, "deploymentBlocking": true },
+    { "id": "daily-prioritization-judge", "kind": "llm_judge", "tests": 4, "passed": true, "deploymentBlocking": "when EVAL_JUDGE_ENABLED=true", "runtimePath": false }
+  ],
+  "contractInvariants": {
+    "llm_does_not_rank": true,
+    "deterministic_scoring_decides_rank": true,
+    "typescript_zod_source_of_truth": true,
+    "python_consumes_generated_json_only": true,
+    "runtime_guardrails_synchronous_deterministic": true,
+    "llm_judge_async_outside_runtime": true,
+    "human_approval_required_for_customer_facing_and_crm_writeback": true,
+    "recommendation_carries_score_confidence_reasoncodes_signals_nba": true,
+    "no_publish_without_verification": true,
+    "fail_closed_on_unsupported_claims_and_unverified_signals": true,
+    "every_critical_action_audited": true
+  },
+  "overall": "passed"
+}

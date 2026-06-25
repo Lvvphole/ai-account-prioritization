@@ -1,0 +1,266 @@
+{
+  "$ref": "#/definitions/PrioritizationRun",
+  "definitions": {
+    "PrioritizationRun": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recommendations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "runId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Id of the prioritization run that produced this."
+              },
+              "accountId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ownerId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Deterministic priority score (0-100)."
+              },
+              "rank": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "description": "Deterministic rank within the run (1 = first)."
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Deterministic confidence derived from data completeness & signal strength."
+              },
+              "reasonCodes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "high_open_pipeline",
+                    "verified_intent_signal",
+                    "stale_no_contact",
+                    "renewal_approaching",
+                    "champion_engaged",
+                    "churn_risk_detected",
+                    "new_executive_buyer",
+                    "strategic_tier_account",
+                    "stalled_opportunity",
+                    "data_quality_blocked"
+                  ]
+                },
+                "minItems": 1,
+                "description": "Why this account matters (closed set)."
+              },
+              "reasonNarrative": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Guarded natural-language explanation; claims must map to sourceSignals."
+              },
+              "sourceSignals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "account",
+                        "contact",
+                        "opportunity",
+                        "activity",
+                        "intent",
+                        "derived"
+                      ]
+                    },
+                    "refId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Id of the source record this signal points to."
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Human-readable, factual summary of the signal."
+                    },
+                    "verified": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "refId",
+                    "description",
+                    "verified"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "description": "Evidence backing the recommendation. Required & must be verified."
+              },
+              "nextBestAction": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "call",
+                      "send_email",
+                      "schedule_meeting",
+                      "log_research_note",
+                      "request_intro",
+                      "escalate_to_manager",
+                      "no_action_hold"
+                    ]
+                  },
+                  "customerFacing": {
+                    "type": "boolean"
+                  },
+                  "crmWriteBack": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "objective": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "What the rep should accomplish."
+                  },
+                  "draft": {
+                    "type": "string",
+                    "description": "Optional generated draft (email/call objective/CRM note)."
+                  }
+                },
+                "required": [
+                  "type",
+                  "customerFacing",
+                  "objective"
+                ],
+                "additionalProperties": false
+              },
+              "verification": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "passed",
+                      "failed",
+                      "pending"
+                    ]
+                  },
+                  "schemaValid": {
+                    "type": "boolean"
+                  },
+                  "guardrailsPassed": {
+                    "type": "boolean"
+                  },
+                  "sourceSignalsVerified": {
+                    "type": "boolean"
+                  },
+                  "permissionGranted": {
+                    "type": "boolean"
+                  },
+                  "failedGates": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
+                  },
+                  "checkedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "status",
+                  "schemaValid",
+                  "guardrailsPassed",
+                  "sourceSignalsVerified",
+                  "permissionGranted",
+                  "checkedAt"
+                ],
+                "additionalProperties": false
+              },
+              "approvalStatus": {
+                "type": "string",
+                "enum": [
+                  "not_required",
+                  "pending_approval",
+                  "approved",
+                  "rejected"
+                ],
+                "default": "not_required"
+              },
+              "published": {
+                "type": "boolean",
+                "default": false
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "runId",
+              "accountId",
+              "ownerId",
+              "score",
+              "rank",
+              "confidence",
+              "reasonCodes",
+              "reasonNarrative",
+              "sourceSignals",
+              "nextBestAction",
+              "verification",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "totalAccountsConsidered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blockedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "required": [
+        "runId",
+        "ownerId",
+        "generatedAt",
+        "recommendations",
+        "totalAccountsConsidered"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

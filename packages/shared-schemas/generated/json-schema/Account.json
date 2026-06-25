@@ -1,0 +1,117 @@
+{
+  "$ref": "#/definitions/Account",
+  "definitions": {
+    "Account": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable CRM account id."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Account display name."
+        },
+        "domain": {
+          "type": "string",
+          "description": "Primary web domain, if known."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "CRM id of the owning sales rep."
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "strategic",
+            "enterprise",
+            "mid_market",
+            "smb"
+          ]
+        },
+        "lifecycleStage": {
+          "type": "string",
+          "enum": [
+            "prospect",
+            "open_opportunity",
+            "customer",
+            "renewal",
+            "churn_risk",
+            "dormant"
+          ]
+        },
+        "industry": {
+          "type": "string"
+        },
+        "employeeCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "annualRevenueUsd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "openPipelineUsd": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Sum of open opportunity amounts in USD."
+        },
+        "lastContactedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp of last logged outbound activity."
+        },
+        "daysSinceLastContact": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Derived staleness signal used by the deterministic scorer."
+        },
+        "healthScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Externally-provided account health (0-100), if available."
+        },
+        "intentSignals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Verified intent signal codes (e.g. pricing_page_visit)."
+        },
+        "dataQualityFlags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Data quality issues detected by the Python data-quality service."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "ownerId",
+        "tier",
+        "lifecycleStage",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
