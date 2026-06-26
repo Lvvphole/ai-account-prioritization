@@ -1,7 +1,13 @@
 import type { Opportunity } from "@repo/shared-schemas";
-import { repository } from "../database/repository";
+import { inMemoryRepository, type RuntimeRepository } from "../runtime-repository";
 
 /** Read opportunities for a set of accounts. Read-only. */
-export async function readOpportunities(accountIds: string[]): Promise<Opportunity[]> {
-  return accountIds.flatMap((id) => repository.listOpportunitiesByAccount(id));
+export async function readOpportunities(
+  accountIds: string[],
+  repo: RuntimeRepository = inMemoryRepository,
+): Promise<Opportunity[]> {
+  const lists = await Promise.all(
+    accountIds.map((id) => repo.listOpportunitiesByAccount(id)),
+  );
+  return lists.flat();
 }

@@ -1,10 +1,11 @@
 import type { Contact } from "@repo/shared-schemas";
-import { repository } from "../database/repository";
+import { inMemoryRepository, type RuntimeRepository } from "../runtime-repository";
 
 /** Read contacts for a set of accounts. Read-only. */
-export async function readContacts(accountIds: string[]): Promise<Contact[]> {
-  const set = new Set(accountIds);
-  return accountIds.flatMap((id) => repository.listContactsByAccount(id)).filter((c) =>
-    set.has(c.accountId),
-  );
+export async function readContacts(
+  accountIds: string[],
+  repo: RuntimeRepository = inMemoryRepository,
+): Promise<Contact[]> {
+  const lists = await Promise.all(accountIds.map((id) => repo.listContactsByAccount(id)));
+  return lists.flat();
 }

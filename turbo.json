@@ -5,7 +5,10 @@
     "NODE_ENV",
     "EVAL_JUDGE_ENABLED",
     "ANTHROPIC_API_KEY",
-    "EVAL_JUDGE_MODEL"
+    "EVAL_JUDGE_MODEL",
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY"
   ],
   "tasks": {
     "build": {
