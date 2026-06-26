@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from schemas.loader import SchemaError, list_schemas, load_schema
 from data_quality.service import assess_account, assess_batch
 from scoring.service import summarize_run, validate_against_schema
+from observability import init_observability, record_event
 
 app = FastAPI(
     title="AI Account Prioritization — Python Support Service",
@@ -28,6 +29,10 @@ app = FastAPI(
         "Does NOT control the agent runtime or rank accounts."
     ),
 )
+
+# Initialize observability (Sentry errors + Langfuse tracing). Env-gated: a no-op
+# when unconfigured or when the optional SDKs are not installed.
+OBSERVABILITY_STATUS = init_observability()
 
 
 class AccountPayload(BaseModel):
@@ -44,7 +49,12 @@ class RecommendationsPayload(BaseModel):
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "api-python", "schemas": len(list_schemas())}
+    return {
+        "status": "ok",
+        "service": "api-python",
+        "schemas": len(list_schemas()),
+        "observability": OBSERVABILITY_STATUS,
+    }
 
 
 @app.get("/schemas")
@@ -73,6 +83,8 @@ def data_quality_batch(payload: AccountsPayload) -> dict[str, Any]:
 
 @app.post("/scoring/summary")
 def scoring_summary(payload: RecommendationsPayload) -> dict[str, Any]:
+    # Non-PII trace (count only); no-op unless Langfuse is configured.
+    record_event("scoring.summary", {"count": len(payload.recommendations)})
     return summarize_run(payload.recommendations)
 
 
