@@ -8,6 +8,7 @@
  */
 export { createBrowserSupabaseClient } from "./browser";
 export { createServerSupabaseClient } from "./server";
+export { createSsrServerClient, type SsrCookieAdapter } from "./ssr";
 export { createServiceRoleClient, __resetServiceRoleClient } from "./service-role";
 export { getUser, requireUser, getAppRole, type AppRole } from "./auth";
 

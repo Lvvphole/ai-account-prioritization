@@ -38,13 +38,17 @@ export function redactValue(value: unknown): unknown {
   return value;
 }
 
-/** Redact every string value in a property bag (keys are preserved as-is). */
+/**
+ * Redact every string value AND key in a property bag. Keys are redacted too
+ * because a caller may use a contact identifier (email/phone) as a dynamic
+ * property name; a sanitized value behind a PII key would still leak telemetry.
+ */
 export function redactProperties(
   props: Record<string, unknown>,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(props)) {
-    out[key] = redactValue(value);
+    out[redactPII(key)] = redactValue(value);
   }
   return out;
 }
