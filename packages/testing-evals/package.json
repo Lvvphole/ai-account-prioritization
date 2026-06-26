@@ -11,6 +11,7 @@
     "clean": "rm -rf eval-results/*.json"
   },
   "dependencies": {
+    "@repo/observability": "workspace:*",
     "@repo/shared-schemas": "workspace:*",
     "agent-runtime": "workspace:*",
     "zod": "^3.24.1"
