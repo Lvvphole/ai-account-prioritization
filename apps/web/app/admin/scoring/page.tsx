@@ -1,6 +1,9 @@
 import { MOCK_SCORING_CONFIG } from "../../lib/mock-data";
+import { requireCapability } from "../../lib/auth";
 
-export default function AdminScoringPage() {
+export default async function AdminScoringPage() {
+  await requireCapability("edit_scoring_config");
+
   const cfg = MOCK_SCORING_CONFIG;
   const weights = Object.entries(cfg.weights);
 

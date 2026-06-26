@@ -1,5 +1,6 @@
 import type { Recommendation } from "../lib/types";
 import { MOCK_RECOMMENDATIONS } from "../lib/mock-data";
+import { requireSession } from "../lib/auth";
 
 function ActionBadge({ rec }: { rec: Recommendation }) {
   const gated = rec.nextBestAction.customerFacing || rec.nextBestAction.crmWriteBack;
@@ -15,11 +16,22 @@ function ActionBadge({ rec }: { rec: Recommendation }) {
   );
 }
 
-export default function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ denied?: string }>;
+}) {
+  await requireSession();
+  const { denied } = await searchParams;
   const recs = [...MOCK_RECOMMENDATIONS].sort((a, b) => a.rank - b.rank);
   return (
     <section>
       <h1>Rep Dashboard</h1>
+      {denied ? (
+        <p className="badge tag-warn" role="alert">
+          You don’t have access to that page.
+        </p>
+      ) : null}
       <p className="muted">Your ranked accounts for today, with evidence and next steps.</p>
       {recs.map((rec) => (
         <article key={rec.id} className="card">

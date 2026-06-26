@@ -5,7 +5,11 @@
     "paths": {
       "@/*": ["./*"],
       "@repo/shared-schemas": ["../../packages/shared-schemas/src/index.ts"],
-      "@repo/shared-schemas/*": ["../../packages/shared-schemas/src/*"]
+      "@repo/shared-schemas/*": ["../../packages/shared-schemas/src/*"],
+      "@repo/supabase-client": ["../../packages/supabase-client/src/index.ts"],
+      "@repo/supabase-client/*": ["../../packages/supabase-client/src/*"],
+      "@repo/security": ["../../packages/security/src/index.ts"],
+      "@repo/security/*": ["../../packages/security/src/*"]
     },
     "allowJs": true
   },

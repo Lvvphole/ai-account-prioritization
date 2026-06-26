@@ -6,7 +6,7 @@ import type { NextConfig } from "next";
  */
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  transpilePackages: ["@repo/shared-schemas"],
+  transpilePackages: ["@repo/shared-schemas", "@repo/supabase-client", "@repo/security"],
   eslint: {
     // Linting is advisory in this repo and runs separately; never block builds.
     ignoreDuringBuilds: true,
