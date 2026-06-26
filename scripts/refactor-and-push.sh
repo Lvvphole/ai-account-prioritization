@@ -31,17 +31,8 @@ fi
 echo "==> Installing dependencies"
 pnpm install
 
-echo "==> Generating schemas"
-pnpm generate:schemas
-
-echo "==> Building"
-pnpm build
-
-echo "==> Typechecking"
-pnpm typecheck
-
-echo "==> Running evals"
-pnpm test:evals
+echo "==> Running full production verification (build, typecheck, evals, security, observability, secrets)"
+pnpm verify:production
 
 echo "==> Checking formatting conflicts"
 git diff --check

@@ -27,8 +27,15 @@ jobs:
         with:
           python-version: "3.11"
       - run: pnpm install --frozen-lockfile
-      - name: Verify production contract
-        run: bash scripts/verify-production-contract.sh
+      - name: Verify production (full gate + report)
+        run: pnpm verify:production
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-report
+          path: verification-reports/*.md
+          if-no-files-found: ignore
 
   deploy:
     name: Deploy

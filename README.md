@@ -231,6 +231,10 @@ All commands run from the repo root.
 | `pnpm supabase:types` | Regenerate Supabase DB types (needs the Supabase CLI) |
 | `pnpm db:lint` | Lint Supabase migrations (needs the Supabase CLI) |
 | `pnpm check:no-prisma` | Guard: Prisma is intentionally excluded |
+| `pnpm scan:secrets` | Scan tracked files for committed secrets |
+| `pnpm verify:security` | Verify the RBAC/approval/PII package + runtime gate |
+| `pnpm verify:observability` | Verify the PII-safe observability package |
+| `pnpm verify:production` | Run every gate and write a verification report |
 | `pnpm docker:config` | Validate the Compose file (no daemon required) |
 | `pnpm docker:build` | Build all container images |
 | `pnpm dev` | Run dev tasks |
@@ -320,10 +324,12 @@ schema-as-contract + JSON Schema generation, deterministic evals + LLM judge,
 Supabase database with RLS + RBAC + immutable audit, the Docker/Compose stack, a
 dedicated security package (RBAC/approval/PII redaction), web sign-in via Supabase
 Auth, Sentry/Langfuse observability in the Python service, and a shared
-`@repo/observability` layer (PII-safe events + a deterministic eval).
+`@repo/observability` layer (PII-safe events + a deterministic eval), and the
+CI/CD & security workflows (secret scan, security/deploy gates, and a
+`verify:production` report).
 
-**Planned:** CI/CD & security-workflow hardening (verification reports, security
-and deploy workflows).
+The production-stack build is complete; further work is operational (wiring real
+deploy targets, provisioning Supabase/Sentry/Langfuse).
 
 ## Contributing
 
@@ -341,10 +347,11 @@ pnpm typecheck
 pnpm test:evals
 ```
 
-Full production-contract check:
+Full production verification (every gate + a written report under
+`verification-reports/`):
 
 ```bash
-bash scripts/verify-production-contract.sh
+pnpm verify:production
 ```
 
 The executor never self-certifies — the verifier owns completion. Never push

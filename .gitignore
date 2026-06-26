@@ -51,3 +51,7 @@ pnpm-debug.log*
 # Eval run artifacts (keep the directory, ignore generated results)
 packages/testing-evals/src/eval-results/*
 !packages/testing-evals/src/eval-results/.gitkeep
+
+# Production verification reports (generated; keep the directory, ignore reports)
+verification-reports/*
+!verification-reports/.gitkeep
