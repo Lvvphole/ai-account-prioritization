@@ -112,4 +112,10 @@ describe("pii redaction", () => {
     expect(out.gates).toEqual(["approval_required", "ok"]);
     expect((out.nested as { phone: string }).phone).toContain("[redacted:phone]");
   });
+
+  it("redacts PII used as a property key, not just the value", () => {
+    const out = redactProperties({ "dana.ito@helios-mfg.com": "vip" });
+    expect(Object.keys(out)).toEqual(["[redacted:email]"]);
+    expect(out["[redacted:email]"]).toBe("vip");
+  });
 });
