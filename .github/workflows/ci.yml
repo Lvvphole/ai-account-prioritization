@@ -56,3 +56,15 @@ jobs:
       # Python support service syntax/build check
       - name: Build Python support service
         run: pnpm build:api-python
+
+      # Guard: Prisma is deferred (Execution Rule #28)
+      - name: Check no Prisma
+        run: pnpm check:no-prisma
+
+      # Gate 5: containerization — validate Compose (config needs no daemon)
+      - name: Validate Docker Compose
+        run: docker compose -f infra/compose.yaml config
+
+      # Gate 6: build all images (daemon available on GitHub runners)
+      - name: Build Docker images
+        run: docker compose -f infra/compose.yaml build

@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+# Deterministic agent runtime (TypeScript). Build context = repo root.
+FROM node:22-slim AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH=/pnpm:$PATH
+# Non-interactive: avoid pnpm's modules-dir purge prompt aborting in CI builds.
+ENV CI=true
+RUN corepack enable
+WORKDIR /repo
+
+FROM base AS build
+COPY . .
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+# shared-schemas must be built first (agent-runtime imports its dist).
+RUN pnpm --filter @repo/shared-schemas build \
+  && pnpm --filter agent-runtime build
+
+FROM base AS runtime
+ENV NODE_ENV=production
+COPY --from=build /repo /repo
+WORKDIR /repo/apps/agent-runtime
+# Runs the deterministic daily prioritization entrypoint.
+CMD ["node", "dist/index.js"]

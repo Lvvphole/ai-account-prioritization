@@ -14,6 +14,14 @@ next-env.d.ts
 # Turbo
 .turbo/
 
+# Supabase local artifacts
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+
+# Docker
+*.local.env
+
 # Python
 __pycache__/
 *.py[cod]

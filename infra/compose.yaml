@@ -1,0 +1,56 @@
+name: ai-account-prioritization
+
+# Production-shaped service boundary. Build context is the repo root so each
+# image can resolve the pnpm workspace. Env values use ${VAR:-} defaults so
+# `docker compose config` validates cleanly without a populated .env.
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.web
+    image: ai-account-prioritization/web:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    depends_on:
+      - agent-runtime
+      - api-python
+    restart: unless-stopped
+
+  agent-runtime:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.agent-runtime
+    image: ai-account-prioritization/agent-runtime:latest
+    environment:
+      NODE_ENV: production
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASEURL: ${LANGFUSE_BASEURL:-}
+      EVAL_JUDGE_ENABLED: ${EVAL_JUDGE_ENABLED:-false}
+      CRM_PROVIDER: ${CRM_PROVIDER:-mock}
+    restart: unless-stopped
+
+  api-python:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api-python
+    image: ai-account-prioritization/api-python:latest
+    ports:
+      - "8000:8000"
+    environment:
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASEURL: ${LANGFUSE_BASEURL:-}
+    restart: unless-stopped

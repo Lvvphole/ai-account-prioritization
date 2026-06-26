@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+# Isolated FastAPI support service. Build context = repo root.
+FROM python:3.11-slim AS base
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app
+
+# Install runtime deps (kept explicit; pyproject declares the same set).
+COPY apps/api-python/pyproject.toml apps/api-python/README.md ./
+RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn[standard]>=0.29" "pydantic>=2.6"
+
+# Source includes src/schemas/generated (committed JSON Schema artifacts).
+COPY apps/api-python/src ./src
+COPY infra/docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 8000
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["uvicorn", "main:app", "--app-dir", "src", "--host", "0.0.0.0", "--port", "8000"]

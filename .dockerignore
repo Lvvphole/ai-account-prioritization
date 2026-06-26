@@ -1,0 +1,20 @@
+# Keep the Docker build context lean and reproducible. Dependencies and build
+# artifacts are regenerated inside the image; copying host copies in breaks
+# `pnpm install` (modules-dir purge) and bloats the context.
+**/node_modules
+.git
+.github
+.turbo
+**/dist
+**/.next
+**/*.tsbuildinfo
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+packages/testing-evals/src/eval-results/*
+!packages/testing-evals/src/eval-results/.gitkeep
+**/*.log
+.env
+.env.*
+!.env.example
