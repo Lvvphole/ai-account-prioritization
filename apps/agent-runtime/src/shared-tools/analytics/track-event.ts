@@ -1,18 +1,21 @@
 import type { AnalyticsEvent, AnalyticsEventName } from "@repo/shared-schemas";
 import { AnalyticsEventSchema } from "@repo/shared-schemas";
-import { repository } from "../database/repository";
+import { inMemoryRepository, type RuntimeRepository } from "../runtime-repository";
 
-/** Analytics tracker — validated, in-memory; swap sink for prod telemetry. */
+/** Analytics tracker — validated, appended to the run's repository sink. */
 let counter = 0;
 
-export function trackEvent(input: {
-  name: AnalyticsEventName;
-  runId?: string;
-  accountId?: string;
-  userId?: string;
-  properties?: Record<string, unknown>;
-  occurredAt: string;
-}): AnalyticsEvent {
+export async function trackEvent(
+  input: {
+    name: AnalyticsEventName;
+    runId?: string;
+    accountId?: string;
+    userId?: string;
+    properties?: Record<string, unknown>;
+    occurredAt: string;
+  },
+  repo: RuntimeRepository = inMemoryRepository,
+): Promise<AnalyticsEvent> {
   const event = AnalyticsEventSchema.parse({
     id: `evt_${++counter}_${input.name}`,
     name: input.name,
@@ -22,6 +25,6 @@ export function trackEvent(input: {
     properties: input.properties ?? {},
     occurredAt: input.occurredAt,
   } satisfies AnalyticsEvent);
-  repository.appendAnalytics(event);
+  await repo.appendAnalytics(event);
   return event;
 }

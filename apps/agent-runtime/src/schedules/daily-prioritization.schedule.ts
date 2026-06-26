@@ -1,7 +1,7 @@
 import type { PrioritizationRun } from "@repo/shared-schemas";
 import { DAILY_PRIORITIZATION_CRON } from "../config/runtime";
 import { runDailyPrioritizationForOwner, type RunOptions } from "../agents/orchestrator/orchestrator.agent";
-import { repository } from "../shared-tools/database/repository";
+import { resolveRepository } from "../shared-tools/runtime-repository";
 
 /**
  * Daily prioritization schedule.
@@ -19,7 +19,8 @@ export const dailyPrioritizationSchedule = {
 export async function runDailyPrioritizationForAllOwners(
   opts: RunOptions = {},
 ): Promise<PrioritizationRun[]> {
-  const owners = repository.listAllOwners();
+  const repo = resolveRepository(opts.rlsContext, opts.now);
+  const owners = await repo.listAllOwners();
   const runs: PrioritizationRun[] = [];
   for (const ownerId of owners) {
     runs.push(await runDailyPrioritizationForOwner(ownerId, opts));

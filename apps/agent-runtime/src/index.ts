@@ -21,6 +21,21 @@ export { createInProcessMcpClient } from "./shared-tools/mcp/client";
 export { ORCHESTRATOR_CONTRACT } from "./agents/orchestrator/orchestrator.prompt";
 export { resetStore, createSeedStore, type DataStore } from "./shared-tools/database/client";
 
+// Supabase wiring (Sprint 4). The runtime stays on the in-memory store unless a
+// run supplies an RLS context AND Supabase is configured.
+export {
+  resolveRepository,
+  inMemoryRepository,
+  type RuntimeRepository,
+} from "./shared-tools/runtime-repository";
+export {
+  isSupabaseConfigured,
+  actorIdFor,
+  type RlsContext,
+  type AppRole,
+} from "./shared-tools/supabase/rls-context";
+export { createSupabaseRepository } from "./shared-tools/supabase/repository";
+
 // Co-located deterministic eval cases (consumed by @repo/testing-evals).
 export {
   prioritizerEvalCases,

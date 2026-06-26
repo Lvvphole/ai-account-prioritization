@@ -1,5 +1,6 @@
 import { writeAuditLog } from "../audit/write-audit-log";
 import { trackEvent } from "../analytics/track-event";
+import { inMemoryRepository, type RuntimeRepository } from "../runtime-repository";
 import { getEnv } from "../../config/env";
 
 /**
@@ -22,43 +23,55 @@ export interface WriteCrmNoteResult {
   reason: string;
 }
 
-export async function writeCrmNote(input: WriteCrmNoteInput): Promise<WriteCrmNoteResult> {
+export async function writeCrmNote(
+  input: WriteCrmNoteInput,
+  repo: RuntimeRepository = inMemoryRepository,
+): Promise<WriteCrmNoteResult> {
   const env = getEnv();
   const approvalRequired = env.REQUIRE_HUMAN_APPROVAL;
 
-  trackEvent({
-    name: "crm_writeback_attempted",
-    runId: input.runId,
-    accountId: input.accountId,
-    userId: input.actorId,
-    occurredAt: input.occurredAt,
-    properties: { approved: input.approved },
-  });
-
-  if (approvalRequired && !input.approved) {
-    writeAuditLog({
+  await trackEvent(
+    {
+      name: "crm_writeback_attempted",
       runId: input.runId,
       accountId: input.accountId,
-      actorId: input.actorId,
-      action: "crm_write_note",
-      decision: "blocked",
-      reason: "Human approval required before CRM write-back.",
-      evidence: { note: input.note },
+      userId: input.actorId,
       occurredAt: input.occurredAt,
-    });
+      properties: { approved: input.approved },
+    },
+    repo,
+  );
+
+  if (approvalRequired && !input.approved) {
+    await writeAuditLog(
+      {
+        runId: input.runId,
+        accountId: input.accountId,
+        actorId: input.actorId,
+        action: "crm_write_note",
+        decision: "blocked",
+        reason: "Human approval required before CRM write-back.",
+        evidence: { note: input.note },
+        occurredAt: input.occurredAt,
+      },
+      repo,
+    );
     return { written: false, reason: "approval_required" };
   }
 
   // Approved (or approval disabled in non-prod): perform the write-back.
-  writeAuditLog({
-    runId: input.runId,
-    accountId: input.accountId,
-    actorId: input.actorId,
-    action: "crm_write_note",
-    decision: "approved",
-    reason: "Approved CRM write-back executed.",
-    evidence: { note: input.note },
-    occurredAt: input.occurredAt,
-  });
+  await writeAuditLog(
+    {
+      runId: input.runId,
+      accountId: input.accountId,
+      actorId: input.actorId,
+      action: "crm_write_note",
+      decision: "approved",
+      reason: "Approved CRM write-back executed.",
+      evidence: { note: input.note },
+      occurredAt: input.occurredAt,
+    },
+    repo,
+  );
   return { written: true, reason: "ok" };
 }

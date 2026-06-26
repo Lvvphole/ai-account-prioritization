@@ -31,6 +31,16 @@ const EnvSchema = z.object({
 
   /** Optional database. Absent -> in-memory store. */
   DATABASE_URL: z.string().optional(),
+
+  /**
+   * Optional Supabase wiring. When SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are
+   * present AND a run supplies an RLS context, the runtime reads source signals
+   * from Supabase and writes audit evidence to `audit_evidence`. Absent values
+   * keep the runtime on the deterministic, offline in-memory store (evals/CI).
+   */
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
