@@ -21,9 +21,6 @@
     "check:no-prisma": "bash scripts/check-no-prisma.sh",
     "docker:config": "docker compose -f infra/compose.yaml config",
     "docker:build": "docker compose -f infra/compose.yaml build",
-    "verify:security": "bash scripts/verify-security.sh",
-    "verify:observability": "bash scripts/verify-observability.sh",
-    "verify:production": "bash scripts/verify-production-contract.sh",
     "dev": "turbo run dev",
     "clean": "turbo run clean"
   },

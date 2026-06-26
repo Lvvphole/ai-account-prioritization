@@ -27,7 +27,8 @@ create table if not exists public.audit_evidence (
   id uuid primary key default gen_random_uuid(),
   run_id text,
   account_id uuid references public.accounts (id) on delete set null,
-  actor_id uuid not null,
+  -- text (not uuid): actors may be a user id OR a system label like 'orchestrator'.
+  actor_id text not null,
   action text not null,
   decision public.audit_decision not null,
   reason text not null,
