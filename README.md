@@ -196,7 +196,7 @@ pnpm --filter agent-runtime dev
 # Run the web app:
 pnpm --filter web dev
 
-# Async LLM-as-a-judge (heuristic fallback when no model key is set):
+# Async LLM-as-a-judge (uses ANTHROPIC_API_KEY when set; deterministic heuristic otherwise):
 EVAL_JUDGE_ENABLED=true pnpm test:judge
 ```
 
@@ -208,10 +208,10 @@ secrets.** The deterministic runtime requires none of these.
 | Group | Variables | Purpose |
 | ----- | --------- | ------- |
 | Supabase | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL` | Database, auth, RLS |
-| LLM | `AI_MODEL`, `OPENAI_API_KEY` | Generation only — never ranking |
-| Sentry | `SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Application reliability (no secrets / unredacted PII) |
-| Langfuse | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASEURL` | LLM + eval observability |
-| Toggles | `CRM_PROVIDER` (default `mock`), `EVAL_JUDGE_ENABLED` (default `false`) | CRM source + judge gate |
+| Judge (LLM) | `EVAL_JUDGE_ENABLED` (default `false`), `ANTHROPIC_API_KEY`, `EVAL_JUDGE_MODEL` | Async LLM-as-a-judge (eval only, never ranking); without `ANTHROPIC_API_KEY` it stays on the deterministic heuristic |
+| CRM | `CRM_BASE_URL`, `CRM_API_KEY` | External CRM source; absent ⇒ in-memory mock |
+| Approval | `REQUIRE_HUMAN_APPROVAL` (default `true`) | Hard safety switch for customer-facing / CRM actions |
+| Observability (planned) | `SENTRY_*`, `LANGFUSE_*` | Reserved for the observability sprint — not yet read by code |
 
 ## Command reference
 

@@ -23,6 +23,9 @@ importers:
 
   apps/agent-runtime:
     dependencies:
+      '@repo/security':
+        specifier: workspace:*
+        version: link:../../packages/security
       '@repo/shared-schemas':
         specifier: workspace:*
         version: link:../../packages/shared-schemas
@@ -88,6 +91,18 @@ importers:
   packages/config-eslint: {}
 
   packages/config-typescript: {}
+
+  packages/security:
+    devDependencies:
+      '@repo/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)
 
   packages/shared-schemas:
     dependencies:
