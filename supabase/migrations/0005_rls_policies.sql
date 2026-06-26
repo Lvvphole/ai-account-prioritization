@@ -9,6 +9,8 @@ create policy "profiles_select_self_or_manager"
   on public.profiles for select
   using (id = auth.uid() or public.is_manager_or_admin());
 
+-- Users may update their own profile row, BUT role changes are gated by the
+-- trigger below (a with-check on id alone would let a rep self-promote to admin).
 create policy "profiles_update_self"
   on public.profiles for update
   using (id = auth.uid())
@@ -18,6 +20,31 @@ create policy "profiles_admin_all"
   on public.profiles for all
   using (public.is_admin())
   with check (public.is_admin());
+
+-- Prevent profile-role privilege escalation. A user can edit their own profile,
+-- but only an admin or the service role may change the `role` column. Evaluated
+-- BEFORE UPDATE, so current_app_role() reflects the pre-update (committed) role,
+-- meaning a rep attempting to set role='admin' is rejected.
+create or replace function public.enforce_role_immutability()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.role is distinct from old.role
+     and coalesce(auth.role(), '') <> 'service_role'
+     and not public.is_admin() then
+    raise exception 'profile role changes require admin or service role';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_profiles_enforce_role on public.profiles;
+create trigger trg_profiles_enforce_role
+  before update on public.profiles
+  for each row execute function public.enforce_role_immutability();
 
 -- ---- accounts ----
 alter table public.accounts enable row level security;
