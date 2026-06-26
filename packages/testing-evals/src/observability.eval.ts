@@ -22,6 +22,7 @@ describe("observability (deterministic)", () => {
     obs.emit({
       source: "agent-runtime",
       name: "recommendation_published",
+      traceId: "morgan.bell@vertexhealth.example",
       attributes: {
         contact: "robin.vasquez@cobalt.example",
         phone: "415-555-0199",
@@ -31,7 +32,7 @@ describe("observability (deterministic)", () => {
     });
 
     const blob = JSON.stringify(sink.events);
-    expect(blob).not.toMatch(/@cobalt\.example|415-555-0199/);
+    expect(blob).not.toMatch(/@cobalt\.example|415-555-0199|@vertexhealth\.example/);
     expect(sink.events[0]!.attributes.rank).toBe(1);
   });
 

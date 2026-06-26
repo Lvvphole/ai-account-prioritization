@@ -1,12 +1,10 @@
-import { redactProperties } from "@repo/security";
+import { redactPII, redactProperties } from "@repo/security";
 import { ObservabilityEventSchema, type ObservabilityEvent } from "./event";
 import { noopSink, type ObservabilitySink } from "./sink";
 
 export interface ObservabilityOptions {
   /** Where events go. Defaults to the no-op sink. */
   sink?: ObservabilitySink;
-  /** Redact PII from attributes before emit (default true). */
-  redact?: boolean;
 }
 
 export interface EmitInput {
@@ -27,22 +25,22 @@ export interface Observability {
  * @repo/security) and schema-validated before it reaches the sink, and emission
  * is fire-and-forget — a sink failure never propagates to the caller, keeping
  * observability strictly out of the runtime decision path.
+ *
+ * Redaction is UNCONDITIONAL: both `attributes` and a free-form `traceId` are
+ * scrubbed, so a single caller misconfiguration cannot leak CRM/contact data
+ * (Rule #30). There is no bypass.
  */
 export function createObservability(options: ObservabilityOptions = {}): Observability {
   const sink = options.sink ?? noopSink;
-  const redact = options.redact ?? true;
 
   return {
     emit(input) {
-      const rawAttributes = input.attributes ?? {};
-      const attributes = redact ? redactProperties(rawAttributes) : rawAttributes;
-
       const event = ObservabilityEventSchema.parse({
         source: input.source,
         name: input.name,
         level: input.level ?? "info",
-        traceId: input.traceId,
-        attributes,
+        traceId: input.traceId ? redactPII(input.traceId) : undefined,
+        attributes: redactProperties(input.attributes ?? {}),
         occurredAt: input.occurredAt,
       } satisfies ObservabilityEvent);
 

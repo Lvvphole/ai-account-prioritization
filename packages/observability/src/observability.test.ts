@@ -53,11 +53,16 @@ describe("observability emitter", () => {
     expect(() => obs.emit({ source: "x", name: "y", occurredAt: NOW })).not.toThrow();
   });
 
-  it("redaction can be disabled explicitly", () => {
+  it("redacts PII in traceId, not just attributes (no bypass)", () => {
     const sink = createMemorySink();
-    const obs = createObservability({ sink, redact: false });
-    obs.emit({ source: "x", name: "y", attributes: { email: "a@b.com" }, occurredAt: NOW });
-    expect(sink.events[0]!.attributes.email).toBe("a@b.com");
+    const obs = createObservability({ sink });
+    obs.emit({
+      source: "x",
+      name: "y",
+      traceId: "lee.okafor@northwind.example",
+      occurredAt: NOW,
+    });
+    expect(sink.events[0]!.traceId).toBe("[redacted:email]");
   });
 });
 
