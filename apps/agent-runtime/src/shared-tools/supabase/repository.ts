@@ -123,6 +123,33 @@ function unwrap<T>(
   return res.data ?? [];
 }
 
+/**
+ * Supabase/PostgREST caps every response at `max_rows` (supabase/config.toml =
+ * 1000), so a single unbounded select silently truncates large result sets.
+ * Page through with explicit ranges until a short page signals the end, so the
+ * runtime never scores/ranks/fans-out over a truncated subset.
+ *
+ * PAGE_SIZE must stay <= the server's max_rows; a larger value would be capped
+ * server-side, return < PAGE_SIZE, and stop the loop before all rows are read.
+ */
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(
+  what: string,
+  page: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const rows = unwrap<T>(what, await page(from, from + PAGE_SIZE - 1));
+    all.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return all;
+}
+
 export function createSupabaseRepository(
   ctx: RlsContext,
   nowIso: string,
@@ -134,39 +161,45 @@ export function createSupabaseRepository(
 
   return {
     async listAccountsByOwner(ownerId) {
-      const res = await read.from("accounts").select("*").eq("owner_id", ownerId);
-      return unwrap<Tables<"accounts">>("read accounts", res).map((r) =>
-        toAccount(r, nowIso),
+      const rows = await fetchAllRows<Tables<"accounts">>("read accounts", (from, to) =>
+        read.from("accounts").select("*").eq("owner_id", ownerId).range(from, to),
       );
+      return rows.map((r) => toAccount(r, nowIso));
     },
 
     async listAllOwners() {
-      const res = await read.from("accounts").select("owner_id");
-      const owners = unwrap<Pick<Tables<"accounts">, "owner_id">>(
+      const rows = await fetchAllRows<Pick<Tables<"accounts">, "owner_id">>(
         "read owners",
-        res,
-      ).map((r) => r.owner_id);
-      return [...new Set(owners)].sort();
+        (from, to) => read.from("accounts").select("owner_id").range(from, to),
+      );
+      return [...new Set(rows.map((r) => r.owner_id))].sort();
     },
 
     async listContactsByAccount(accountId) {
-      const res = await read.from("contacts").select("*").eq("account_id", accountId);
-      return unwrap<Tables<"contacts">>("read contacts", res).map(toContact);
+      const rows = await fetchAllRows<Tables<"contacts">>("read contacts", (from, to) =>
+        read.from("contacts").select("*").eq("account_id", accountId).range(from, to),
+      );
+      return rows.map(toContact);
     },
 
     async listOpportunitiesByAccount(accountId) {
-      const res = await read
-        .from("opportunities")
-        .select("*")
-        .eq("account_id", accountId);
-      return unwrap<Tables<"opportunities">>("read opportunities", res).map(
-        toOpportunity,
+      const rows = await fetchAllRows<Tables<"opportunities">>(
+        "read opportunities",
+        (from, to) =>
+          read
+            .from("opportunities")
+            .select("*")
+            .eq("account_id", accountId)
+            .range(from, to),
       );
+      return rows.map(toOpportunity);
     },
 
     async listActivitiesByAccount(accountId) {
-      const res = await read.from("activities").select("*").eq("account_id", accountId);
-      return unwrap<Tables<"activities">>("read activities", res).map(toActivity);
+      const rows = await fetchAllRows<Tables<"activities">>("read activities", (from, to) =>
+        read.from("activities").select("*").eq("account_id", accountId).range(from, to),
+      );
+      return rows.map(toActivity);
     },
 
     async appendAudit(entry: AuditLogEntry) {

@@ -12,16 +12,18 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const h = vi.hoisted(() => {
   const inserted: Array<{ table: string; payload: Record<string, unknown> }> = [];
   const tableData: Record<string, unknown[]> = {};
-  const result = (data: unknown[]) => Promise.resolve({ data, error: null });
   const client = {
     from(table: string) {
       const rows = tableData[table] ?? [];
+      // Mimic PostgREST range paging: .range(from,to) returns that slice.
+      const page = (from: number, to: number) =>
+        Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+      const ranged = { range: (from: number, to: number) => page(from, to) };
       return {
         select() {
           return {
-            eq: () => result(rows),
-            then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) =>
-              result(rows).then(onF, onR),
+            eq: () => ranged,
+            range: (from: number, to: number) => page(from, to),
           };
         },
         insert(payload: Record<string, unknown>) {
@@ -160,5 +162,33 @@ describe("Supabase repository mapping + audit write", () => {
     expect(a!.daysSinceLastContact).toBeUndefined();
     expect(a!.lastContactedAt).toBeUndefined();
     expect(a!.domain).toBeUndefined();
+  });
+
+  it("pages through results beyond the 1000-row API cap (no silent truncation)", async () => {
+    const owner = "11111111-1111-1111-1111-111111111111";
+    // 1500 rows => two pages (1000 + 500); a single select would cap at 1000.
+    h.tableData.accounts = Array.from({ length: 1500 }, (_, i) => ({
+      id: `acc-${i}`,
+      name: `Account ${i}`,
+      domain: null,
+      owner_id: owner,
+      tier: "smb",
+      lifecycle_stage: "prospect",
+      industry: null,
+      employee_count: null,
+      annual_revenue_usd: null,
+      open_pipeline_usd: 0,
+      last_contacted_at: null,
+      health_score: null,
+      intent_signals: [],
+      data_quality_flags: [],
+      created_at: "2026-01-01T00:00:00+00:00",
+      updated_at: "2026-01-01T00:00:00+00:00",
+    }));
+
+    const repo = createSupabaseRepository(SERVICE, NOW);
+    const accounts = await repo.listAccountsByOwner(owner);
+    expect(accounts).toHaveLength(1500);
+    expect(accounts[1499]!.id).toBe("acc-1499");
   });
 });
