@@ -3,6 +3,7 @@ import {
   type Recommendation,
   type VerificationResult,
 } from "@repo/shared-schemas";
+import { isApprovalSatisfied } from "@repo/security";
 import { getEnv } from "../../config/env";
 import { RUNTIME_CONFIG } from "../../config/runtime";
 
@@ -68,16 +69,20 @@ export function checkSourceSignalsVerified(rec: Recommendation): boolean {
 
 /**
  * Check #7: customer-facing sends and CRM write-backs require human approval.
- * Permission is granted only when approval is not required OR has been approved.
+ * Delegates to the canonical approval policy in `@repo/security` so the runtime
+ * gate has one source of truth and cannot drift or be silently weakened.
  */
 export function checkPermission(rec: Recommendation): boolean {
-  const env = getEnv();
-  const needsApproval =
-    rec.nextBestAction.customerFacing || rec.nextBestAction.crmWriteBack;
-
-  if (!needsApproval) return true;
-  if (!env.REQUIRE_HUMAN_APPROVAL) return true; // explicitly disabled (non-prod)
-  return rec.approvalStatus === "approved";
+  return isApprovalSatisfied(
+    {
+      customerFacing: rec.nextBestAction.customerFacing,
+      crmWriteBack: rec.nextBestAction.crmWriteBack,
+    },
+    {
+      requireHumanApproval: getEnv().REQUIRE_HUMAN_APPROVAL,
+      approvalStatus: rec.approvalStatus,
+    },
+  );
 }
 
 /** Schema validity gate. */
