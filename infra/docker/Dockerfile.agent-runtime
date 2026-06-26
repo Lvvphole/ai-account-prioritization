@@ -11,8 +11,10 @@ WORKDIR /repo
 FROM base AS build
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-# shared-schemas must be built first (agent-runtime imports its dist).
+# Workspace deps must be built first (agent-runtime imports their dist):
+# shared-schemas (DTOs) and supabase-client (typed Supabase clients).
 RUN pnpm --filter @repo/shared-schemas build \
+  && pnpm --filter @repo/supabase-client build \
   && pnpm --filter agent-runtime build
 
 FROM base AS runtime
