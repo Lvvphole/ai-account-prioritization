@@ -1,0 +1,28 @@
+# Local development overrides. Applied automatically by `docker compose` when
+# present. Mounts source for fast iteration and runs dev servers.
+services:
+  web:
+    build:
+      target: build
+    command: ["pnpm", "--filter", "web", "dev"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ../apps/web:/repo/apps/web
+      - ../packages:/repo/packages
+
+  agent-runtime:
+    build:
+      target: build
+    command: ["pnpm", "--filter", "agent-runtime", "dev"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ../apps/agent-runtime:/repo/apps/agent-runtime
+      - ../packages:/repo/packages
+
+  api-python:
+    command:
+      ["uvicorn", "main:app", "--app-dir", "src", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ../apps/api-python/src:/app/src

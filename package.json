@@ -13,12 +13,19 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:evals": "turbo run test:evals",
-    "test:judge": "pnpm --filter @repo/testing-evals test:judge",
+    "test:judge": "turbo run test:judge",
     "generate:schemas": "pnpm --filter @repo/shared-schemas generate",
     "build:api-python": "pnpm --filter api-python build",
+    "supabase:types": "bash scripts/generate-supabase-types.sh",
+    "db:lint": "supabase db lint",
+    "check:no-prisma": "bash scripts/check-no-prisma.sh",
+    "docker:config": "docker compose -f infra/compose.yaml config",
+    "docker:build": "docker compose -f infra/compose.yaml build",
+    "verify:security": "bash scripts/verify-security.sh",
+    "verify:observability": "bash scripts/verify-observability.sh",
+    "verify:production": "bash scripts/verify-production-contract.sh",
     "dev": "turbo run dev",
-    "clean": "turbo run clean",
-    "verify": "bash scripts/verify-production-contract.sh"
+    "clean": "turbo run clean"
   },
   "devDependencies": {
     "prettier": "^3.4.2",
