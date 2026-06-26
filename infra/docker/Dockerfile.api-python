@@ -4,9 +4,11 @@ FROM python:3.11-slim AS base
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Install runtime deps (kept explicit; pyproject declares the same set).
+# Install runtime deps (kept explicit; pyproject declares the same set) plus the
+# optional observability SDKs so the image can emit telemetry when env-configured.
 COPY apps/api-python/pyproject.toml apps/api-python/README.md ./
-RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn[standard]>=0.29" "pydantic>=2.6"
+RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn[standard]>=0.29" "pydantic>=2.6" \
+  "sentry-sdk[fastapi]>=2.0" "langfuse>=2.0"
 
 # Source includes src/schemas/generated (committed JSON Schema artifacts).
 COPY apps/api-python/src ./src

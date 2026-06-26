@@ -211,7 +211,7 @@ secrets.** The deterministic runtime requires none of these.
 | Judge (LLM) | `EVAL_JUDGE_ENABLED` (default `false`), `ANTHROPIC_API_KEY`, `EVAL_JUDGE_MODEL` | Async LLM-as-a-judge (eval only, never ranking); without `ANTHROPIC_API_KEY` it stays on the deterministic heuristic |
 | CRM | `CRM_BASE_URL`, `CRM_API_KEY` | External CRM source; absent ⇒ in-memory mock |
 | Approval | `REQUIRE_HUMAN_APPROVAL` (default `true`) | Hard safety switch for customer-facing / CRM actions |
-| Observability (planned) | `SENTRY_*`, `LANGFUSE_*` | Reserved for the observability sprint — not yet read by code |
+| Observability | `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASEURL` | Sentry errors + Langfuse tracing in the Python service (env-gated; install the `observability` extra) |
 
 ## Command reference
 
@@ -317,10 +317,12 @@ docs/              PRD, ARCHITECTURE, CONTEXT
 **Shipped:** deterministic agent runtime (scoring, guardrails, approval, audit),
 Next.js web app (rep / manager / admin), Python support service, Zod
 schema-as-contract + JSON Schema generation, deterministic evals + LLM judge,
-Supabase database with RLS + RBAC + immutable audit, and the Docker/Compose stack.
+Supabase database with RLS + RBAC + immutable audit, the Docker/Compose stack, a
+dedicated security package (RBAC/approval/PII redaction), web sign-in via Supabase
+Auth, and Sentry/Langfuse observability in the Python service.
 
-**Planned:** Sentry/Langfuse observability wiring, a dedicated security package
-(RBAC/approval/PII redaction helpers), and web sign-in via Supabase Auth.
+**Planned:** a shared observability package + observability evals, and CI/CD &
+security-workflow hardening.
 
 ## Contributing
 
