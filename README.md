@@ -319,10 +319,11 @@ Next.js web app (rep / manager / admin), Python support service, Zod
 schema-as-contract + JSON Schema generation, deterministic evals + LLM judge,
 Supabase database with RLS + RBAC + immutable audit, the Docker/Compose stack, a
 dedicated security package (RBAC/approval/PII redaction), web sign-in via Supabase
-Auth, and Sentry/Langfuse observability in the Python service.
+Auth, Sentry/Langfuse observability in the Python service, and a shared
+`@repo/observability` layer (PII-safe events + a deterministic eval).
 
-**Planned:** a shared observability package + observability evals, and CI/CD &
-security-workflow hardening.
+**Planned:** CI/CD & security-workflow hardening (verification reports, security
+and deploy workflows).
 
 ## Contributing
 

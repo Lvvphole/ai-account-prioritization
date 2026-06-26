@@ -20,6 +20,7 @@
     "db:lint": "supabase db lint",
     "check:no-prisma": "bash scripts/check-no-prisma.sh",
     "verify:security": "bash scripts/verify-security.sh",
+    "verify:observability": "bash scripts/verify-observability.sh",
     "docker:config": "docker compose -f infra/compose.yaml config",
     "docker:build": "docker compose -f infra/compose.yaml build",
     "dev": "turbo run dev",

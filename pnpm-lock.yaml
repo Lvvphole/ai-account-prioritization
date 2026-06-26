@@ -104,6 +104,28 @@ importers:
 
   packages/config-typescript: {}
 
+  packages/observability:
+    dependencies:
+      '@repo/security':
+        specifier: workspace:*
+        version: link:../security
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@repo/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)
+
   packages/security:
     devDependencies:
       '@repo/config-typescript':
@@ -159,6 +181,9 @@ importers:
 
   packages/testing-evals:
     dependencies:
+      '@repo/observability':
+        specifier: workspace:*
+        version: link:../observability
       '@repo/shared-schemas':
         specifier: workspace:*
         version: link:../shared-schemas
