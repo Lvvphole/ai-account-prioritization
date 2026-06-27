@@ -26,13 +26,15 @@ export default async function DashboardPage({
   const recs = [...MOCK_RECOMMENDATIONS].sort((a, b) => a.rank - b.rank);
   return (
     <section>
-      <h1>Rep Dashboard</h1>
+      <div className="page-header">
+        <h1>Rep Dashboard</h1>
+        <p className="muted">Your ranked accounts for today, with evidence and next steps.</p>
+      </div>
       {denied ? (
-        <p className="badge tag-warn" role="alert">
+        <p className="alert" role="alert">
           You don’t have access to that page.
         </p>
       ) : null}
-      <p className="muted">Your ranked accounts for today, with evidence and next steps.</p>
       {recs.map((rec) => (
         <article key={rec.id} className="card">
           <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -41,7 +43,7 @@ export default async function DashboardPage({
               <a href={`/accounts/${rec.accountId}`}>{rec.accountId}</a>
             </h3>
             <div>
-              <span className="badge tag-good">score {rec.score}</span>
+              <span className="badge tag-accent">score {rec.score}</span>
               <span className="badge">conf {(rec.confidence * 100).toFixed(0)}%</span>
             </div>
           </div>
