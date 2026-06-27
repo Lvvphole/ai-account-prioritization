@@ -29,16 +29,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Gate 1: no committed secrets (Rule #30). Runs BEFORE any step that can
+      # rewrite tracked files, so it reflects the committed tree.
+      - name: Secret scan
+        run: pnpm scan:secrets
+
       - name: Generate schemas
         run: pnpm generate:schemas
 
       # Build so the security/observability verifiers can resolve workspace dist.
       - name: Build
         run: pnpm build
-
-      # Gate 1: no committed secrets (Rule #30).
-      - name: Secret scan
-        run: pnpm scan:secrets
 
       # Gate 2: Prisma stays excluded (Rule #28).
       - name: Check no Prisma

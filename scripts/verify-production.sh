@@ -49,15 +49,26 @@ check_files() {
   return $missing
 }
 
+# Generated JSON Schema must already match the committed Zod source — it is the
+# contract the Python service consumes. A non-empty diff means it was not committed.
+check_schema_drift() {
+  git diff --exit-code -- \
+    packages/shared-schemas/generated \
+    apps/api-python/src/schemas/generated
+}
+
 run_gate "Required files" check_files
 run_gate "Install (frozen lockfile)" pnpm install --frozen-lockfile
+# Scan BEFORE any step that can rewrite tracked files (e.g. schema generation),
+# so the scan reflects the committed tree, not a regenerated one.
+run_gate "Secret scan" pnpm scan:secrets
 run_gate "Generate schemas" pnpm generate:schemas
+run_gate "Schema artifacts committed (no drift)" check_schema_drift
 run_gate "Build" pnpm build
 run_gate "Typecheck" pnpm typecheck
 run_gate "Deterministic evals" pnpm test:evals
 run_gate "Judge eval (heuristic offline)" bash -c 'EVAL_JUDGE_ENABLED=true pnpm test:judge'
 run_gate "No Prisma" pnpm check:no-prisma
-run_gate "Secret scan" pnpm scan:secrets
 run_gate "Security package" pnpm verify:security
 run_gate "Observability package" pnpm verify:observability
 run_gate "Docker compose config" docker compose -f infra/compose.yaml config
