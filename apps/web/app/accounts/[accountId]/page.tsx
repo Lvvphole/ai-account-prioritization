@@ -29,7 +29,7 @@ export default async function AccountDetailPage({
         <a href="/dashboard">← Back to dashboard</a>
       </p>
       <h1>
-        {accountId} <span className="badge tag-good">score {rec.score}</span>
+        {accountId} <span className="badge tag-accent">score {rec.score}</span>
       </h1>
       <div className="card">
         <h3>Why this account matters</h3>
@@ -67,16 +67,7 @@ export default async function AccountDetailPage({
         </p>
         <p>{rec.nextBestAction.objective}</p>
         {rec.nextBestAction.draft ? (
-          <pre
-            style={{
-              whiteSpace: "pre-wrap",
-              background: "#0b1020",
-              padding: 12,
-              borderRadius: 8,
-            }}
-          >
-            {rec.nextBestAction.draft}
-          </pre>
+          <pre className="draft">{rec.nextBestAction.draft}</pre>
         ) : null}
       </div>
 
