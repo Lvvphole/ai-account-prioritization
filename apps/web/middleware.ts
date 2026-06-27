@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "./app/lib/supabase/middleware";
+import { isSupabaseConfigured } from "./app/lib/supabase/config";
 
 /** Public paths reachable without a session. */
 const PUBLIC_PREFIXES = ["/login", "/auth"];
@@ -10,6 +11,10 @@ function isPublic(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  // No Supabase configured -> no-auth demo mode: skip the session check rather
+  // than throw (which would surface as a site-wide MIDDLEWARE_INVOCATION_FAILED).
+  if (!isSupabaseConfigured()) return NextResponse.next();
+
   const { response, user } = await updateSession(request);
   const { pathname } = request.nextUrl;
 
