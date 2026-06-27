@@ -1,8 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "../../lib/supabase/server";
+import { isSupabaseConfigured } from "../../lib/supabase/config";
 
 /** Email + password sign-in. Sets the session cookies, then redirects. */
 export async function POST(request: NextRequest) {
+  if (!isSupabaseConfigured()) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    url.search = "";
+    return NextResponse.redirect(url, { status: 303 });
+  }
+
   const formData = await request.formData();
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");

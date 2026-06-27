@@ -1,3 +1,5 @@
+import { isSupabaseConfigured } from "../lib/supabase/config";
+
 /**
  * Sign-in page. Posts to the /auth/login route handler, which sets the Supabase
  * session cookies and redirects. Local dev users are seeded in supabase/seed.sql.
@@ -16,6 +18,11 @@ export default async function LoginPage({
         <p className="muted" style={{ marginTop: 0 }}>
           Access your verified daily account action plan.
         </p>
+        {!isSupabaseConfigured() ? (
+          <p className="alert" role="status">
+            Demo mode — authentication isn’t configured in this environment.
+          </p>
+        ) : null}
         {error ? (
           <p className="alert" role="alert">
             {error}

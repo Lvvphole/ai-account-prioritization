@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAppRole, type AppRole } from "@repo/supabase-client";
 import { can, type Capability } from "@repo/security";
 import { createClient } from "./supabase/server";
+import { isSupabaseConfigured } from "./supabase/config";
 
 export interface SessionContext {
   userId: string;
@@ -9,8 +10,16 @@ export interface SessionContext {
   role: AppRole;
 }
 
+/** Identity used when Supabase auth is not configured (demo / env-less deploy). */
+const DEMO_SESSION: SessionContext = {
+  userId: "demo",
+  email: "demo (auth not configured)",
+  role: "rep",
+};
+
 /** Resolve the signed-in user + app role, or null when unauthenticated. */
 export async function getSessionContext(): Promise<SessionContext | null> {
+  if (!isSupabaseConfigured()) return DEMO_SESSION;
   const supabase = await createClient();
   const {
     data: { user },
