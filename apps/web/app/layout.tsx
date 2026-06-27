@@ -15,8 +15,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <nav className="nav">
-          <strong>AI Account Prioritization</strong>
+        <div className="app-frame">
+          <nav className="nav">
+            <strong>
+              <span className="brand-dot" aria-hidden="true" />
+              AI Account Prioritization
+            </strong>
           {ctx ? (
             <>
               <a href="/dashboard">Rep Dashboard</a>
@@ -35,7 +39,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <a href="/login">Sign in</a>
           )}
         </nav>
-        <main className="container">{children}</main>
+          <main className="container">{children}</main>
+        </div>
       </body>
     </html>
   );
