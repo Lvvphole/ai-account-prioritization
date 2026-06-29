@@ -1,4 +1,5 @@
 import { getRecommendation } from "../../lib/mock-data";
+import ActionBar from "../../components/ActionBar";
 
 /**
  * Account detail. In Next 15, dynamic route `params` is async.
@@ -58,7 +59,7 @@ export default async function AccountDetailPage({
       </div>
 
       <div className="card">
-        <h3>Next best action</h3>
+        <h3>Take action</h3>
         <p>
           <span className="badge">{rec.nextBestAction.type}</span>
           {rec.nextBestAction.customerFacing || rec.nextBestAction.crmWriteBack ? (
@@ -66,9 +67,7 @@ export default async function AccountDetailPage({
           ) : null}
         </p>
         <p>{rec.nextBestAction.objective}</p>
-        {rec.nextBestAction.draft ? (
-          <pre className="draft">{rec.nextBestAction.draft}</pre>
-        ) : null}
+        <ActionBar rec={rec} />
       </div>
 
       <div className="card">

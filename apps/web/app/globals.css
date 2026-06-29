@@ -436,3 +436,127 @@ tr:last-child td {
   font-size: 11px;
   margin-bottom: 4px;
 }
+
+/* --- Form controls: textarea + select share the input look --- */
+textarea,
+select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+textarea {
+  resize: vertical;
+}
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-weak);
+}
+
+/* --- Action bar (email / call / meeting) --- */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  text-decoration: none;
+}
+.action-btn:hover {
+  background: var(--surface-2);
+  border-color: #d6dce6;
+  text-decoration: none;
+}
+.action-btn.rec {
+  border-color: var(--accent-border);
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+.action-btn.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.action-btn.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.action-panel {
+  margin-top: 14px;
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.note {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--warn);
+}
+.btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 999px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+.btn-sm:hover {
+  text-decoration: none;
+  background: #e0ecff;
+}
+
+/* --- Login role entry --- */
+.role-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+.role-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 14px 16px;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.role-btn:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-weak);
+}
+.role-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.role-sub {
+  font-size: 13px;
+  color: var(--muted);
+}

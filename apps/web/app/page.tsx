@@ -16,8 +16,8 @@ export default function HomePage() {
           Which accounts to contact first, why they matter, what to do next, and the
           evidence behind it — with a safety gate on every recommendation.
         </p>
-        <a className="btn-cta" href="/dashboard">
-          Open the dashboard →
+        <a className="btn-cta" href="/login">
+          Enter the portal →
         </a>
 
         <div className="panel">
