@@ -68,6 +68,12 @@ export function googleCalendarUrl(m: Meeting): string {
   return `https://calendar.google.com/calendar/render?${q.toString()}`;
 }
 
+/** Stable, content-derived UID so re-downloading the same meeting de-dupes. */
+function icsUid(m: Meeting): string {
+  const slug = m.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `${slug || "meeting"}-${stamp(m.start)}@ai-account-prioritization`;
+}
+
 export function icsDataUri(m: Meeting): string {
   const end = new Date(m.start.getTime() + m.durationMin * 60000);
   const ics = [
@@ -75,6 +81,10 @@ export function icsDataUri(m: Meeting): string {
     "VERSION:2.0",
     "PRODID:-//AI Account Prioritization//EN",
     "BEGIN:VEVENT",
+    // UID + DTSTAMP are required VEVENT properties (RFC 5545); without them
+    // strict calendar clients reject the file or import duplicate events.
+    `UID:${icsUid(m)}`,
+    `DTSTAMP:${stamp(new Date())}`,
     `DTSTART:${stamp(m.start)}`,
     `DTEND:${stamp(end)}`,
     `SUMMARY:${m.title}`,

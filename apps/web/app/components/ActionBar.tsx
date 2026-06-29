@@ -132,9 +132,14 @@ export default function ActionBar({ rec }: { rec: Recommendation }) {
               className={`action-btn${logged ? " rec" : ""}`}
               onClick={() => setLogged(new Date().toLocaleString())}
             >
-              {logged ? `Logged ✓ ${logged}` : "Mark as logged"}
+              {logged ? `Noted locally ✓ ${logged}` : "Note locally"}
             </button>
           </div>
+          <p className="note">
+            Local note only — not written to the CRM or audit log, and cleared on
+            refresh. Logging a call to the record goes through the human-approved
+            write-back path.
+          </p>
         </div>
       ) : null}
 
