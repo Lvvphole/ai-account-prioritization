@@ -59,6 +59,11 @@ export default async function DashboardPage({
             <strong>Next best action:</strong> {rec.nextBestAction.objective}{" "}
             <ActionBadge rec={rec} />
           </div>
+          <div style={{ marginTop: 10 }}>
+            <a className="btn-sm" href={`/accounts/${rec.accountId}`}>
+              Take action →
+            </a>
+          </div>
           <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
             Verification: {rec.verification.status} · {rec.sourceSignals.length} verified
             signal(s)
