@@ -184,6 +184,9 @@ importers:
       '@repo/observability':
         specifier: workspace:*
         version: link:../observability
+      '@repo/security':
+        specifier: workspace:*
+        version: link:../security
       '@repo/shared-schemas':
         specifier: workspace:*
         version: link:../shared-schemas
