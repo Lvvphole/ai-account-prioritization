@@ -51,11 +51,24 @@ export default function ExportButtons({
   );
 }
 
+/**
+ * Neutralise spreadsheet formula injection. Account and rep names come from the
+ * CRM, so a value like `=cmd|...` would be evaluated on open by Excel, Sheets
+ * and LibreOffice. Quoting does not prevent this — the leading character has to
+ * be defused, so prefix a single quote and strip control characters that could
+ * re-introduce a formula start.
+ */
+function defuse(value: string | number): string {
+  const text = String(value).replace(/[\r\n\t]+/g, " ");
+  return /^[=+\-@]/.test(text) ? `'${text}` : text;
+}
+
 /** RFC 4180: quote every field, double any embedded quote. */
 function toCsv(rows: Row[]): string {
   if (rows.length === 0) return "";
   const headers = Object.keys(rows[0] as Row);
-  const escape = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+  const escape = (value: string | number) =>
+    `"${defuse(value).replace(/"/g, '""')}"`;
   const lines = [
     headers.map(escape).join(","),
     ...rows.map((row) => headers.map((h) => escape(row[h] ?? "")).join(",")),

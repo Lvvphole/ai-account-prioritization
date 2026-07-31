@@ -1,6 +1,6 @@
 import type { Recommendation } from "./types";
-import { MOCK_BLOCKED, accountProfile, repName } from "./mock-data";
-import { actionLabel, humanizeCode, pipelineValue } from "./display";
+import { MOCK_BLOCKED, accountProfile, accountValue, repName } from "./mock-data";
+import { actionLabel, humanizeCode } from "./display";
 
 /**
  * Manager-view rollups. Every figure here is derived from the same published
@@ -23,7 +23,7 @@ export interface TeamTotals {
 }
 
 export function teamTotals(recs: Recommendation[]): TeamTotals {
-  const pipeline = recs.reduce((sum, r) => sum + pipelineValue(r), 0);
+  const pipeline = recs.reduce((sum, r) => sum + accountValue(r.accountId), 0);
   const gated = recs.filter(
     (r) => r.nextBestAction.customerFacing || r.nextBestAction.crmWriteBack,
   ).length;
@@ -71,7 +71,7 @@ export function repRollup(recs: Recommendation[]): RepRow[] {
       ownerId,
       name: repName(ownerId),
       accounts: owned.length,
-      pipeline: owned.reduce((sum, r) => sum + pipelineValue(r), 0),
+      pipeline: owned.reduce((sum, r) => sum + accountValue(r.accountId), 0),
       // Rounded here so the exported file carries clean numbers rather than
       // float artifacts like 0.7350000000000001.
       avgScore: round(owned.reduce((sum, r) => sum + r.score, 0) / owned.length, 2),
@@ -141,7 +141,7 @@ export function revenueSplit(recs: Recommendation[]): RevenueSplit {
       accountId: rec.accountId,
       name: accountProfile(rec.accountId)?.name ?? rec.accountId,
       owner: repName(rec.ownerId),
-      value: pipelineValue(rec),
+      value: accountValue(rec.accountId),
       drivers: relevant.map(humanizeCode),
     });
   }
@@ -173,8 +173,15 @@ export function exportRows(recs: Recommendation[]): Record<string, string | numb
       reason_codes: rec.reasonCodes.join("|"),
       next_action: rec.nextBestAction.type,
       objective: rec.nextBestAction.objective,
-      pipeline_usd: pipelineValue(rec),
+      revenue_usd: accountValue(rec.accountId),
       approval_status: rec.approvalStatus,
+      // Evidence travels with the row. A downloaded recommendation that cannot
+      // be substantiated is just an assertion.
+      evidence_count: rec.sourceSignals.length,
+      evidence_verified: rec.sourceSignals.filter((s) => s.verified).length,
+      evidence: rec.sourceSignals
+        .map((s) => `${s.kind}:${s.refId}:${s.description}${s.verified ? "" : " (UNVERIFIED)"}`)
+        .join(" | "),
       verification: rec.verification.status,
       run_id: rec.runId,
       created_at: rec.createdAt,

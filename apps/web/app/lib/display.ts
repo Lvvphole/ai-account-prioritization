@@ -1,4 +1,4 @@
-import type { NextBestAction, Recommendation } from "./types";
+import type { NextBestAction } from "./types";
 
 /**
  * Presentation helpers. These turn the runtime's machine-shaped contract
@@ -53,14 +53,6 @@ export function priorityTier(score: number): PriorityTier {
   if (score >= 65) return { label: "High priority", tone: "high" };
   if (score >= 45) return { label: "Medium priority", tone: "medium" };
   return { label: "Standard", tone: "low" };
-}
-
-/** Pull dollar figures out of the verified signal text, e.g. "$180,000". */
-export function pipelineValue(rec: Recommendation): number {
-  return rec.sourceSignals.reduce((total, signal) => {
-    const match = signal.description.match(/\$([\d,]+)/);
-    return match ? total + Number((match[1] ?? "0").replace(/,/g, "")) : total;
-  }, 0);
 }
 
 export function formatUsd(amount: number): string {

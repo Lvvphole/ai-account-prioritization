@@ -27,6 +27,14 @@ export interface AccountProfile {
   name: string;
   industry: string;
   tier: "Enterprise" | "Mid-market" | "SMB";
+  /**
+   * The single canonical amount at stake on this account: open pipeline for a
+   * deal, contract value for a renewal or churn risk. One number per account,
+   * so revenue roll-ups cannot double-count. Never derive money by parsing
+   * signal prose — the runtime describes the same dollars more than once
+   * (account-level open pipeline AND each contributing opportunity).
+   */
+  valueUsd: number;
 }
 
 export const MOCK_ACCOUNTS: Record<string, AccountProfile> = {
@@ -35,54 +43,63 @@ export const MOCK_ACCOUNTS: Record<string, AccountProfile> = {
     name: "Helios Manufacturing",
     industry: "Industrial Manufacturing",
     tier: "Enterprise",
+    valueUsd: 180000,
   },
   acc_002: {
     id: "acc_002",
     name: "Northwind Retail",
     industry: "Retail & E-commerce",
     tier: "Mid-market",
+    valueUsd: 60000,
   },
   acc_003: {
     id: "acc_003",
     name: "Cobalt Analytics",
     industry: "Data & Analytics",
     tier: "Mid-market",
+    valueUsd: 85000,
   },
   acc_004: {
     id: "acc_004",
     name: "Pinecrest Logistics",
     industry: "Freight & Logistics",
     tier: "SMB",
+    valueUsd: 25000,
   },
   acc_005: {
     id: "acc_005",
     name: "Vertex Health Systems",
     industry: "Healthcare",
     tier: "Enterprise",
+    valueUsd: 95000,
   },
   acc_006: {
     id: "acc_006",
     name: "Larkspur Financial",
     industry: "Financial Services",
     tier: "Enterprise",
+    valueUsd: 240000,
   },
   acc_007: {
     id: "acc_007",
     name: "Quarry Software",
     industry: "B2B Software",
     tier: "Mid-market",
+    valueUsd: 45000,
   },
   acc_008: {
     id: "acc_008",
     name: "Bluepeak Energy",
     industry: "Energy & Utilities",
     tier: "Mid-market",
+    valueUsd: 30000,
   },
   acc_009: {
     id: "acc_009",
     name: "Tidewater Foods",
     industry: "Food & Beverage",
     tier: "SMB",
+    valueUsd: 12000,
   },
 };
 
@@ -100,6 +117,11 @@ export function accountName(accountId: string): string {
 
 export function accountProfile(accountId: string): AccountProfile | undefined {
   return MOCK_ACCOUNTS[accountId];
+}
+
+/** Canonical dollars at stake on an account. The only source for revenue maths. */
+export function accountValue(accountId: string): number {
+  return MOCK_ACCOUNTS[accountId]?.valueUsd ?? 0;
 }
 
 /** Display name for a rep id, falling back to the raw id. */

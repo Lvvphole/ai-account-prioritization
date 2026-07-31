@@ -1,6 +1,12 @@
 import type { Recommendation } from "../lib/types";
-import { DEMO_REP_ID, MOCK_RECOMMENDATIONS, accountProfile, repName } from "../lib/mock-data";
-import { actionLabel, formatUsd, humanizeCode, pipelineValue } from "../lib/display";
+import {
+  DEMO_REP_ID,
+  MOCK_RECOMMENDATIONS,
+  accountProfile,
+  accountValue,
+  repName,
+} from "../lib/mock-data";
+import { actionLabel, formatUsd, humanizeCode } from "../lib/display";
 import { exportRows } from "../lib/analytics";
 import ExportButtons from "../components/ExportButtons";
 import { requireSession } from "../lib/auth";
@@ -30,10 +36,10 @@ export default async function DashboardPage({
   const recs = MOCK_RECOMMENDATIONS.filter((r) => r.ownerId === DEMO_REP_ID).sort(
     (a, b) => a.rank - b.rank,
   );
-  const pipeline = recs.reduce((sum, r) => sum + pipelineValue(r), 0);
-  const gated = recs.filter(
-    (r) => r.nextBestAction.customerFacing || r.nextBestAction.crmWriteBack,
-  ).length;
+  const pipeline = recs.reduce((sum, r) => sum + accountValue(r.accountId), 0);
+  // Work still outstanding, not every action that was ever gated. Approved
+  // recommendations need nothing further from the rep.
+  const pending = recs.filter((r) => r.approvalStatus === "pending_approval").length;
 
   return (
     <section>
@@ -53,7 +59,7 @@ export default async function DashboardPage({
       <div className="kpi-row">
         <Kpi value={String(recs.length)} label="Accounts Today" />
         <Kpi value={formatUsd(pipeline)} label="Revenue in View" />
-        <Kpi value={String(gated)} label="Need Your Approval" tone="warn" />
+        <Kpi value={String(pending)} label="Awaiting Your Approval" tone="warn" />
       </div>
 
       <div className="toolbar">

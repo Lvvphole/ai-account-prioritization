@@ -1,4 +1,9 @@
-import { MOCK_BLOCKED, MOCK_RECOMMENDATIONS, accountProfile } from "./lib/mock-data";
+import {
+  MOCK_BLOCKED,
+  MOCK_RECOMMENDATIONS,
+  accountProfile,
+  accountValue,
+} from "./lib/mock-data";
 import type { Recommendation } from "./lib/types";
 import { isSupabaseConfigured } from "./lib/supabase/config";
 import {
@@ -6,7 +11,6 @@ import {
   actionLabel,
   formatUsd,
   humanizeCode,
-  pipelineValue,
   priorityTier,
 } from "./lib/display";
 
@@ -14,7 +18,7 @@ export default function HomePage() {
   const plan = [...MOCK_RECOMMENDATIONS].sort((a, b) => a.rank - b.rank);
   const signals = plan.flatMap((rec) => rec.sourceSignals);
   const verified = signals.filter((s) => s.verified).length;
-  const pipeline = plan.reduce((sum, rec) => sum + pipelineValue(rec), 0);
+  const pipeline = plan.reduce((sum, rec) => sum + accountValue(rec.accountId), 0);
   // Only the credential-free demo deploy lets a visitor in without a login;
   // when Supabase is configured the portal requires email + password.
   const demo = !isSupabaseConfigured();
