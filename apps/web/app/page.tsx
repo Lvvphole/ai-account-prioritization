@@ -1,5 +1,6 @@
 import { MOCK_BLOCKED, MOCK_RECOMMENDATIONS, accountProfile } from "./lib/mock-data";
 import type { Recommendation } from "./lib/types";
+import { isSupabaseConfigured } from "./lib/supabase/config";
 import {
   actionIcon,
   actionLabel,
@@ -14,13 +15,18 @@ export default function HomePage() {
   const signals = plan.flatMap((rec) => rec.sourceSignals);
   const verified = signals.filter((s) => s.verified).length;
   const pipeline = plan.reduce((sum, rec) => sum + pipelineValue(rec), 0);
+  // Only the credential-free demo deploy lets a visitor in without a login;
+  // when Supabase is configured the portal requires email + password.
+  const demo = !isSupabaseConfigured();
 
   return (
     <section>
       <div className="hero">
         <span className="hero-pill">
           <span className="pulse" aria-hidden="true" />
-          Live demo · no credentials required
+          {demo
+            ? "Live demo · no credentials required"
+            : "Deterministic · eval-gated · human-approved"}
         </span>
         <h1>
           Turn CRM noise into a <span className="hl">verified</span> daily action plan
@@ -116,7 +122,7 @@ export default function HomePage() {
           <Guarantee
             icon="⛁"
             title="Immutable audit"
-            body="Every run and every decision is written once and retained."
+            body="Every critical action — publish, block, CRM write — is written once and retained."
           />
           <Guarantee
             icon="⚑"
