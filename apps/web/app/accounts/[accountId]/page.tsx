@@ -40,7 +40,7 @@ export default async function AccountDetailPage({
         {accountId} · rank #{rec.rank}
       </p>
       <div className="card">
-        <h3>Why this account matters</h3>
+        <h3>Why This Account Matters</h3>
         <p>{rec.reasonNarrative}</p>
         <div>
           {rec.reasonCodes.map((c) => (
@@ -52,7 +52,7 @@ export default async function AccountDetailPage({
       </div>
 
       <div className="card">
-        <h3>Evidence (verified source signals)</h3>
+        <h3>Evidence (Verified Source Signals)</h3>
         <ul>
           {rec.sourceSignals.map((s, i) => (
             <li key={i}>
@@ -66,7 +66,7 @@ export default async function AccountDetailPage({
       </div>
 
       <div className="card">
-        <h3>Take action</h3>
+        <h3>Take Action</h3>
         <p>
           <span className="badge tag-accent">{actionLabel(rec.nextBestAction.type)}</span>
           {rec.nextBestAction.customerFacing || rec.nextBestAction.crmWriteBack ? (
@@ -78,7 +78,7 @@ export default async function AccountDetailPage({
       </div>
 
       <div className="card">
-        <h3>Safety verification</h3>
+        <h3>Safety Verification</h3>
         <table>
           <tbody>
             <tr>

@@ -15,12 +15,25 @@ export default async function LoginPage({
   const demo = !isSupabaseConfigured();
 
   return (
-    <div className="auth">
-      <div className="auth-card">
-        <h1>Sign in to the portal</h1>
-        <p className="muted" style={{ marginTop: 0 }}>
-          Your verified daily account action plan.
+    <div className="signin">
+      <div className="signin-brand">
+        <h1>Close the Deals Hiding in Your Pipeline.</h1>
+        <p className="muted">Your Accounts, Ranked and Drafted, Ready to Close.</p>
+        <ul className="signin-points">
+          <li>Work the accounts that need you most today.</li>
+          <li>Catch at-risk renewals before they slip.</li>
+          <li>Act with the email or call already drafted.</li>
+        </ul>
+      </div>
+
+      <div className="signin-card">
+        <h2>{demo ? "Choose A Role to Explore" : "Sign In"}</h2>
+        <p className="signin-sub">
+          {demo
+            ? "No credentials needed. Pick a role to sign in."
+            : "Use your work email and password."}
         </p>
+
         {error ? (
           <p className="alert" role="alert">
             {error}
@@ -28,14 +41,26 @@ export default async function LoginPage({
         ) : null}
 
         {demo ? (
-          <>
-            <p className="note">Demo mode — choose a role to enter the portal.</p>
-            <div className="role-grid">
-              <RoleEntry role="rep" label="Rep" sub="Daily priority list & actions" />
-              <RoleEntry role="manager" label="Manager" sub="Coverage & held recommendations" />
-              <RoleEntry role="admin" label="Admin" sub="Scoring configuration" />
-            </div>
-          </>
+          <div className="role-grid">
+            <RoleEntry
+              role="rep"
+              icon="◑"
+              label="Rep"
+              sub="Today’s priority list, evidence and actions"
+            />
+            <RoleEntry
+              role="manager"
+              icon="◕"
+              label="Manager"
+              sub="Team coverage and held recommendations"
+            />
+            <RoleEntry
+              role="admin"
+              icon="◍"
+              label="Admin"
+              sub="Scoring weights and thresholds"
+            />
+          </div>
         ) : (
           <form action="/auth/login" method="post" style={{ marginTop: 18 }}>
             <input type="hidden" name="redirectTo" value={redirectTo ?? "/dashboard"} />
@@ -57,22 +82,45 @@ export default async function LoginPage({
               </label>
             </div>
             <button type="submit" className="btn-primary" style={{ width: "100%" }}>
-              Sign in
+              Sign In
             </button>
           </form>
         )}
+
+        <p className="signin-foot">
+          Recommendations are drafted, never auto-sent. Customer-facing actions stay
+          gated on a human.
+        </p>
       </div>
     </div>
   );
 }
 
-function RoleEntry({ role, label, sub }: { role: AppRole; label: string; sub: string }) {
+function RoleEntry({
+  role,
+  icon,
+  label,
+  sub,
+}: {
+  role: AppRole;
+  icon: string;
+  label: string;
+  sub: string;
+}) {
   return (
     <form action="/auth/demo" method="post">
       <input type="hidden" name="role" value={role} />
       <button type="submit" className="role-btn">
-        <span className="role-name">{label}</span>
-        <span className="role-sub">{sub}</span>
+        <span className="role-icon" aria-hidden="true">
+          {icon}
+        </span>
+        <span className="role-text">
+          <span className="role-name">{label}</span>
+          <span className="role-sub">{sub}</span>
+        </span>
+        <span className="role-go" aria-hidden="true">
+          →
+        </span>
       </button>
     </form>
   );

@@ -29,26 +29,26 @@ export default function HomePage() {
             : "Deterministic · eval-gated · human-approved"}
         </span>
         <h1>
-          Turn CRM noise into a <span className="hl">verified</span> daily action plan
+          Turn CRM Noise into <span className="hl">Closed Revenue</span>
         </h1>
         <p className="hero-sub">
-          Which accounts to contact first, why they matter, what to do next, and the
-          evidence behind it — with a safety gate on every recommendation.
+          Know which accounts to work first, and why. Each one arrives with the
+          evidence and a drafted next step.
         </p>
         <div className="hero-cta">
           <a className="btn-cta" href="/login">
-            Enter the portal →
+            Enter the Portal →
           </a>
           <a className="btn-ghost" href="#how">
-            How it works
+            How It Works
           </a>
         </div>
 
         <div className="stat-strip">
-          <Stat value={String(plan.length)} label="Accounts ranked today" />
-          <Stat value={formatUsd(pipeline)} label="Pipeline in view" />
-          <Stat value={`${verified}/${signals.length}`} label="Signals verified" />
-          <Stat value={String(MOCK_BLOCKED.length)} label="Held by guardrails" />
+          <Stat value={String(plan.length)} label="Accounts Ranked Today" />
+          <Stat value={formatUsd(pipeline)} label="Pipeline in View" />
+          <Stat value={`${verified}/${signals.length}`} label="Signals Verified" />
+          <Stat value={String(MOCK_BLOCKED.length)} label="Held by Guardrails" />
         </div>
       </div>
 
@@ -64,11 +64,11 @@ export default function HomePage() {
         <div className="preview-body">
           <div className="preview-head">
             <div>
-              <h3>Today’s plan</h3>
+              <h3>Today’s Plan</h3>
               <p className="preview-sub">Ranked by the deterministic scorer · run_demo</p>
             </div>
             <a className="btn-sm" href="/dashboard">
-              View all →
+              View All →
             </a>
           </div>
           <ol className="plan">
@@ -80,53 +80,53 @@ export default function HomePage() {
       </div>
 
       <section className="band" id="how">
-        <p className="band-label">How it works</p>
-        <h2 className="band-title">Evidence in, ranked plan out</h2>
+        <p className="band-label">How It Works</p>
+        <h2 className="band-title">What Happens Before You Log In</h2>
         <div className="steps">
           <Step
             n="1"
-            title="Ingest & verify"
-            body="CRM signals are pulled and every fact is checked against the record it came from. Unverified evidence fails closed."
+            title="Verify"
+            body="Every signal is checked against the CRM record it came from. Nothing unverified reaches your list."
           />
           <Step
             n="2"
-            title="Score deterministically"
-            body="A fixed, weighted formula ranks every account. Same inputs, same order — the model never decides the ranking."
+            title="Rank"
+            body="A fixed formula orders your accounts by where revenue is most likely to move. The model never sets the order."
           />
           <Step
             n="3"
-            title="Draft & gate"
-            body="A next best action is drafted with its reason codes, then held for human approval before anything reaches a customer."
+            title="Act"
+            body="Each account arrives with a drafted email, call or meeting. You approve before anything sends."
           />
         </div>
       </section>
 
       <section className="band">
-        <p className="band-label">Built on guarantees, not vibes</p>
+        <p className="band-label">Built on Guarantees, Not Vibes</p>
         <div className="guarantees">
           <Guarantee
             icon="◎"
-            title="Deterministic scoring"
+            title="Deterministic Scoring"
             body="Ranking is a pure function of verified inputs. No drift between runs."
           />
           <Guarantee
             icon="≡"
-            title="Reason codes"
+            title="Reason Codes"
             body="Every rank ships with the specific signals that produced it."
           />
           <Guarantee
             icon="✓"
-            title="Human approval"
+            title="Human Approval"
             body="Customer-facing sends are gated on a person, never a prompt."
           />
           <Guarantee
             icon="⛁"
-            title="Immutable audit"
-            body="Every critical action — publish, block, CRM write — is written once and retained."
+            title="Immutable Audit"
+            body="Publishes, blocks and CRM writes are written once and retained."
           />
           <Guarantee
             icon="⚑"
-            title="Eval-gated CI"
+            title="Eval-Gated CI"
             body="Ranking changes must pass deterministic evals before they ship."
           />
         </div>
