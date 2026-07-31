@@ -12,6 +12,7 @@ import {
   formatUsd,
   humanizeCode,
   priorityTier,
+  evidenceBand,
 } from "./lib/display";
 
 export default function HomePage() {
@@ -182,9 +183,7 @@ function PlanRow({ rec }: { rec: Recommendation }) {
             {humanizeCode(code)}
           </span>
         ))}
-        <span className="chip chip-conf">
-          {(rec.confidence * 100).toFixed(0)}% confidence
-        </span>
+        <span className="chip chip-conf">{evidenceBand(rec.confidence).label}</span>
       </div>
 
       {evidence ? (

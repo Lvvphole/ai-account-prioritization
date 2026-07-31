@@ -6,7 +6,15 @@ import {
   accountValue,
   repName,
 } from "../lib/mock-data";
-import { actionLabel, formatUsd, humanizeCode } from "../lib/display";
+import {
+  NOT_A_WIN_PROBABILITY,
+  actionLabel,
+  evidenceBand,
+  formatUsd,
+  humanizeCode,
+  priorityTier,
+} from "../lib/display";
+import { WORKFLOW_LABEL, workspaceMeta } from "../lib/account-context";
 import { exportRows } from "../lib/analytics";
 import ExportButtons from "../components/ExportButtons";
 import { requireSession } from "../lib/auth";
@@ -62,6 +70,8 @@ export default async function DashboardPage({
         <Kpi value={String(pending)} label="Awaiting Your Approval" tone="warn" />
       </div>
 
+      <p className="disclaimer">{NOT_A_WIN_PROBABILITY}</p>
+
       <div className="toolbar">
         <span className="muted">Export your list</span>
         <ExportButtons rows={exportRows(recs)} filename="my-accounts" />
@@ -69,6 +79,7 @@ export default async function DashboardPage({
 
       {recs.map((rec) => {
         const profile = accountProfile(rec.accountId);
+        const meta = workspaceMeta(rec.accountId);
         return (
         <article key={rec.id} className="card">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
@@ -82,10 +93,23 @@ export default async function DashboardPage({
                 </span>
               ) : null}
             </h3>
-            <div style={{ flex: "none" }}>
-              <span className="badge tag-accent">score {rec.score}</span>
-              <span className="badge">conf {(rec.confidence * 100).toFixed(0)}%</span>
+            <div style={{ flex: "none", textAlign: "right" }}>
+              <div className="score-line">
+                <span className="score-num">{rec.score.toFixed(1)}</span>
+                <span className="score-den">/100 priority</span>
+              </div>
+              <div className={`ev-band ev-${evidenceBand(rec.confidence).tone}`}>
+                {evidenceBand(rec.confidence).label}
+              </div>
             </div>
+          </div>
+          <div className="row-meta">
+            <span className={`badge tag-${priorityTier(rec.score).tone === "high" ? "accent" : "warn"}`}>
+              {priorityTier(rec.score).label}
+            </span>
+            <span className={`badge wf-${meta.workflow}`}>{WORKFLOW_LABEL[meta.workflow]}</span>
+            <span className="muted">{meta.freshness}</span>
+            <span className="muted">· {repName(rec.ownerId)}</span>
           </div>
           <p style={{ marginBottom: 8 }}>{rec.reasonNarrative}</p>
           <div style={{ marginBottom: 8 }}>

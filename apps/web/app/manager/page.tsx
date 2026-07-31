@@ -1,5 +1,6 @@
 import { MOCK_RECOMMENDATIONS, MOCK_BLOCKED, accountProfile, repName } from "../lib/mock-data";
-import { formatUsd, humanizeCode } from "../lib/display";
+import { formatUsd, humanizeCode, priorityTier } from "../lib/display";
+import { WORKFLOW_LABEL, workspaceMeta } from "../lib/account-context";
 import {
   exportRows,
   revenueSplit,
@@ -17,6 +18,14 @@ export default async function ManagerPage() {
   const totals = teamTotals(recs);
   const reps = repRollup(recs);
   const split = revenueSplit(recs);
+  // Exceptions a manager owns: high priority still untouched, and anything a
+  // rep dropped without acting.
+  const unworkedHighPriority = recs.filter(
+    (r) =>
+      priorityTier(r.score).tone === "high" &&
+      workspaceMeta(r.accountId).workflow === "not_started",
+  );
+  const dismissed = recs.filter((r) => workspaceMeta(r.accountId).workflow === "dismissed");
 
   return (
     <section>
@@ -97,6 +106,63 @@ export default async function ManagerPage() {
       <div className="card">
         <div className="card-head">
           <div>
+            <h3>Needs a Manager</h3>
+            <p className="card-sub">
+              Exceptions only. The full ranked list is the rep&rsquo;s view, not this one.
+            </p>
+          </div>
+        </div>
+        <ul className="queue">
+          {unworkedHighPriority.length > 0 ? (
+            <li>
+              <a href="#run">
+                <span className="queue-count q-bad">{unworkedHighPriority.length}</span>
+                <span className="queue-label">
+                  High-priority accounts not yet worked ·{" "}
+                  {unworkedHighPriority.map((r) => accountProfile(r.accountId)?.name).join(", ")}
+                </span>
+                <span className="queue-go">→</span>
+              </a>
+            </li>
+          ) : null}
+          <li>
+            <a href="#run">
+              <span className="queue-count q-warn">{totals.awaitingApproval}</span>
+              <span className="queue-label">Recommendations awaiting approval</span>
+              <span className="queue-go">→</span>
+            </a>
+          </li>
+          <li>
+            <a href="#held">
+              <span className="queue-count q-warn">{totals.held}</span>
+              <span className="queue-label">Held by the safety gates</span>
+              <span className="queue-go">→</span>
+            </a>
+          </li>
+          <li>
+            <a href="#run">
+              <span className="queue-count q-warn">{dismissed.length}</span>
+              <span className="queue-label">
+                Dismissed without action{dismissed.length ? ` · ${accountProfile(dismissed[0]!.accountId)?.name}` : ""}
+              </span>
+              <span className="queue-go">→</span>
+            </a>
+          </li>
+          <li>
+            <a href="/admin/data">
+              <span className="queue-count q-bad">1</span>
+              <span className="queue-label">
+                Data-quality gap affecting the team · contact email permission missing
+              </span>
+              <span className="queue-go">→</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div>
             <h3>Revenue at Risk vs Open Pipeline</h3>
             <p className="card-sub">
               {formatUsd(split.total)} in view. An account counts once, as at risk if it
@@ -144,7 +210,7 @@ export default async function ManagerPage() {
         </div>
       </div>
 
-      <div className="card">
+      <div className="card" id="held">
         <div className="card-head">
           <div>
             <h3>Held by the Safety Gates</h3>
@@ -190,7 +256,7 @@ export default async function ManagerPage() {
         )}
       </div>
 
-      <div className="card">
+      <div className="card" id="run">
         <div className="card-head">
           <div>
             <h3>Full Run Export</h3>
@@ -209,6 +275,7 @@ export default async function ManagerPage() {
                 <th>Owner</th>
                 <th className="num">Score</th>
                 <th>Next Action</th>
+                <th>Workflow</th>
                 <th>Approval</th>
               </tr>
             </thead>
@@ -224,6 +291,11 @@ export default async function ManagerPage() {
                   <td>{repName(rec.ownerId)}</td>
                   <td className="num">{rec.score.toFixed(1)}</td>
                   <td className="muted">{rec.nextBestAction.objective}</td>
+                  <td>
+                    <span className={`badge wf-${workspaceMeta(rec.accountId).workflow}`}>
+                      {WORKFLOW_LABEL[workspaceMeta(rec.accountId).workflow]}
+                    </span>
+                  </td>
                   <td>
                     <span
                       className={`badge ${
