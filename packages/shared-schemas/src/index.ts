@@ -24,6 +24,7 @@ import {
   AuditLogEntrySchema,
 } from "./analytics-event";
 import { EvalResultSchema, JudgeVerdictSchema } from "./eval-result";
+import { WorkspaceSchema, WorkspaceMembershipSchema } from "./workspace";
 
 export * from "./account";
 export * from "./contact";
@@ -33,6 +34,7 @@ export * from "./recommendation";
 export * from "./feedback";
 export * from "./analytics-event";
 export * from "./eval-result";
+export * from "./workspace";
 
 /**
  * Registry of every schema that should be emitted as a JSON Schema artifact.
@@ -54,6 +56,8 @@ export const SCHEMA_REGISTRY = {
   AuditLogEntry: AuditLogEntrySchema,
   EvalResult: EvalResultSchema,
   JudgeVerdict: JudgeVerdictSchema,
+  Workspace: WorkspaceSchema,
+  WorkspaceMembership: WorkspaceMembershipSchema,
 } satisfies Record<string, z.ZodTypeAny>;
 
 export type SchemaName = keyof typeof SCHEMA_REGISTRY;

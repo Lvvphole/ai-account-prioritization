@@ -20,3 +20,4 @@ export {
 } from "./approval";
 
 export { redactPII, redactValue, redactProperties } from "./pii";
+export * from "./workspace";

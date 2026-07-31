@@ -1,0 +1,43 @@
+{
+  "$ref": "#/definitions/WorkspaceMembership",
+  "definitions": {
+    "WorkspaceMembership": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "userId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "rep",
+            "manager",
+            "admin"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "userId",
+        "role",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
