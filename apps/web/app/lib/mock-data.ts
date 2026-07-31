@@ -209,6 +209,7 @@ export const MOCK_RECOMMENDATIONS: Recommendation[] = [
     reasonNarrative:
       "Priority #4 (score 51.07). Cobalt Analytics shows churn-risk indicators, has gone without logged contact.",
     sourceSignals: [
+      { kind: "account", refId: "acc_003", description: "Annual contract value of $85,000.", verified: true },
       { kind: "account", refId: "acc_003", description: "Account health score is 31 (below churn-risk threshold).", verified: true },
       { kind: "derived", refId: "acc_003", description: "No logged contact for 56 days.", verified: true },
     ],

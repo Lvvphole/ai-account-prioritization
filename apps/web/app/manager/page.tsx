@@ -1,6 +1,12 @@
 import { MOCK_RECOMMENDATIONS, MOCK_BLOCKED, accountProfile, repName } from "../lib/mock-data";
 import { formatUsd, humanizeCode } from "../lib/display";
-import { exportRows, repRollup, teamTotals, triggerBreakdown } from "../lib/analytics";
+import {
+  exportRows,
+  postureSplit,
+  repRollup,
+  teamTotals,
+  type PostureItem,
+} from "../lib/analytics";
 import ExportButtons from "../components/ExportButtons";
 import { requireCapability } from "../lib/auth";
 
@@ -10,7 +16,7 @@ export default async function ManagerPage() {
   const recs = [...MOCK_RECOMMENDATIONS].sort((a, b) => a.rank - b.rank);
   const totals = teamTotals(recs);
   const reps = repRollup(recs);
-  const triggers = triggerBreakdown(recs);
+  const split = postureSplit(recs);
 
   return (
     <section>
@@ -91,26 +97,51 @@ export default async function ManagerPage() {
       <div className="card">
         <div className="card-head">
           <div>
-            <h3>Why These Accounts Surfaced</h3>
+            <h3>Where Today’s Revenue Sits</h3>
             <p className="card-sub">
-              How often each signal fired across today’s {recs.length} accounts. One
-              account can fire several, so these total more than {recs.length}.
+              {formatUsd(split.total)} in view. An account counts once, as Defending if
+              it carries any risk signal.
             </p>
           </div>
         </div>
-        <ul className="trigger-list">
-          {triggers.map((t) => (
-            <li key={t.code}>
-              <span className="trigger-label">{t.label}</span>
-              <span className="trigger-bar">
-                <span style={{ width: `${Math.round(t.share * 100)}%` }} />
-              </span>
-              <span className="trigger-count">
-                {t.count} of {t.total}
-              </span>
-            </li>
-          ))}
-        </ul>
+
+        <div className="split-bar">
+          <span
+            className="split-seg seg-protect"
+            style={{ width: `${pct(split.protect.value, split.total)}%` }}
+          />
+          <span
+            className="split-seg seg-grow"
+            style={{ width: `${pct(split.grow.value, split.total)}%` }}
+          />
+        </div>
+        <div className="split-legend">
+          <span>
+            <i className="dot-protect" /> Defending{" "}
+            <strong>{formatUsd(split.protect.value)}</strong> ·{" "}
+            {pct(split.protect.value, split.total)}%
+          </span>
+          <span>
+            <i className="dot-grow" /> Pursuing{" "}
+            <strong>{formatUsd(split.grow.value)}</strong> ·{" "}
+            {pct(split.grow.value, split.total)}%
+          </span>
+        </div>
+
+        <div className="posture-grid">
+          <PostureGroup
+            tone="protect"
+            title="Defending"
+            sub="Revenue already booked that is exposed."
+            items={split.protect.items}
+          />
+          <PostureGroup
+            tone="grow"
+            title="Pursuing"
+            sub="New and expansion revenue in play."
+            items={split.grow.items}
+          />
+        </div>
       </div>
 
       <div className="card">
@@ -209,6 +240,50 @@ export default async function ManagerPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+const pct = (part: number, whole: number) =>
+  whole === 0 ? 0 : Math.round((part / whole) * 100);
+
+function PostureGroup({
+  tone,
+  title,
+  sub,
+  items,
+}: {
+  tone: "protect" | "grow";
+  title: string;
+  sub: string;
+  items: PostureItem[];
+}) {
+  return (
+    <div className="posture-group">
+      <div className={`posture-head head-${tone}`}>
+        <h4>{title}</h4>
+        <span className="muted">{sub}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="muted posture-empty">Nothing in this group today.</p>
+      ) : (
+        items.map((item) => (
+          <div className="posture-row" key={item.id}>
+            <div className="posture-main">
+              <a href={`/accounts/${item.accountId}`}>{item.name}</a>
+              <span className="posture-owner">{item.owner}</span>
+            </div>
+            <span className="posture-val">{formatUsd(item.value)}</span>
+            <div className="posture-drivers">
+              {item.drivers.map((d) => (
+                <span key={d} className="chip">
+                  {d}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
   );
 }
 

@@ -88,35 +88,71 @@ export function repRollup(recs: Recommendation[]): RepRow[] {
   return rows.sort((a, b) => b.pipeline - a.pipeline);
 }
 
-export interface TriggerRow {
-  code: string;
-  label: string;
-  count: number;
-  total: number;
-  /** Fraction of accounts in the run that fired this code. */
-  share: number;
+/**
+ * Signals that mean revenue already booked is exposed. An account carrying any
+ * of these is defence; everything else is pursuit. Counting reason codes said
+ * nothing a manager could act on — splitting the money does.
+ */
+const PROTECT_CODES = new Set([
+  "churn_risk_detected",
+  "renewal_approaching",
+  "stale_no_contact",
+  "data_quality_blocked",
+]);
+
+export type Posture = "protect" | "grow";
+
+export function posture(rec: Recommendation): Posture {
+  return rec.reasonCodes.some((c) => PROTECT_CODES.has(c)) ? "protect" : "grow";
 }
 
-/** What is actually driving today's list, by reason code. */
-export function triggerBreakdown(recs: Recommendation[]): TriggerRow[] {
-  const counts = new Map<string, number>();
+export interface PostureItem {
+  id: string;
+  accountId: string;
+  name: string;
+  owner: string;
+  value: number;
+  drivers: string[];
+}
+
+export interface PostureSplit {
+  total: number;
+  protect: { value: number; items: PostureItem[] };
+  grow: { value: number; items: PostureItem[] };
+}
+
+/**
+ * Where the run's money sits, defence vs pursuit. Each account lands in exactly
+ * one bucket and contributes its value once, so the two figures add to the
+ * total and the split can be read as a share.
+ */
+export function postureSplit(recs: Recommendation[]): PostureSplit {
+  const buckets: Record<Posture, PostureItem[]> = { protect: [], grow: [] };
+
   for (const rec of recs) {
-    for (const code of rec.reasonCodes) {
-      counts.set(code, (counts.get(code) ?? 0) + 1);
-    }
+    const group = posture(rec);
+    const relevant =
+      group === "protect"
+        ? rec.reasonCodes.filter((c) => PROTECT_CODES.has(c))
+        : rec.reasonCodes;
+    buckets[group].push({
+      id: rec.id,
+      accountId: rec.accountId,
+      name: accountProfile(rec.accountId)?.name ?? rec.accountId,
+      owner: repName(rec.ownerId),
+      value: pipelineValue(rec),
+      drivers: relevant.map(humanizeCode),
+    });
   }
-  // Share is out of the accounts in the run, not out of the most common code,
-  // so a full bar means "every account fired this".
-  const total = Math.max(1, recs.length);
-  return [...counts.entries()]
-    .map(([code, count]) => ({
-      code,
-      label: humanizeCode(code),
-      count,
-      total: recs.length,
-      share: count / total,
-    }))
-    .sort((a, b) => b.count - a.count);
+
+  const sum = (items: PostureItem[]) => items.reduce((t, i) => t + i.value, 0);
+  const byValue = (a: PostureItem, b: PostureItem) => b.value - a.value;
+
+  return {
+    total: sum(buckets.protect) + sum(buckets.grow),
+    protect: { value: sum(buckets.protect), items: buckets.protect.sort(byValue) },
+    grow: { value: sum(buckets.grow), items: buckets.grow.sort(byValue) },
+  };
 }
 
 /** Flat, self-describing rows for CSV / JSON export. */
