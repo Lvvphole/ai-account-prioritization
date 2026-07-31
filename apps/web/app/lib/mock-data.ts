@@ -145,12 +145,12 @@ export const MOCK_RECOMMENDATIONS: Recommendation[] = [
     runId: RUN,
     accountId: "acc_001",
     ownerId: "rep_alex",
-    score: 73.63,
+    score: 69.3,
     rank: 1,
     confidence: 0.83,
     reasonCodes: ["high_open_pipeline", "verified_intent_signal", "stalled_opportunity"],
     reasonNarrative:
-      "Priority #1 (score 73.63). Helios Manufacturing carries significant open pipeline, shows recent verified buying intent, has an open opportunity that needs a next step.",
+      "Priority #1 (score 69.3). Helios Manufacturing carries significant open pipeline, shows recent verified buying intent, has an open opportunity that needs a next step.",
     sourceSignals: [
       { kind: "account", refId: "acc_001", description: "Open pipeline of $180,000.", verified: true },
       { kind: "intent", refId: "act_002", description: "Verified intent signal: pricing_page_visit.", verified: true },

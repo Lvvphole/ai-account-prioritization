@@ -15,7 +15,10 @@ export const APP_ROLES: readonly AppRole[] = ["rep", "manager", "admin"];
 
 /** The home page a role lands on after signing in. */
 export function roleHome(role: AppRole): string {
-  // Managers and admins start at the oversight view; reps at their plan.
+  // Each role has its own home: reps their plan, managers team coverage, admins
+  // the control plane. Admin previously shared the manager view, which left the
+  // operations surface with no landing page of its own.
+  if (role === "admin") return "/admin";
   return role === "rep" ? "/dashboard" : "/manager";
 }
 
