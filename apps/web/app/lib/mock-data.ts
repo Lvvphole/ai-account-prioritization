@@ -13,6 +13,54 @@ import type {
  */
 const ISO = "2026-06-25T07:00:00Z";
 
+/**
+ * Account directory. Recommendations reference accounts by id; the UI joins
+ * against this to show the company a rep would actually recognize. In
+ * production this join comes from the CRM `accounts` table.
+ */
+export interface AccountProfile {
+  id: string;
+  name: string;
+  industry: string;
+  tier: "Enterprise" | "Mid-market" | "SMB";
+}
+
+export const MOCK_ACCOUNTS: Record<string, AccountProfile> = {
+  acc_001: {
+    id: "acc_001",
+    name: "Helios Manufacturing",
+    industry: "Industrial Manufacturing",
+    tier: "Enterprise",
+  },
+  acc_002: {
+    id: "acc_002",
+    name: "Northwind Retail",
+    industry: "Retail & E-commerce",
+    tier: "Mid-market",
+  },
+  acc_003: {
+    id: "acc_003",
+    name: "Cobalt Analytics",
+    industry: "Data & Analytics",
+    tier: "Mid-market",
+  },
+  acc_004: {
+    id: "acc_004",
+    name: "Pinecrest Logistics",
+    industry: "Freight & Logistics",
+    tier: "SMB",
+  },
+};
+
+/** Display name for an account id, falling back to the raw id. */
+export function accountName(accountId: string): string {
+  return MOCK_ACCOUNTS[accountId]?.name ?? accountId;
+}
+
+export function accountProfile(accountId: string): AccountProfile | undefined {
+  return MOCK_ACCOUNTS[accountId];
+}
+
 export const MOCK_RECOMMENDATIONS: Recommendation[] = [
   {
     id: "rec_1",
