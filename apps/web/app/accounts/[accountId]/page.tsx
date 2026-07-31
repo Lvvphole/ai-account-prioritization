@@ -1,4 +1,5 @@
-import { getRecommendation } from "../../lib/mock-data";
+import { accountProfile, getRecommendation } from "../../lib/mock-data";
+import { actionLabel, humanizeCode } from "../../lib/display";
 import ActionBar from "../../components/ActionBar";
 
 /**
@@ -11,11 +12,12 @@ export default async function AccountDetailPage({
 }) {
   const { accountId } = await params;
   const rec = getRecommendation(accountId);
+  const profile = accountProfile(accountId);
 
   if (!rec) {
     return (
       <section>
-        <h1>Account {accountId}</h1>
+        <h1>{profile?.name ?? `Account ${accountId}`}</h1>
         <p className="muted">No published recommendation for this account today.</p>
         <p>
           <a href="/dashboard">← Back to dashboard</a>
@@ -30,15 +32,20 @@ export default async function AccountDetailPage({
         <a href="/dashboard">← Back to dashboard</a>
       </p>
       <h1>
-        {accountId} <span className="badge tag-accent">score {rec.score}</span>
+        {profile?.name ?? accountId}{" "}
+        <span className="badge tag-accent">score {rec.score}</span>
       </h1>
+      <p className="muted" style={{ marginTop: 0 }}>
+        {profile ? `${profile.industry} · ${profile.tier} · ` : ""}
+        {accountId} · rank #{rec.rank}
+      </p>
       <div className="card">
         <h3>Why this account matters</h3>
         <p>{rec.reasonNarrative}</p>
         <div>
           {rec.reasonCodes.map((c) => (
             <span key={c} className="badge">
-              {c}
+              {humanizeCode(c)}
             </span>
           ))}
         </div>
@@ -61,7 +68,7 @@ export default async function AccountDetailPage({
       <div className="card">
         <h3>Take action</h3>
         <p>
-          <span className="badge">{rec.nextBestAction.type}</span>
+          <span className="badge tag-accent">{actionLabel(rec.nextBestAction.type)}</span>
           {rec.nextBestAction.customerFacing || rec.nextBestAction.crmWriteBack ? (
             <span className="badge tag-warn">requires human approval</span>
           ) : null}

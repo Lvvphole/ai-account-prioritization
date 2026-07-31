@@ -1,12 +1,13 @@
 import type { Recommendation } from "../lib/types";
-import { MOCK_RECOMMENDATIONS } from "../lib/mock-data";
+import { MOCK_RECOMMENDATIONS, accountProfile } from "../lib/mock-data";
+import { actionLabel, humanizeCode } from "../lib/display";
 import { requireSession } from "../lib/auth";
 
 function ActionBadge({ rec }: { rec: Recommendation }) {
   const gated = rec.nextBestAction.customerFacing || rec.nextBestAction.crmWriteBack;
   return (
     <>
-      <span className="badge">{rec.nextBestAction.type}</span>
+      <span className="badge tag-accent">{actionLabel(rec.nextBestAction.type)}</span>
       {gated ? (
         <span className="badge tag-warn">approval-gated</span>
       ) : (
@@ -35,14 +36,22 @@ export default async function DashboardPage({
           You don’t have access to that page.
         </p>
       ) : null}
-      {recs.map((rec) => (
+      {recs.map((rec) => {
+        const profile = accountProfile(rec.accountId);
+        return (
         <article key={rec.id} className="card">
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
             <h3 style={{ margin: 0 }}>
               #{rec.rank} ·{" "}
-              <a href={`/accounts/${rec.accountId}`}>{rec.accountId}</a>
+              <a href={`/accounts/${rec.accountId}`}>{profile?.name ?? rec.accountId}</a>
+              {profile ? (
+                <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
+                  {" "}
+                  · {profile.industry} · {profile.tier}
+                </span>
+              ) : null}
             </h3>
-            <div>
+            <div style={{ flex: "none" }}>
               <span className="badge tag-accent">score {rec.score}</span>
               <span className="badge">conf {(rec.confidence * 100).toFixed(0)}%</span>
             </div>
@@ -51,7 +60,7 @@ export default async function DashboardPage({
           <div style={{ marginBottom: 8 }}>
             {rec.reasonCodes.map((c) => (
               <span key={c} className="badge">
-                {c}
+                {humanizeCode(c)}
               </span>
             ))}
           </div>
@@ -69,7 +78,8 @@ export default async function DashboardPage({
             signal(s)
           </div>
         </article>
-      ))}
+        );
+      })}
     </section>
   );
 }
