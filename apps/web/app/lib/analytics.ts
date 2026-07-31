@@ -92,6 +92,8 @@ export interface TriggerRow {
   code: string;
   label: string;
   count: number;
+  total: number;
+  /** Fraction of accounts in the run that fired this code. */
   share: number;
 }
 
@@ -103,13 +105,16 @@ export function triggerBreakdown(recs: Recommendation[]): TriggerRow[] {
       counts.set(code, (counts.get(code) ?? 0) + 1);
     }
   }
-  const max = Math.max(1, ...counts.values());
+  // Share is out of the accounts in the run, not out of the most common code,
+  // so a full bar means "every account fired this".
+  const total = Math.max(1, recs.length);
   return [...counts.entries()]
     .map(([code, count]) => ({
       code,
       label: humanizeCode(code),
       count,
-      share: count / max,
+      total: recs.length,
+      share: count / total,
     }))
     .sort((a, b) => b.count - a.count);
 }

@@ -1210,7 +1210,7 @@ td.num {
 }
 .trigger-count {
   flex: none;
-  width: 24px;
+  width: 56px;
   text-align: right;
   font-size: 13px;
   font-weight: 600;

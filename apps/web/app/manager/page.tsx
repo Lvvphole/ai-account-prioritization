@@ -105,7 +105,9 @@ export default async function ManagerPage() {
               <span className="trigger-bar">
                 <span style={{ width: `${Math.round(t.share * 100)}%` }} />
               </span>
-              <span className="trigger-count">{t.count}</span>
+              <span className="trigger-count">
+                {t.count} of {t.total}
+              </span>
             </li>
           ))}
         </ul>
