@@ -46,7 +46,7 @@ export default function HomePage() {
 
         <div className="stat-strip">
           <Stat value={String(plan.length)} label="Accounts Ranked Today" />
-          <Stat value={formatUsd(pipeline)} label="Pipeline in View" />
+          <Stat value={formatUsd(pipeline)} label="Revenue in View" />
           <Stat value={`${verified}/${signals.length}`} label="Signals Verified" />
           <Stat value={String(MOCK_BLOCKED.length)} label="Held by Guardrails" />
         </div>

@@ -1190,10 +1190,10 @@ td.num {
   display: block;
   height: 100%;
 }
-.seg-protect {
+.seg-risk {
   background: linear-gradient(90deg, #fbbf24, #d97706);
 }
-.seg-grow {
+.seg-pipeline {
   background: linear-gradient(90deg, #60a5fa, #2563eb);
 }
 .split-legend {
@@ -1211,10 +1211,10 @@ td.num {
   margin-right: 6px;
   border-radius: 3px;
 }
-.dot-protect {
+.dot-risk {
   background: #d97706;
 }
-.dot-grow {
+.dot-pipeline {
   background: #2563eb;
 }
 
@@ -1237,10 +1237,10 @@ td.num {
 .posture-head span {
   font-size: 12px;
 }
-.head-protect {
+.head-risk {
   border-bottom-color: #f5c563;
 }
-.head-grow {
+.head-pipeline {
   border-bottom-color: #9ec5fd;
 }
 .posture-row {

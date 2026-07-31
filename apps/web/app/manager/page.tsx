@@ -2,10 +2,10 @@ import { MOCK_RECOMMENDATIONS, MOCK_BLOCKED, accountProfile, repName } from "../
 import { formatUsd, humanizeCode } from "../lib/display";
 import {
   exportRows,
-  postureSplit,
+  revenueSplit,
   repRollup,
   teamTotals,
-  type PostureItem,
+  type RevenueItem,
 } from "../lib/analytics";
 import ExportButtons from "../components/ExportButtons";
 import { requireCapability } from "../lib/auth";
@@ -16,20 +16,20 @@ export default async function ManagerPage() {
   const recs = [...MOCK_RECOMMENDATIONS].sort((a, b) => a.rank - b.rank);
   const totals = teamTotals(recs);
   const reps = repRollup(recs);
-  const split = postureSplit(recs);
+  const split = revenueSplit(recs);
 
   return (
     <section>
       <div className="page-header">
         <h1>Manager View</h1>
         <p className="muted">
-          Team coverage for run_demo, what is driving today’s list, and everything the
+          Team coverage for run_demo, where the revenue sits, and everything the
           safety gates are holding back.
         </p>
       </div>
 
       <div className="kpi-row">
-        <Kpi value={formatUsd(totals.pipeline)} label="Pipeline in View" />
+        <Kpi value={formatUsd(totals.pipeline)} label="Revenue in View" />
         <Kpi value={String(totals.accounts)} label="Accounts Ranked" />
         <Kpi value={String(reps.length)} label="Reps Covered" />
         <Kpi value={`${(totals.avgConfidence * 100).toFixed(0)}%`} label="Avg Confidence" />
@@ -41,7 +41,7 @@ export default async function ManagerPage() {
         <div className="card-head">
           <div>
             <h3>Coverage by Rep</h3>
-            <p className="card-sub">Ranked by pipeline in view.</p>
+            <p className="card-sub">Ranked by revenue in view.</p>
           </div>
           <ExportButtons rows={reps as unknown as Record<string, string | number>[]} filename="coverage-by-rep" />
         </div>
@@ -51,7 +51,7 @@ export default async function ManagerPage() {
               <tr>
                 <th>Rep</th>
                 <th className="num">Accounts</th>
-                <th className="num">Pipeline</th>
+                <th className="num">Revenue</th>
                 <th className="num">Avg Score</th>
                 <th className="num">Avg Conf.</th>
                 <th>Top Action</th>
@@ -97,49 +97,49 @@ export default async function ManagerPage() {
       <div className="card">
         <div className="card-head">
           <div>
-            <h3>Where Today’s Revenue Sits</h3>
+            <h3>Revenue at Risk vs Open Pipeline</h3>
             <p className="card-sub">
-              {formatUsd(split.total)} in view. An account counts once, as Defending if
-              it carries any risk signal.
+              {formatUsd(split.total)} in view. An account counts once, as at risk if it
+              carries a churn, renewal or no-contact signal.
             </p>
           </div>
         </div>
 
         <div className="split-bar">
           <span
-            className="split-seg seg-protect"
-            style={{ width: `${pct(split.protect.value, split.total)}%` }}
+            className="split-seg seg-risk"
+            style={{ width: `${pct(split.atRisk.value, split.total)}%` }}
           />
           <span
-            className="split-seg seg-grow"
-            style={{ width: `${pct(split.grow.value, split.total)}%` }}
+            className="split-seg seg-pipeline"
+            style={{ width: `${pct(split.pipeline.value, split.total)}%` }}
           />
         </div>
         <div className="split-legend">
           <span>
-            <i className="dot-protect" /> Defending{" "}
-            <strong>{formatUsd(split.protect.value)}</strong> ·{" "}
-            {pct(split.protect.value, split.total)}%
+            <i className="dot-risk" /> Revenue at Risk{" "}
+            <strong>{formatUsd(split.atRisk.value)}</strong> ·{" "}
+            {pct(split.atRisk.value, split.total)}%
           </span>
           <span>
-            <i className="dot-grow" /> Pursuing{" "}
-            <strong>{formatUsd(split.grow.value)}</strong> ·{" "}
-            {pct(split.grow.value, split.total)}%
+            <i className="dot-pipeline" /> Open Pipeline{" "}
+            <strong>{formatUsd(split.pipeline.value)}</strong> ·{" "}
+            {pct(split.pipeline.value, split.total)}%
           </span>
         </div>
 
         <div className="posture-grid">
-          <PostureGroup
-            tone="protect"
-            title="Defending"
-            sub="Revenue already booked that is exposed."
-            items={split.protect.items}
+          <RevenueGroup
+            tone="risk"
+            title="Revenue at Risk"
+            sub="Booked revenue exposed to churn or non-renewal."
+            items={split.atRisk.items}
           />
-          <PostureGroup
-            tone="grow"
-            title="Pursuing"
-            sub="New and expansion revenue in play."
-            items={split.grow.items}
+          <RevenueGroup
+            tone="pipeline"
+            title="Open Pipeline"
+            sub="New and expansion deals in progress."
+            items={split.pipeline.items}
           />
         </div>
       </div>
@@ -246,16 +246,16 @@ export default async function ManagerPage() {
 const pct = (part: number, whole: number) =>
   whole === 0 ? 0 : Math.round((part / whole) * 100);
 
-function PostureGroup({
+function RevenueGroup({
   tone,
   title,
   sub,
   items,
 }: {
-  tone: "protect" | "grow";
+  tone: "risk" | "pipeline";
   title: string;
   sub: string;
-  items: PostureItem[];
+  items: RevenueItem[];
 }) {
   return (
     <div className="posture-group">

@@ -52,7 +52,7 @@ export default async function DashboardPage({
 
       <div className="kpi-row">
         <Kpi value={String(recs.length)} label="Accounts Today" />
-        <Kpi value={formatUsd(pipeline)} label="Pipeline in View" />
+        <Kpi value={formatUsd(pipeline)} label="Revenue in View" />
         <Kpi value={String(gated)} label="Need Your Approval" tone="warn" />
       </div>
 

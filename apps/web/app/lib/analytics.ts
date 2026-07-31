@@ -89,24 +89,25 @@ export function repRollup(recs: Recommendation[]): RepRow[] {
 }
 
 /**
- * Signals that mean revenue already booked is exposed. An account carrying any
- * of these is defence; everything else is pursuit. Counting reason codes said
- * nothing a manager could act on — splitting the money does.
+ * Signals that mean booked revenue is exposed to churn or non-renewal. An
+ * account carrying any of these is revenue at risk; the rest is open pipeline.
+ * Counting reason codes said nothing a manager could act on — splitting the
+ * money into the two motions they already manage does.
  */
-const PROTECT_CODES = new Set([
+const AT_RISK_CODES = new Set([
   "churn_risk_detected",
   "renewal_approaching",
   "stale_no_contact",
   "data_quality_blocked",
 ]);
 
-export type Posture = "protect" | "grow";
+export type RevenueBucket = "atRisk" | "pipeline";
 
-export function posture(rec: Recommendation): Posture {
-  return rec.reasonCodes.some((c) => PROTECT_CODES.has(c)) ? "protect" : "grow";
+export function revenueBucket(rec: Recommendation): RevenueBucket {
+  return rec.reasonCodes.some((c) => AT_RISK_CODES.has(c)) ? "atRisk" : "pipeline";
 }
 
-export interface PostureItem {
+export interface RevenueItem {
   id: string;
   accountId: string;
   name: string;
@@ -115,25 +116,25 @@ export interface PostureItem {
   drivers: string[];
 }
 
-export interface PostureSplit {
+export interface RevenueSplit {
   total: number;
-  protect: { value: number; items: PostureItem[] };
-  grow: { value: number; items: PostureItem[] };
+  atRisk: { value: number; items: RevenueItem[] };
+  pipeline: { value: number; items: RevenueItem[] };
 }
 
 /**
- * Where the run's money sits, defence vs pursuit. Each account lands in exactly
- * one bucket and contributes its value once, so the two figures add to the
- * total and the split can be read as a share.
+ * Revenue at risk vs open pipeline. Each account lands in exactly one bucket
+ * and contributes its value once, so the two figures add to the total and the
+ * split can be read as a share.
  */
-export function postureSplit(recs: Recommendation[]): PostureSplit {
-  const buckets: Record<Posture, PostureItem[]> = { protect: [], grow: [] };
+export function revenueSplit(recs: Recommendation[]): RevenueSplit {
+  const buckets: Record<RevenueBucket, RevenueItem[]> = { atRisk: [], pipeline: [] };
 
   for (const rec of recs) {
-    const group = posture(rec);
+    const group = revenueBucket(rec);
     const relevant =
-      group === "protect"
-        ? rec.reasonCodes.filter((c) => PROTECT_CODES.has(c))
+      group === "atRisk"
+        ? rec.reasonCodes.filter((c) => AT_RISK_CODES.has(c))
         : rec.reasonCodes;
     buckets[group].push({
       id: rec.id,
@@ -145,13 +146,13 @@ export function postureSplit(recs: Recommendation[]): PostureSplit {
     });
   }
 
-  const sum = (items: PostureItem[]) => items.reduce((t, i) => t + i.value, 0);
-  const byValue = (a: PostureItem, b: PostureItem) => b.value - a.value;
+  const sum = (items: RevenueItem[]) => items.reduce((t, i) => t + i.value, 0);
+  const byValue = (a: RevenueItem, b: RevenueItem) => b.value - a.value;
 
   return {
-    total: sum(buckets.protect) + sum(buckets.grow),
-    protect: { value: sum(buckets.protect), items: buckets.protect.sort(byValue) },
-    grow: { value: sum(buckets.grow), items: buckets.grow.sort(byValue) },
+    total: sum(buckets.atRisk) + sum(buckets.pipeline),
+    atRisk: { value: sum(buckets.atRisk), items: buckets.atRisk.sort(byValue) },
+    pipeline: { value: sum(buckets.pipeline), items: buckets.pipeline.sort(byValue) },
   };
 }
 
