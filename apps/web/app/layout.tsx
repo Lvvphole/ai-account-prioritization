@@ -26,7 +26,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               <a href="/dashboard">Rep Dashboard</a>
               {can(ctx.role, "view_team_coverage") ? <a href="/manager">Manager</a> : null}
               {can(ctx.role, "edit_scoring_config") ? (
-                <a href="/admin/scoring">Admin · Scoring</a>
+                <a href="/admin">Admin</a>
               ) : null}
               <span className="user-chip">
                 <span className="avatar" aria-hidden="true">
