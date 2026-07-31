@@ -18,15 +18,15 @@ export default async function LoginPage({
     <div className="signin">
       <div className="signin-brand">
         <span className="brand-dot" aria-hidden="true" />
-        <h1>Your verified daily action plan</h1>
+        <h1>Close more of the pipeline you already have</h1>
         <p className="muted">
-          Sign in to see which accounts to contact first — and the evidence behind
-          every rank.
+          Sign in to see where your hours convert to revenue today — and the evidence
+          behind every call.
         </p>
         <ul className="signin-points">
-          <li>Accounts ranked by a deterministic, auditable score</li>
-          <li>Reason codes and verified signals on every recommendation</li>
-          <li>Drafted emails, calls and meetings — gated on your approval</li>
+          <li>Start on the accounts most likely to move, not the loudest ones</li>
+          <li>Catch at-risk renewals and stalled deals before they slip</li>
+          <li>Act in the same minute — the email, call or meeting is already drafted</li>
         </ul>
       </div>
 
