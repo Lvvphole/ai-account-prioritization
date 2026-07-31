@@ -37,6 +37,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                   <span className="user-role">{ctx.role}</span>
                 </span>
               </span>
+              <a className="btn-link" href="/login">
+                Switch Role
+              </a>
               <form action="/auth/signout" method="post" style={{ display: "inline" }}>
                 <button type="submit">Sign Out</button>
               </form>
