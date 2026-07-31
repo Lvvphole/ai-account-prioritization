@@ -29,11 +29,11 @@ export default function HomePage() {
             : "Deterministic · eval-gated · human-approved"}
         </span>
         <h1>
-          Turn CRM noise into a <span className="hl">verified</span> daily action plan
+          Turn CRM noise into <span className="hl">closed revenue</span>
         </h1>
         <p className="hero-sub">
-          Which accounts to contact first, why they matter, what to do next, and the
-          evidence behind it — with a safety gate on every recommendation.
+          Know which accounts to work first, and why. Each one arrives with the
+          evidence and a drafted next step.
         </p>
         <div className="hero-cta">
           <a className="btn-cta" href="/login">
@@ -81,22 +81,22 @@ export default function HomePage() {
 
       <section className="band" id="how">
         <p className="band-label">How it works</p>
-        <h2 className="band-title">Evidence in, ranked plan out</h2>
+        <h2 className="band-title">What happens before you log in</h2>
         <div className="steps">
           <Step
             n="1"
-            title="Ingest & verify"
-            body="CRM signals are pulled and every fact is checked against the record it came from. Unverified evidence fails closed."
+            title="Verify"
+            body="Every signal is checked against the CRM record it came from. Nothing unverified reaches your list."
           />
           <Step
             n="2"
-            title="Score deterministically"
-            body="A fixed, weighted formula ranks every account. Same inputs, same order — the model never decides the ranking."
+            title="Rank"
+            body="A fixed formula orders your accounts by where revenue is most likely to move. The model never sets the order."
           />
           <Step
             n="3"
-            title="Draft & gate"
-            body="A next best action is drafted with its reason codes, then held for human approval before anything reaches a customer."
+            title="Act"
+            body="Each account arrives with a drafted email, call or meeting. You approve before anything sends."
           />
         </div>
       </section>
@@ -122,7 +122,7 @@ export default function HomePage() {
           <Guarantee
             icon="⛁"
             title="Immutable audit"
-            body="Every critical action — publish, block, CRM write — is written once and retained."
+            body="Publishes, blocks and CRM writes are written once and retained."
           />
           <Guarantee
             icon="⚑"

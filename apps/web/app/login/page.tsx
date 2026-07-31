@@ -19,14 +19,11 @@ export default async function LoginPage({
       <div className="signin-brand">
         <span className="brand-dot" aria-hidden="true" />
         <h1>Close more of the pipeline you already have</h1>
-        <p className="muted">
-          Sign in to see where your hours convert to revenue today — and the evidence
-          behind every call.
-        </p>
+        <p className="muted">See Where Your Hours Turn Into Revenue.</p>
         <ul className="signin-points">
-          <li>Start on the accounts most likely to move, not the loudest ones</li>
-          <li>Catch at-risk renewals and stalled deals before they slip</li>
-          <li>Act in the same minute — the email, call or meeting is already drafted</li>
+          <li>Work the accounts most likely to close.</li>
+          <li>Catch at-risk renewals before they slip.</li>
+          <li>Act with the email or call already drafted.</li>
         </ul>
       </div>
 
@@ -34,7 +31,7 @@ export default async function LoginPage({
         <h2>{demo ? "Choose a role to explore" : "Sign in"}</h2>
         <p className="signin-sub">
           {demo
-            ? "No credentials needed — this demo signs you in as the role you pick."
+            ? "No credentials needed. Pick a role to sign in."
             : "Use your work email and password."}
         </p>
 
