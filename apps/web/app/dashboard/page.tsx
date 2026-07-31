@@ -1,6 +1,8 @@
 import type { Recommendation } from "../lib/types";
-import { MOCK_RECOMMENDATIONS, accountProfile } from "../lib/mock-data";
-import { actionLabel, humanizeCode } from "../lib/display";
+import { DEMO_REP_ID, MOCK_RECOMMENDATIONS, accountProfile, repName } from "../lib/mock-data";
+import { actionLabel, formatUsd, humanizeCode, pipelineValue } from "../lib/display";
+import { exportRows } from "../lib/analytics";
+import ExportButtons from "../components/ExportButtons";
 import { requireSession } from "../lib/auth";
 
 function ActionBadge({ rec }: { rec: Recommendation }) {
@@ -24,18 +26,41 @@ export default async function DashboardPage({
 }) {
   await requireSession();
   const { denied } = await searchParams;
-  const recs = [...MOCK_RECOMMENDATIONS].sort((a, b) => a.rank - b.rank);
+  // A rep sees their own book. Managers get the whole team on /manager.
+  const recs = MOCK_RECOMMENDATIONS.filter((r) => r.ownerId === DEMO_REP_ID).sort(
+    (a, b) => a.rank - b.rank,
+  );
+  const pipeline = recs.reduce((sum, r) => sum + pipelineValue(r), 0);
+  const gated = recs.filter(
+    (r) => r.nextBestAction.customerFacing || r.nextBestAction.crmWriteBack,
+  ).length;
+
   return (
     <section>
       <div className="page-header">
         <h1>Rep Dashboard</h1>
-        <p className="muted">Your ranked accounts for today, with evidence and next steps.</p>
+        <p className="muted">
+          {repName(DEMO_REP_ID)} · your ranked accounts for today, with evidence and
+          next steps.
+        </p>
       </div>
       {denied ? (
         <p className="alert" role="alert">
           You don’t have access to that page.
         </p>
       ) : null}
+
+      <div className="kpi-row">
+        <Kpi value={String(recs.length)} label="Accounts Today" />
+        <Kpi value={formatUsd(pipeline)} label="Pipeline in View" />
+        <Kpi value={String(gated)} label="Need Your Approval" tone="warn" />
+      </div>
+
+      <div className="toolbar">
+        <span className="muted">Export your list</span>
+        <ExportButtons rows={exportRows(recs)} filename="my-accounts" />
+      </div>
+
       {recs.map((rec) => {
         const profile = accountProfile(rec.accountId);
         return (
@@ -81,5 +106,22 @@ export default async function DashboardPage({
         );
       })}
     </section>
+  );
+}
+
+function Kpi({
+  value,
+  label,
+  tone,
+}: {
+  value: string;
+  label: string;
+  tone?: "warn" | "bad";
+}) {
+  return (
+    <div className="kpi">
+      <span className={`kpi-val${tone ? ` kpi-${tone}` : ""}`}>{value}</span>
+      <span className="kpi-label">{label}</span>
+    </div>
   );
 }

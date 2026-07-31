@@ -1092,3 +1092,149 @@ select:focus {
     padding: 22px;
   }
 }
+
+/* --- KPI tiles (rep + manager) --- */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.kpi-val {
+  font-size: 22px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-val.kpi-warn {
+  color: var(--warn);
+}
+.kpi-val.kpi-bad {
+  color: var(--bad);
+}
+.kpi-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* --- Card header with an action slot --- */
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.card-sub {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.export-note {
+  align-self: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Wide tables scroll inside the card rather than the page. */
+.table-scroll {
+  overflow-x: auto;
+}
+.table-scroll table {
+  min-width: 560px;
+}
+th.num,
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cell-sub {
+  font-size: 11.5px;
+}
+
+/* --- Trigger distribution --- */
+.trigger-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.trigger-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+}
+.trigger-label {
+  flex: none;
+  width: 168px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.trigger-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: #edf0f5;
+  overflow: hidden;
+}
+.trigger-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #93c5fd, #2563eb);
+}
+.trigger-count {
+  flex: none;
+  width: 24px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Quiet nav link that reads as a control. */
+.btn-link {
+  font-size: 13px;
+  color: var(--muted);
+}
+.btn-link:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  .trigger-label {
+    width: 120px;
+    font-size: 12.5px;
+  }
+  .toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

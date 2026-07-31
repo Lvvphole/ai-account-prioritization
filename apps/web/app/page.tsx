@@ -72,7 +72,7 @@ export default function HomePage() {
             </a>
           </div>
           <ol className="plan">
-            {plan.map((rec) => (
+            {plan.slice(0, 3).map((rec) => (
               <PlanRow key={rec.id} rec={rec} />
             ))}
           </ol>
