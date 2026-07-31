@@ -91,9 +91,10 @@ export default async function ManagerPage() {
       <div className="card">
         <div className="card-head">
           <div>
-            <h3>What’s Triggering Today</h3>
+            <h3>Why These Accounts Surfaced</h3>
             <p className="card-sub">
-              Reason codes across the run. One account can fire several.
+              How often each signal fired across today’s {recs.length} accounts. One
+              account can fire several, so these total more than {recs.length}.
             </p>
           </div>
         </div>
