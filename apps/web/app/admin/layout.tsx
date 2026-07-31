@@ -68,15 +68,16 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
         {recsPaused || sendsPaused ? (
           <p className="cp-paused" role="status">
-            {recsPaused ? "New recommendations are paused. " : ""}
-            {sendsPaused ? "Customer-facing sends are paused. " : ""}
-            The pause is recorded as an audit event and stays in force until an
-            operator resumes it.
+            {recsPaused ? "New recommendations are paused in this console. " : ""}
+            {sendsPaused ? "Customer-facing sends are paused in this console. " : ""}
+            Demo control. It records the operator intent and holds until resumed,
+            but it is not yet wired to the runtime, so processing continues.
           </p>
         ) : (
           <p className="cp-note">
-            Recommendations and customer sends pause independently, so an operator can
-            stop outbound activity without stopping analysis.
+            Recommendations and customer sends pause independently, so stopping
+            outbound activity need not stop analysis. Demo control: it is not yet
+            wired to the runtime.
           </p>
         )}
 
