@@ -38,11 +38,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 </span>
               </span>
               <form action="/auth/signout" method="post" style={{ display: "inline" }}>
-                <button type="submit">Sign out</button>
+                <button type="submit">Sign Out</button>
               </form>
             </>
           ) : (
-            <a href="/login">Sign in</a>
+            <a href="/login">Sign In</a>
           )}
         </nav>
           <main className="container">{children}</main>

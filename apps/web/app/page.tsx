@@ -29,7 +29,7 @@ export default function HomePage() {
             : "Deterministic · eval-gated · human-approved"}
         </span>
         <h1>
-          Turn CRM noise into <span className="hl">closed revenue</span>
+          Turn CRM Noise into <span className="hl">Closed Revenue</span>
         </h1>
         <p className="hero-sub">
           Know which accounts to work first, and why. Each one arrives with the
@@ -37,18 +37,18 @@ export default function HomePage() {
         </p>
         <div className="hero-cta">
           <a className="btn-cta" href="/login">
-            Enter the portal →
+            Enter the Portal →
           </a>
           <a className="btn-ghost" href="#how">
-            How it works
+            How It Works
           </a>
         </div>
 
         <div className="stat-strip">
-          <Stat value={String(plan.length)} label="Accounts ranked today" />
-          <Stat value={formatUsd(pipeline)} label="Pipeline in view" />
-          <Stat value={`${verified}/${signals.length}`} label="Signals verified" />
-          <Stat value={String(MOCK_BLOCKED.length)} label="Held by guardrails" />
+          <Stat value={String(plan.length)} label="Accounts Ranked Today" />
+          <Stat value={formatUsd(pipeline)} label="Pipeline in View" />
+          <Stat value={`${verified}/${signals.length}`} label="Signals Verified" />
+          <Stat value={String(MOCK_BLOCKED.length)} label="Held by Guardrails" />
         </div>
       </div>
 
@@ -64,11 +64,11 @@ export default function HomePage() {
         <div className="preview-body">
           <div className="preview-head">
             <div>
-              <h3>Today’s plan</h3>
+              <h3>Today’s Plan</h3>
               <p className="preview-sub">Ranked by the deterministic scorer · run_demo</p>
             </div>
             <a className="btn-sm" href="/dashboard">
-              View all →
+              View All →
             </a>
           </div>
           <ol className="plan">
@@ -80,8 +80,8 @@ export default function HomePage() {
       </div>
 
       <section className="band" id="how">
-        <p className="band-label">How it works</p>
-        <h2 className="band-title">What happens before you log in</h2>
+        <p className="band-label">How It Works</p>
+        <h2 className="band-title">What Happens Before You Log In</h2>
         <div className="steps">
           <Step
             n="1"
@@ -102,31 +102,31 @@ export default function HomePage() {
       </section>
 
       <section className="band">
-        <p className="band-label">Built on guarantees, not vibes</p>
+        <p className="band-label">Built on Guarantees, Not Vibes</p>
         <div className="guarantees">
           <Guarantee
             icon="◎"
-            title="Deterministic scoring"
+            title="Deterministic Scoring"
             body="Ranking is a pure function of verified inputs. No drift between runs."
           />
           <Guarantee
             icon="≡"
-            title="Reason codes"
+            title="Reason Codes"
             body="Every rank ships with the specific signals that produced it."
           />
           <Guarantee
             icon="✓"
-            title="Human approval"
+            title="Human Approval"
             body="Customer-facing sends are gated on a person, never a prompt."
           />
           <Guarantee
             icon="⛁"
-            title="Immutable audit"
+            title="Immutable Audit"
             body="Publishes, blocks and CRM writes are written once and retained."
           />
           <Guarantee
             icon="⚑"
-            title="Eval-gated CI"
+            title="Eval-Gated CI"
             body="Ranking changes must pass deterministic evals before they ship."
           />
         </div>

@@ -18,7 +18,7 @@ export default async function LoginPage({
     <div className="signin">
       <div className="signin-brand">
         <span className="brand-dot" aria-hidden="true" />
-        <h1>Close more of the pipeline you already have</h1>
+        <h1>Close the Deals Already Hiding in Your Pipeline</h1>
         <p className="muted">See Where Your Hours Turn Into Revenue.</p>
         <ul className="signin-points">
           <li>Work the accounts most likely to close.</li>
@@ -28,7 +28,7 @@ export default async function LoginPage({
       </div>
 
       <div className="signin-card">
-        <h2>{demo ? "Choose a role to explore" : "Sign in"}</h2>
+        <h2>{demo ? "Choose A Role to Explore" : "Sign In"}</h2>
         <p className="signin-sub">
           {demo
             ? "No credentials needed. Pick a role to sign in."
@@ -83,7 +83,7 @@ export default async function LoginPage({
               </label>
             </div>
             <button type="submit" className="btn-primary" style={{ width: "100%" }}>
-              Sign in
+              Sign In
             </button>
           </form>
         )}

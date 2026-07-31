@@ -65,12 +65,12 @@ export default async function DashboardPage({
             ))}
           </div>
           <div>
-            <strong>Next best action:</strong> {rec.nextBestAction.objective}{" "}
+            <strong>Next Best Action:</strong> {rec.nextBestAction.objective}{" "}
             <ActionBadge rec={rec} />
           </div>
           <div style={{ marginTop: 10 }}>
             <a className="btn-sm" href={`/accounts/${rec.accountId}`}>
-              Take action →
+              Take Action →
             </a>
           </div>
           <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
