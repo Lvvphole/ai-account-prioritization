@@ -1,0 +1,138 @@
+{
+  "$ref": "#/definitions/DeadLetterEvent",
+  "definitions": {
+    "DeadLetterEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "domainEventId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "triggerExecutionId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "retry_budget_exhausted",
+            "permanent_action_failure",
+            "invalid_state_transition",
+            "workspace_boundary_violation",
+            "rate_limit_exhausted",
+            "system_error"
+          ]
+        },
+        "errorCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "errorMessage": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attemptCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "open",
+            "replayed",
+            "discarded"
+          ]
+        },
+        "replayExecutionId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolvedBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolutionReason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "domainEventId",
+        "triggerExecutionId",
+        "sourceId",
+        "reason",
+        "errorCode",
+        "errorMessage",
+        "attemptCount",
+        "state",
+        "replayExecutionId",
+        "resolvedBy",
+        "resolutionReason",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

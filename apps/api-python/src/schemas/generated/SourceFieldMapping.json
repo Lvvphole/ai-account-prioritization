@@ -1,0 +1,114 @@
+{
+  "$ref": "#/definitions/SourceFieldMapping",
+  "definitions": {
+    "SourceFieldMapping": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "mappingVersionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "objectType": {
+          "type": "string",
+          "enum": [
+            "account",
+            "contact",
+            "opportunity",
+            "activity",
+            "intent_signal",
+            "account_health",
+            "contract"
+          ]
+        },
+        "sourceField": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "canonicalField": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "mapped",
+            "explicitly_ignored",
+            "quarantined"
+          ]
+        },
+        "transform": {
+          "type": "string",
+          "enum": [
+            "none",
+            "trim",
+            "lowercase",
+            "uppercase",
+            "parse_iso_date",
+            "parse_decimal",
+            "parse_integer",
+            "parse_boolean",
+            "normalize_currency_usd"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "suggestionConfidence": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 500
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "mappingVersionId",
+        "objectType",
+        "sourceField",
+        "canonicalField",
+        "disposition",
+        "transform",
+        "required",
+        "suggestionConfidence",
+        "warning"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

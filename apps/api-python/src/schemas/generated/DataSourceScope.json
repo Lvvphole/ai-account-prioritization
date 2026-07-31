@@ -1,0 +1,97 @@
+{
+  "$ref": "#/definitions/DataSourceScope",
+  "definitions": {
+    "DataSourceScope": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "read",
+            "write"
+          ]
+        },
+        "objectType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "account",
+                "contact",
+                "opportunity",
+                "activity",
+                "intent_signal",
+                "account_health",
+                "contract"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "businessReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "customerFacing": {
+          "type": "boolean"
+        },
+        "approvedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approvedBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "sourceId",
+        "scope",
+        "access",
+        "objectType",
+        "businessReason",
+        "customerFacing",
+        "approvedAt",
+        "approvedBy"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

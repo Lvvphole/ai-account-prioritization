@@ -1,0 +1,206 @@
+{
+  "$ref": "#/definitions/TriggerVersion",
+  "definitions": {
+    "TriggerVersion": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "triggerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "eventType": {
+          "type": "string",
+          "enum": [
+            "account.created",
+            "account.updated",
+            "account.owner_changed",
+            "contact.created",
+            "contact.updated",
+            "contact.opted_out",
+            "opportunity.created",
+            "opportunity.updated",
+            "opportunity.stage_changed",
+            "opportunity.amount_changed",
+            "opportunity.stalled",
+            "activity.created",
+            "intent.detected",
+            "account_health.updated",
+            "account_health.threshold_crossed",
+            "renewal.window_entered",
+            "sync.completed",
+            "manual_import.committed",
+            "manual_import.rolled_back"
+          ]
+        },
+        "audienceFilter": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "tier": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 50
+                  },
+                  "maxItems": 20
+                },
+                "ownerIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "maxItems": 200
+                },
+                "segment": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 50
+                  },
+                  "maxItems": 20
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resultChangeGate": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "topNMembershipChanged": {
+                  "type": "boolean"
+                },
+                "topN": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 500
+                },
+                "minRankDelta": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 500
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "topNMembershipChanged",
+                "topN",
+                "minRankDelta"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "debounceSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "cooldownSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 604800
+        },
+        "maxExecutionsPerHour": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 10000
+        },
+        "retryBudget": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "publishReason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publishedBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publishedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "triggerId",
+        "version",
+        "eventType",
+        "audienceFilter",
+        "resultChangeGate",
+        "debounceSeconds",
+        "cooldownSeconds",
+        "maxExecutionsPerHour",
+        "retryBudget",
+        "publishReason",
+        "publishedBy",
+        "publishedAt",
+        "createdBy",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

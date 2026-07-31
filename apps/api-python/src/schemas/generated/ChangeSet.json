@@ -1,0 +1,95 @@
+{
+  "$ref": "#/definitions/ChangeSet",
+  "definitions": {
+    "ChangeSet": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "newRecords": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updatedRecords": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unchangedRecords": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ownerChanges": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "referentialFailures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicateRecords": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pipelineDeltaUsd": {
+          "type": "number"
+        },
+        "accountsEnteringTopN": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "accountsLeavingTopN": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "predictedGuardrailHolds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "concentrationNotes": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "batchId",
+        "createdAt",
+        "newRecords",
+        "updatedRecords",
+        "unchangedRecords",
+        "ownerChanges",
+        "referentialFailures",
+        "duplicateRecords",
+        "pipelineDeltaUsd",
+        "accountsEnteringTopN",
+        "accountsLeavingTopN",
+        "predictedGuardrailHolds",
+        "concentrationNotes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

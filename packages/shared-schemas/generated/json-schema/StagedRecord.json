@@ -1,0 +1,117 @@
+{
+  "$ref": "#/definitions/StagedRecord",
+  "definitions": {
+    "StagedRecord": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "mappingVersionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "objectType": {
+          "type": "string",
+          "enum": [
+            "account",
+            "contact",
+            "opportunity",
+            "activity",
+            "intent_signal",
+            "account_health",
+            "contract"
+          ]
+        },
+        "externalId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "sourceRowNumber": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rowHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "warning",
+            "quarantined",
+            "rejected",
+            "duplicate"
+          ]
+        },
+        "normalizedPayload": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "fieldTrust": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "verified_structured",
+              "unverified_structured",
+              "untrusted_text",
+              "derived_deterministic",
+              "blocked"
+            ]
+          }
+        },
+        "correctedFromHash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "batchId",
+        "mappingVersionId",
+        "objectType",
+        "externalId",
+        "sourceRowNumber",
+        "rowHash",
+        "disposition",
+        "normalizedPayload",
+        "fieldTrust",
+        "correctedFromHash",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

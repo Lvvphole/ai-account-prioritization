@@ -25,6 +25,39 @@ import {
 } from "./analytics-event";
 import { EvalResultSchema, JudgeVerdictSchema } from "./eval-result";
 import { WorkspaceSchema, WorkspaceMembershipSchema } from "./workspace";
+import {
+  DataSourceSchema,
+  DataSourceScopeSchema,
+  SourceCredentialReferenceSchema,
+  SourceFieldMappingSchema,
+  SourceMappingVersionSchema,
+  SourceSyncCursorSchema,
+  WebhookEnvelopeSchema,
+  McpSourceConfigSchema,
+  ToolPolicySchema,
+} from "./source";
+import {
+  InboundRecordEnvelopeSchema,
+  IngestionBatchSchema,
+  IngestionFileSchema,
+  StagedRecordSchema,
+  IngestionFindingSchema,
+  ChangeSetSchema,
+  ChangeSetItemSchema,
+  ImportApprovalSchema,
+  ImportCommitSchema,
+  ImportRollbackSchema,
+  ExternalRecordLinkSchema,
+} from "./ingestion";
+import {
+  DomainEventSchema,
+  TriggerDefinitionSchema,
+  TriggerVersionSchema,
+  TriggerConditionSchema,
+  TriggerActionSchema,
+  TriggerExecutionSchema,
+  DeadLetterEventSchema,
+} from "./trigger";
 
 export * from "./account";
 export * from "./contact";
@@ -35,6 +68,10 @@ export * from "./feedback";
 export * from "./analytics-event";
 export * from "./eval-result";
 export * from "./workspace";
+export * from "./source";
+export * from "./ingestion";
+export * from "./ingestion-state-machine";
+export * from "./trigger";
 
 /**
  * Registry of every schema that should be emitted as a JSON Schema artifact.
@@ -58,6 +95,39 @@ export const SCHEMA_REGISTRY = {
   JudgeVerdict: JudgeVerdictSchema,
   Workspace: WorkspaceSchema,
   WorkspaceMembership: WorkspaceMembershipSchema,
+
+  // Source registry.
+  DataSource: DataSourceSchema,
+  DataSourceScope: DataSourceScopeSchema,
+  SourceCredentialReference: SourceCredentialReferenceSchema,
+  SourceFieldMapping: SourceFieldMappingSchema,
+  SourceMappingVersion: SourceMappingVersionSchema,
+  SourceSyncCursor: SourceSyncCursorSchema,
+  WebhookEnvelope: WebhookEnvelopeSchema,
+  McpSourceConfig: McpSourceConfigSchema,
+  ToolPolicy: ToolPolicySchema,
+
+  // Ingestion pipeline.
+  InboundRecordEnvelope: InboundRecordEnvelopeSchema,
+  IngestionBatch: IngestionBatchSchema,
+  IngestionFile: IngestionFileSchema,
+  StagedRecord: StagedRecordSchema,
+  IngestionFinding: IngestionFindingSchema,
+  ChangeSet: ChangeSetSchema,
+  ChangeSetItem: ChangeSetItemSchema,
+  ImportApproval: ImportApprovalSchema,
+  ImportCommit: ImportCommitSchema,
+  ImportRollback: ImportRollbackSchema,
+  ExternalRecordLink: ExternalRecordLinkSchema,
+
+  // Events and triggers.
+  DomainEvent: DomainEventSchema,
+  TriggerDefinition: TriggerDefinitionSchema,
+  TriggerVersion: TriggerVersionSchema,
+  TriggerCondition: TriggerConditionSchema,
+  TriggerAction: TriggerActionSchema,
+  TriggerExecution: TriggerExecutionSchema,
+  DeadLetterEvent: DeadLetterEventSchema,
 } satisfies Record<string, z.ZodTypeAny>;
 
 export type SchemaName = keyof typeof SCHEMA_REGISTRY;

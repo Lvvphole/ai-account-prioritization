@@ -1,0 +1,152 @@
+{
+  "$ref": "#/definitions/IngestionBatch",
+  "definitions": {
+    "IngestionBatch": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "awaiting_upload",
+            "awaiting_auth",
+            "received",
+            "security_scanning",
+            "parsing",
+            "mapping",
+            "validating",
+            "ready_for_review",
+            "awaiting_approval",
+            "committing",
+            "committed",
+            "processing_events",
+            "completed",
+            "rejected",
+            "quarantined",
+            "failed",
+            "cancelled",
+            "rolled_back",
+            "partially_rolled_back"
+          ]
+        },
+        "objectType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "account",
+                "contact",
+                "opportunity",
+                "activity",
+                "intent_signal",
+                "account_health",
+                "contract"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mappingVersionId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "businessReason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "totalRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "readyRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warningRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "quarantinedRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rejectedRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicateRows": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "sourceId",
+        "state",
+        "objectType",
+        "mappingVersionId",
+        "name",
+        "businessReason",
+        "createdBy",
+        "createdAt",
+        "totalRows",
+        "readyRows",
+        "warningRows",
+        "quarantinedRows",
+        "rejectedRows",
+        "duplicateRows"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

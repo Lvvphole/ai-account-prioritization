@@ -1,0 +1,71 @@
+{
+  "$ref": "#/definitions/ImportCommit",
+  "definitions": {
+    "ImportCommit": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "changeSetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approvalId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "committedBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "committedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordsCreated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recordsUpdated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rolledBackByCommitId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "batchId",
+        "changeSetId",
+        "approvalId",
+        "committedBy",
+        "committedAt",
+        "recordsCreated",
+        "recordsUpdated",
+        "rolledBackByCommitId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

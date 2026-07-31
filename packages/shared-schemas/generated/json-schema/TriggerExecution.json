@@ -1,0 +1,167 @@
+{
+  "$ref": "#/definitions/TriggerExecution",
+  "definitions": {
+    "TriggerExecution": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "triggerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "triggerVersionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "domainEventId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "running",
+            "succeeded",
+            "skipped_debounced",
+            "skipped_cooldown",
+            "skipped_condition",
+            "skipped_rate_limited",
+            "failed",
+            "dead_lettered"
+          ]
+        },
+        "conditionsMatched": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "actionsRun": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "recompute_affected_account",
+              "recompute_owner_book",
+              "create_manager_attention_item",
+              "hold_recommendation",
+              "notify_admin",
+              "notify_manager",
+              "notify_account_owner",
+              "start_delta_reconciliation"
+            ]
+          },
+          "maxItems": 20
+        },
+        "affectedAccountIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxItems": 1000
+        },
+        "prioritizationRunId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attemptCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "errorCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "errorMessage": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "isReplay": {
+          "type": "boolean"
+        },
+        "replayOfExecutionId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "triggerId",
+        "triggerVersionId",
+        "domainEventId",
+        "state",
+        "conditionsMatched",
+        "actionsRun",
+        "affectedAccountIds",
+        "prioritizationRunId",
+        "attemptCount",
+        "correlationId",
+        "errorCode",
+        "errorMessage",
+        "isReplay",
+        "replayOfExecutionId",
+        "startedAt",
+        "completedAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

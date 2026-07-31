@@ -1,0 +1,182 @@
+{
+  "$ref": "#/definitions/IngestionFinding",
+  "definitions": {
+    "IngestionFinding": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batchId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stagedRecordId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "domainEventId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "findingClass": {
+          "type": "string",
+          "enum": [
+            "file_security",
+            "authentication",
+            "authorization",
+            "workspace_boundary",
+            "schema",
+            "mapping",
+            "identity",
+            "referential_integrity",
+            "duplicate",
+            "replay",
+            "resource_limit",
+            "data_anomaly",
+            "untrusted_text",
+            "prompt_injection_pattern",
+            "credential",
+            "malware",
+            "system_error"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "high",
+            "critical"
+          ]
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "open",
+            "corrected",
+            "ignored_with_reason",
+            "rejected_record",
+            "rejected_batch",
+            "hard_block"
+          ]
+        },
+        "ruleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "canonicalField": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 255
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "redactedValue": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 500
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "downstreamImpact": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewedBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolutionReason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "batchId",
+        "stagedRecordId",
+        "domainEventId",
+        "findingClass",
+        "severity",
+        "disposition",
+        "ruleId",
+        "canonicalField",
+        "redactedValue",
+        "explanation",
+        "downstreamImpact",
+        "reviewedBy",
+        "resolutionReason",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

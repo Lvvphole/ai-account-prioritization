@@ -1,0 +1,110 @@
+{
+  "$ref": "#/definitions/TriggerCondition",
+  "definitions": {
+    "TriggerCondition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "triggerVersionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "objectType": {
+          "type": "string",
+          "enum": [
+            "account",
+            "contact",
+            "opportunity",
+            "activity",
+            "intent_signal",
+            "account_health",
+            "contract"
+          ]
+        },
+        "canonicalField": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "operator": {
+          "type": "string",
+          "enum": [
+            "equals",
+            "not_equals",
+            "in",
+            "not_in",
+            "greater_than",
+            "greater_than_or_equal",
+            "less_than",
+            "less_than_or_equal",
+            "changed",
+            "changed_from",
+            "changed_to",
+            "exists",
+            "not_exists",
+            "within_days"
+          ]
+        },
+        "value": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  },
+                  "maxItems": 50
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "triggerVersionId",
+        "objectType",
+        "canonicalField",
+        "operator",
+        "value",
+        "ordinal"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
