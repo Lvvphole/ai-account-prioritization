@@ -37,7 +37,7 @@ export default function AdminPolicyPage() {
 
       <Section
         title="Factor Weights"
-        sub={`Policy v12 · weights total ${totalWeight}%. A factor contributes nothing unless its trigger is met.`}
+        sub={`Policy v12 · weights total ${totalWeight}%. Mirrors the runtime scorer: each feature is clamped to 0–1 and scaled continuously toward saturation, then multiplied by its weight.`}
       >
         <div className="table-scroll">
           <table>
@@ -45,7 +45,7 @@ export default function AdminPolicyPage() {
               <tr>
                 <th>Factor</th>
                 <th className="num">Weight</th>
-                <th>Trigger</th>
+                <th>Scaling</th>
                 <th className="num">Max contribution</th>
               </tr>
             </thead>
@@ -56,7 +56,7 @@ export default function AdminPolicyPage() {
                     <strong>{f.factor}</strong>
                   </td>
                   <td className="num">{f.weight}%</td>
-                  <td className="muted">{f.trigger}</td>
+                  <td className="muted">{f.scaling}</td>
                   <td className="num">{f.maxContribution}</td>
                 </tr>
               ))}

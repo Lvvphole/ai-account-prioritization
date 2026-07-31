@@ -33,8 +33,23 @@ export interface SystemState {
   activeIncidents: number;
 }
 
+/**
+ * Environment is read from the deploy rather than hardcoded, so a staging build
+ * cannot render a PRODUCTION badge. The operational counters below are sample
+ * data: wiring them to live telemetry needs a metrics backend this demo does
+ * not deploy, and the console says so rather than implying the numbers are real.
+ */
+function detectEnvironment(): SystemState["environment"] {
+  const env = process.env.VERCEL_ENV ?? process.env.NODE_ENV;
+  if (env === "production") return "Production";
+  if (env === "preview" || env === "staging") return "Staging";
+  return "Development";
+}
+
+export const TELEMETRY_IS_SAMPLE = true;
+
 export const SYSTEM: SystemState = {
-  environment: "Production",
+  environment: detectEnvironment(),
   policyVersion: "v12",
   promptVersion: "draft-2026.06.3",
   lastRunAt: "2:02 PM",
@@ -166,7 +181,7 @@ export interface LineageHop {
 }
 
 export const LINEAGE_EXAMPLE: LineageHop[] = [
-  { layer: "Recommendation", ref: "rec_1", detail: "Helios Manufacturing · rank 1 · score 73.63" },
+  { layer: "Recommendation", ref: "rec_1", detail: "Helios Manufacturing · rank 1 · score 69.3" },
   { layer: "Signal", ref: "sig_acc_001_pipeline", detail: "Open pipeline of $180,000 · verified" },
   { layer: "Source record", ref: "Account/0016000000ABCDE", detail: "Salesforce · OpenPipelineUsd" },
   { layer: "Integration run", ref: "sync_2026_06_25_1401", detail: "Salesforce · 8,412 records · 2:01 PM" },
@@ -177,17 +192,23 @@ export const LINEAGE_EXAMPLE: LineageHop[] = [
 export interface PolicyFactor {
   factor: string;
   weight: number;
-  trigger: string;
+  scaling: string;
   maxContribution: number;
 }
 
+/**
+ * Mirrors RUNTIME_CONFIG.scoringWeights and extractFeatures() in the runtime.
+ * Each feature is clamped to 0..1 and scaled continuously toward a saturation
+ * point — it is NOT a threshold that switches a fixed bonus on. Showing
+ * triggers here would describe an algorithm the scorer does not run.
+ */
 export const POLICY_FACTORS: PolicyFactor[] = [
-  { factor: "Open pipeline", weight: 25, trigger: "Greater than $50,000", maxContribution: 25 },
-  { factor: "Verified intent", weight: 20, trigger: "Event within 14 days", maxContribution: 20 },
-  { factor: "Renewal proximity", weight: 15, trigger: "Renewal within 90 days", maxContribution: 15 },
-  { factor: "Account tier", weight: 15, trigger: "Enterprise or Mid-market", maxContribution: 15 },
-  { factor: "Contact inactivity", weight: 15, trigger: "No contact for 14 days", maxContribution: 15 },
-  { factor: "Account health", weight: 10, trigger: "Health below 40", maxContribution: 10 },
+  { factor: "Open pipeline", weight: 25, scaling: "Linear to $250,000 saturation", maxContribution: 25 },
+  { factor: "Verified intent", weight: 20, scaling: "Linear to 3 verified signals", maxContribution: 20 },
+  { factor: "Contact staleness", weight: 15, scaling: "Linear to 30 days; missing contact data counts as maximally stale", maxContribution: 15 },
+  { factor: "Account tier", weight: 15, scaling: "Strategic 1.0 · Enterprise 0.8 · Mid-market 0.5 · SMB 0.3", maxContribution: 15 },
+  { factor: "Lifecycle stage", weight: 15, scaling: "Churn risk 1.0 · Renewal 0.9 · Open opportunity 0.8 · Prospect 0.5 · Customer 0.4 · Dormant 0.2", maxContribution: 15 },
+  { factor: "Health risk", weight: 10, scaling: "(100 − health) / 100; unknown health is neutral at 0.5", maxContribution: 10 },
 ];
 
 export const POLICY_RULES: { label: string; value: string }[] = [
@@ -199,6 +220,7 @@ export const POLICY_RULES: { label: string; value: string }[] = [
   { label: "Minimum evidence", value: "1 verified signal; unverified evidence fails closed" },
   { label: "Tie-breaking", value: "Higher confidence, then larger revenue, then account id" },
   { label: "Priority bands", value: "High ≥ 65 · Medium 45–64 · Standard < 45" },
+  { label: "Reason-code thresholds", value: "Separate from the weights: high_open_pipeline ≥ $50,000 · stale_no_contact ≥ 14 days · churn_risk_detected below health 40" },
 ];
 
 export interface PolicyVersion {
@@ -217,7 +239,7 @@ export const POLICY_VERSIONS: PolicyVersion[] = [
     version: "v13",
     state: "evaluating",
     owner: "Dana Whitfield",
-    rationale: "Raise renewal proximity so at-risk ARR outranks cold pipeline.",
+    rationale: "Raise health risk 10% → 15%, taking 5% from pipeline, so exposed ARR outranks cold pipeline.",
     evalResult: "Running · 18 of 23 checks",
     approver: "—",
     effective: "—",
@@ -227,7 +249,7 @@ export const POLICY_VERSIONS: PolicyVersion[] = [
     version: "v12",
     state: "live",
     owner: "Dana Whitfield",
-    rationale: "Add contact inactivity at 15% after Q1 churn review.",
+    rationale: "Add contact staleness at 15% after the Q1 churn review.",
     evalResult: "23 of 23 passed",
     approver: "Priya Raman",
     effective: "12 Jun 2026",
@@ -489,7 +511,14 @@ export const RUNS: RunRecord[] = [
   },
 ];
 
-/** One decision, reconstructed end to end. */
+/**
+ * One decision, reconstructed end to end.
+ *
+ * The contributions below are the real arithmetic: feature (clamped 0..1) times
+ * weight, summed, times 100 — exactly what scoreAccount does. They add to
+ * finalScore. Publishing an inspector whose numbers did not reconcile would
+ * defeat the point of having one.
+ */
 export const INSPECTED = {
   runId: "run_2026_06_25_1400",
   recommendationId: "rec_1",
@@ -499,16 +528,16 @@ export const INSPECTED = {
   policyVersion: "v12",
   promptVersion: "draft-2026.06.3",
   dataSnapshot: "snap_1401",
-  finalScore: 73.63,
+  finalScore: 69.3,
   finalRank: 1,
   confidence: 0.83,
   contributions: [
-    { factor: "Open pipeline", raw: "$180,000", weight: 25, contribution: 25 },
-    { factor: "Verified intent", raw: "pricing_page_visit, 2d ago", weight: 20, contribution: 20 },
-    { factor: "Account tier", raw: "Enterprise", weight: 15, contribution: 15 },
-    { factor: "Contact inactivity", raw: "9 days", weight: 15, contribution: 0 },
-    { factor: "Renewal proximity", raw: "No renewal within 90d", weight: 15, contribution: 0 },
-    { factor: "Account health", raw: "72", weight: 10, contribution: 0 },
+    { factor: "Open pipeline", raw: "$180,000 of $250,000 → 0.72", weight: 25, contribution: 18 },
+    { factor: "Verified intent", raw: "3 of 3 signals → 1.00", weight: 20, contribution: 20 },
+    { factor: "Account tier", raw: "Enterprise → 0.80", weight: 15, contribution: 12 },
+    { factor: "Lifecycle stage", raw: "Open opportunity → 0.80", weight: 15, contribution: 12 },
+    { factor: "Contact staleness", raw: "9 of 30 days → 0.30", weight: 15, contribution: 4.5 },
+    { factor: "Health risk", raw: "Health 72 → (100−72)/100 = 0.28", weight: 10, contribution: 2.8 },
   ] as ScoreContribution[],
   reasonCodes: ["high_open_pipeline", "verified_intent_signal", "stalled_opportunity"],
   guardrails: [
