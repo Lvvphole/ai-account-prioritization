@@ -66,8 +66,11 @@ manager view, and writes an audit entry.
   stable tie-break. The same inputs produce an identical run.
 - **Explainable by construction.** Closed-set reason codes plus a narrative
   templated from verified signals, so it cannot contain fabricated claims.
-- **Traceable evidence.** Each signal names its source system, source record, and
-  observation time. Signals without recorded lineage are flagged, never invented.
+- **Traceable evidence.** The signal contract carries `kind`, `refId`,
+  `description`, and `verified`. The web workspace joins those against a
+  provenance map to show source system, source record, and observation time.
+  That map is demo data today, and signals missing from it are flagged rather
+  than filled in. Moving lineage into `SourceSignalSchema` is open work.
 - **Honest measures.** Priority score, evidence confidence, and win probability
   are three different things. The UI keeps them separate and states that neither
   score nor confidence predicts a win.
@@ -169,11 +172,14 @@ The scorer and the drafter have separate sections on purpose. They fail
 differently, are measured differently, and roll back differently. A policy change
 re-ranks every rep's day. A prompt change alters wording.
 
-Two operator guarantees. Pausing recommendations and pausing customer-facing
-sends are independent controls, so outbound activity can stop while analysis
-continues. Policy is read-only by default, and a change is drafted, simulated
-against historical accounts, evaluated, and approved before it reaches
-production.
+Policy is read-only by default. A change is drafted, simulated against
+historical accounts, evaluated, and approved before it reaches production.
+
+The pause controls model the intended split, where stopping customer-facing
+sends is independent of stopping analysis. They are demo-only. `POST
+/admin/controls` sets a browser cookie that the admin console reads back, and
+nothing in the runtime or the send path consults it. Wiring them to shared
+runtime state with durable audit evidence is open work.
 
 ## Architecture
 
@@ -369,9 +375,11 @@ evidence provenance, drafted email, call, and meeting actions, and exports.
 Managers get an exception queue and a revenue split. Admins get the ten-section
 control plane with working pause controls and a run inspector.
 
-Remaining work is operational: provisioning Supabase, Sentry, and Langfuse, and
-wiring the control plane to live telemetry. Operational counters in the admin
-console are sample data, and the console says so.
+Remaining work is operational. Provision Supabase, Sentry, and Langfuse. Wire
+the control plane to live telemetry, since its counters are sample data. Wire
+the pause controls to shared runtime state, since today they only affect the
+console. Move signal lineage into the shared schema so provenance travels with
+the contract instead of a web-side map.
 
 ## Contributing
 
