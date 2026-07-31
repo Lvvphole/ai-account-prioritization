@@ -59,3 +59,27 @@ export function formatUsd(amount: number): string {
   if (amount >= 1000) return `$${Math.round(amount / 1000)}K`;
   return `$${amount}`;
 }
+
+/**
+ * Evidence confidence: how complete and verified the supporting data is.
+ *
+ * Deliberately NOT rendered as a bare percentage beside the priority score.
+ * Two adjacent numbers ("73.6" and "83%") read as a calibrated likelihood of
+ * winning the account, which this system does not compute. Priority score
+ * compares accounts with each other; evidence confidence describes the data
+ * underneath. Neither is a win probability.
+ */
+export interface EvidenceBand {
+  label: string;
+  tone: "high" | "medium" | "low";
+}
+
+export function evidenceBand(confidence: number): EvidenceBand {
+  if (confidence >= 0.75) return { label: "High evidence confidence", tone: "high" };
+  if (confidence >= 0.5) return { label: "Medium evidence confidence", tone: "medium" };
+  return { label: "Limited evidence", tone: "low" };
+}
+
+/** The one-line disclaimer that keeps the two numbers from being conflated. */
+export const NOT_A_WIN_PROBABILITY =
+  "Priority ranks accounts against each other. Evidence confidence describes the data behind the rank. Neither is a probability of winning the account.";
