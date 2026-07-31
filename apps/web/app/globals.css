@@ -885,13 +885,17 @@ select:focus {
 .signin {
   display: grid;
   grid-template-columns: 1fr 400px;
-  align-items: center;
+  /* stretch, not center, so the hued panel matches the entry card's height */
+  align-items: stretch;
   gap: 44px;
   max-width: 900px;
   margin: 0 auto;
   padding: 40px 0 32px;
 }
 .signin-brand {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   padding: 30px 30px 32px;
   border-radius: 20px;
   background: linear-gradient(
