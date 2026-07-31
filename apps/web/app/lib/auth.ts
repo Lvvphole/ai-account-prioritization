@@ -29,7 +29,9 @@ export async function getSessionContext(): Promise<SessionContext | null> {
     // Demo mode: the chosen role is carried in a cookie so Rep vs Manager vs
     // Admin each get a coherent portal experience.
     const role = normalizeRole((await cookies()).get("demo_role")?.value);
-    return { userId: "demo", email: `demo · ${role}`, role };
+    // Identity only — the role travels in `role`. Embedding it here too made the
+    // nav render it twice ("demo · rep · rep").
+    return { userId: "demo", email: "Demo user", role };
   }
   const supabase = await createClient();
   const {

@@ -28,8 +28,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               {can(ctx.role, "edit_scoring_config") ? (
                 <a href="/admin/scoring">Admin · Scoring</a>
               ) : null}
-              <span className="muted" style={{ marginLeft: "auto" }}>
-                {ctx.email} · {ctx.role}
+              <span className="user-chip">
+                <span className="avatar" aria-hidden="true">
+                  {(ctx.email ?? "?").charAt(0).toUpperCase()}
+                </span>
+                <span className="user-meta">
+                  <span className="user-name">{ctx.email}</span>
+                  <span className="user-role">{ctx.role}</span>
+                </span>
               </span>
               <form action="/auth/signout" method="post" style={{ display: "inline" }}>
                 <button type="submit">Sign out</button>
