@@ -891,13 +891,16 @@ select:focus {
   margin: 0 auto;
   padding: 40px 0 32px;
 }
-.signin-brand .brand-dot {
-  /* .brand-dot is an inline span sized by the nav's flex context; outside it
-     the box needs to be blockified for width/height to apply. */
-  display: block;
-  width: 30px;
-  height: 30px;
-  margin-bottom: 16px;
+.signin-brand {
+  padding: 30px 30px 32px;
+  border-radius: 20px;
+  background: linear-gradient(
+    158deg,
+    rgba(96, 165, 250, 0.14),
+    rgba(167, 139, 250, 0.11) 62%,
+    rgba(244, 114, 182, 0.09)
+  );
+  border: 1px solid rgba(37, 99, 235, 0.13);
 }
 .signin-brand h1 {
   font-size: clamp(26px, 3.4vw, 34px);
@@ -1075,9 +1078,7 @@ select:focus {
   }
   .signin-brand {
     text-align: center;
-  }
-  .signin-brand .brand-dot {
-    margin-inline: auto;
+    padding: 24px 20px 26px;
   }
   .signin-points {
     display: inline-block;

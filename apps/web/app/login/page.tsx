@@ -17,9 +17,8 @@ export default async function LoginPage({
   return (
     <div className="signin">
       <div className="signin-brand">
-        <span className="brand-dot" aria-hidden="true" />
-        <h1>Close the Deals Already Hiding in Your Pipeline</h1>
-        <p className="muted">See Where Your Hours Turn Into Revenue.</p>
+        <h1>Close the Deals Hiding in Your Pipeline.</h1>
+        <p className="muted">Your Accounts, Ranked by What’s Most Likely to Close.</p>
         <ul className="signin-points">
           <li>Work the accounts most likely to close.</li>
           <li>Catch at-risk renewals before they slip.</li>
