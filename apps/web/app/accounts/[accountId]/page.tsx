@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { accountProfile, accountValue, getRecommendation, repName } from "../../lib/mock-data";
 import {
   OUTCOME_LABEL,
@@ -25,10 +26,14 @@ import FeedbackPanel from "../../components/FeedbackPanel";
  */
 export default async function AccountDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ accountId: string }>;
+  searchParams: Promise<{ feedback?: string }>;
 }) {
   const { accountId } = await params;
+  const { feedback } = await searchParams;
+  const recordedFeedback = (await cookies()).get(`fb_${accountId}`)?.value;
   const rec = getRecommendation(accountId);
   const profile = accountProfile(accountId);
 
@@ -92,8 +97,8 @@ export default async function AccountDetailPage({
           <div>
             <h3>Verified Evidence</h3>
             <p className="card-sub">
-              Every reason below is traceable to a source record. Unverified evidence
-              never reaches this page.
+              Each reason should trace to a source record. Anything without recorded
+              lineage is flagged rather than filled in.
             </p>
           </div>
         </div>
@@ -114,13 +119,17 @@ export default async function AccountDetailPage({
                 return (
                   <tr key={`${s.refId}-${i}`}>
                     <td>{s.description}</td>
-                    <td className="muted">{p.sourceSystem}</td>
-                    <td className="muted mono">{p.sourceRecord}</td>
-                    <td className="muted">{p.observed}</td>
+                    <td className="muted">{p ? p.sourceSystem : "—"}</td>
+                    <td className="muted mono">{p ? p.sourceRecord : "—"}</td>
+                    <td className="muted">{p ? p.observed : "—"}</td>
                     <td>
-                      <span className={`badge ${s.verified ? "tag-good" : "tag-bad"}`}>
-                        {s.verified ? p.basis : "unverified"}
-                      </span>
+                      {!s.verified ? (
+                        <span className="badge tag-bad">unverified</span>
+                      ) : p ? (
+                        <span className="badge tag-good">{p.basis}</span>
+                      ) : (
+                        <span className="badge tag-warn">lineage not recorded</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -300,7 +309,12 @@ Run:      ${rec.runId} · policy v12`}
             </p>
           </div>
         </div>
-        <FeedbackPanel account={profile?.name ?? accountId} />
+        <FeedbackPanel
+          accountId={accountId}
+          account={profile?.name ?? accountId}
+          recorded={recordedFeedback}
+          failed={feedback === "error"}
+        />
       </div>
 
       {/* 6 — Safety verification, last because it is reassurance not decision input. */}

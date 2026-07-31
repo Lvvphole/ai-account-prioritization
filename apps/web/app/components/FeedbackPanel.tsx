@@ -8,24 +8,37 @@ import { FEEDBACK_REASONS } from "../lib/account-context";
  *
  * Each reason states what it actually changes — this recommendation, future
  * recommendations for the account, a review queue, or effectiveness reporting —
- * before the rep commits to it. Telling someone their input "improves the
- * model" without saying when or how is not meaningful.
+ * before the rep commits to it.
+ *
+ * Submission is a real POST. The confirmation is rendered by the server from
+ * what was persisted, so the panel can never claim feedback was recorded when
+ * it was not.
  */
-export default function FeedbackPanel({ account }: { account: string }) {
+export default function FeedbackPanel({
+  accountId,
+  account,
+  recorded,
+  failed,
+}: {
+  accountId: string;
+  account: string;
+  recorded?: string;
+  failed?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
 
-  const effect = FEEDBACK_REASONS.find((r) => r.reason === selected)?.effect;
-
-  if (sent) {
+  if (recorded) {
+    const effect = FEEDBACK_REASONS.find((r) => r.reason === recorded)?.effect;
     return (
       <div className="feedback sent">
-        <strong>Feedback recorded for {account}.</strong>
+        <strong>
+          Recorded for {account}: {recorded}
+        </strong>
         <p className="muted">{effect}</p>
         <p className="note">
-          Recorded locally in this demo. In production this writes an audit event
-          and, where the reason calls for it, opens a review queue item.
+          Persisted and written to the activity log. In production this is an
+          immutable audit event, and reasons that call for it enqueue a review item.
         </p>
       </div>
     );
@@ -33,12 +46,19 @@ export default function FeedbackPanel({ account }: { account: string }) {
 
   return (
     <div className="feedback">
+      {failed ? (
+        <p className="alert" role="alert">
+          That feedback was not recorded. Pick a reason and submit again.
+        </p>
+      ) : null}
+
       <button className="action-btn" onClick={() => setOpen((v) => !v)}>
         {open ? "Close feedback" : "Report a problem with this recommendation"}
       </button>
 
       {open ? (
-        <div className="feedback-body">
+        <form action="/api/feedback" method="post" className="feedback-body">
+          <input type="hidden" name="accountId" value={accountId} />
           <p className="card-sub">
             Pick the reason that fits. Each one changes something different.
           </p>
@@ -50,7 +70,7 @@ export default function FeedbackPanel({ account }: { account: string }) {
               >
                 <input
                   type="radio"
-                  name="feedback"
+                  name="reason"
                   value={r.reason}
                   checked={selected === r.reason}
                   onChange={() => setSelected(r.reason)}
@@ -62,14 +82,10 @@ export default function FeedbackPanel({ account }: { account: string }) {
               </label>
             ))}
           </div>
-          <button
-            className="action-btn btn-primary"
-            disabled={!selected}
-            onClick={() => setSent(true)}
-          >
+          <button type="submit" className="action-btn btn-primary" disabled={!selected}>
             Submit feedback
           </button>
-        </div>
+        </form>
       ) : null}
     </div>
   );

@@ -37,15 +37,14 @@ const PROVENANCE: SignalProvenance[] = [
   { refId: "opp_008", sourceSystem: "Salesforce", sourceRecord: "Opportunity/0066000000QRSTU", observed: "Today, 2:01 PM", basis: "verified" },
 ];
 
-const DERIVED_FALLBACK: Omit<SignalProvenance, "refId"> = {
-  sourceSystem: "Derived",
-  sourceRecord: "CRM stage + activity history",
-  observed: "Today, 2:02 PM",
-  basis: "derived",
-};
-
-export function provenanceFor(refId: string): SignalProvenance {
-  return PROVENANCE.find((p) => p.refId === refId) ?? { refId, ...DERIVED_FALLBACK };
+/**
+ * Fails closed. An unknown refId means lineage was never recorded for that
+ * signal, and inventing a plausible source record would hide a data-quality
+ * failure behind a page that promises every reason is traceable. Callers must
+ * render the gap instead.
+ */
+export function provenanceFor(refId: string): SignalProvenance | null {
+  return PROVENANCE.find((p) => p.refId === refId) ?? null;
 }
 
 /* -------------------------------------------------------- workflow state */

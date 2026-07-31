@@ -149,13 +149,17 @@ export default async function ManagerPage() {
             </a>
           </li>
           <li>
-            <a href="/admin/data">
+            {/* Investigating a source needs edit_scoring_config, which managers
+                do not hold. Surface it as an escalation rather than a link that
+                would bounce them to a denial. */}
+            <span className="queue-static">
               <span className="queue-count q-bad">1</span>
               <span className="queue-label">
                 Data-quality gap affecting the team · contact email permission missing
+                from HubSpot
               </span>
-              <span className="queue-go">→</span>
-            </a>
+              <span className="queue-esc">Escalate to an admin</span>
+            </span>
           </li>
         </ul>
       </div>
