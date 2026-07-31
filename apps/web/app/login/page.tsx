@@ -20,7 +20,7 @@ export default async function LoginPage({
         <h1>Close the Deals Hiding in Your Pipeline.</h1>
         <p className="muted">Your Accounts, Ranked and Drafted, Ready to Close.</p>
         <ul className="signin-points">
-          <li>Work the accounts most likely to close.</li>
+          <li>Work the accounts that need you most today.</li>
           <li>Catch at-risk renewals before they slip.</li>
           <li>Act with the email or call already drafted.</li>
         </ul>
