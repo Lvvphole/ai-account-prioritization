@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  RuntimeModelError,
   attachHybridActionDraft,
   buildVerifiedDraftContext,
+  createRuntimeDraftRunBudget,
+  createSeedStore,
+  resetStore,
+  runDailyPrioritizationForOwner,
   validateDraftGrounding,
   type RuntimeDraftingPolicy,
   type RuntimeModelClient,
+  type RuntimeModelRequest,
 } from "agent-runtime";
 import { GeneratedDraftSchema, type Account, type Recommendation } from "@repo/shared-schemas";
 
@@ -75,6 +81,10 @@ const basePolicy: RuntimeDraftingPolicy = {
   model: "pinned-test-model",
   timeoutMs: 1000,
   maxTokens: 200,
+  maxInputTokens: 4000,
+  maxSignals: 6,
+  maxConcurrent: 2,
+  maxRunTokens: 20000,
   maxAttempts: 1,
   fallback: "template",
 };
@@ -93,6 +103,19 @@ const clientReturning = (output: unknown): RuntimeModelClient => ({
     };
   },
 });
+
+const contextFromRequest = (request: RuntimeModelRequest) => {
+  const start = "SOURCE_DATA_START\n";
+  const end = "\nSOURCE_DATA_END";
+  const json = request.user.slice(
+    request.user.indexOf(start) + start.length,
+    request.user.lastIndexOf(end),
+  );
+  return JSON.parse(json) as {
+    actionType: Recommendation["nextBestAction"]["type"];
+    signals: Array<{ id: string; description: string }>;
+  };
+};
 
 describe("runtime drafting contract", () => {
   it("accepts strict grounded candidate language without changing action authority", async () => {
@@ -121,6 +144,7 @@ describe("runtime drafting contract", () => {
     expect(result.outcome.policyVersion).toBeTruthy();
     expect(result.outcome.groundingVersion).toBeTruthy();
     expect(result.outcome.fallbackVersion).toBeTruthy();
+    expect(result.outcome.inputTokenUpperBound).toBeLessThanOrEqual(basePolicy.maxInputTokens);
   });
 
   it("rejects model attempts to mutate the deterministic action", () => {
@@ -174,6 +198,34 @@ describe("runtime drafting contract", () => {
     expect(grounding.failedGates).toContain("DRAFT_CLAIM_NOT_GROUNDED");
   });
 
+  it("rejects deletion of source negation that reverses factual polarity", () => {
+    const staleRecommendation: Recommendation = {
+      ...recommendation,
+      sourceSignals: [
+        {
+          kind: "derived",
+          refId: "acc_draft",
+          description: "No logged contact for 90 days.",
+          verified: true,
+        },
+      ],
+    };
+    const verified = buildVerifiedDraftContext(staleRecommendation, context);
+    const parsed = GeneratedDraftSchema.parse({
+      schemaVersion: "1.0",
+      actionType: "call",
+      sentences: [
+        {
+          text: "Logged contact for 90 days.",
+          sourceSignalIds: ["acc_draft"],
+        },
+      ],
+    });
+    const grounding = validateDraftGrounding(parsed, verified);
+    expect(grounding.passed).toBe(false);
+    expect(grounding.failedGates).toContain("DRAFT_POLARITY_MISMATCH");
+  });
+
   it("preserves all verified signals that share one source record id", () => {
     const sharedSourceRecommendation: Recommendation = {
       ...recommendation,
@@ -205,6 +257,147 @@ describe("runtime drafting contract", () => {
     });
     const grounding = validateDraftGrounding(parsed, verified);
     expect(grounding.passed).toBe(true);
+  });
+
+  it("caps model-visible evidence and keeps action-relevant ordering", async () => {
+    const manySignals: Recommendation = {
+      ...recommendation,
+      sourceSignals: [
+        {
+          kind: "derived",
+          refId: "sig_stale",
+          description: "No logged contact for 90 days.",
+          verified: true,
+        },
+        {
+          kind: "opportunity",
+          refId: "sig_pipeline",
+          description: "Acme Manufacturing has 50000 in open pipeline",
+          verified: true,
+        },
+        {
+          kind: "account",
+          refId: "sig_health",
+          description: "Account health score is 40",
+          verified: true,
+        },
+      ],
+    };
+    let visibleSignals: Array<{ id: string; description: string }> = [];
+    const capturingClient: RuntimeModelClient = {
+      async generate(request) {
+        const visible = contextFromRequest(request);
+        visibleSignals = visible.signals;
+        return {
+          output: {
+            schemaVersion: "1.0",
+            actionType: visible.actionType,
+            sentences: [
+              {
+                text: visible.signals[0]?.description,
+                sourceSignalIds: [visible.signals[0]?.id],
+              },
+            ],
+          },
+          telemetry: {
+            provider: "anthropic",
+            model: "pinned-test-model",
+            latencyMs: 1,
+          },
+        };
+      },
+    };
+
+    const result = await attachHybridActionDraft(manySignals, context, {
+      policy: { ...basePolicy, maxSignals: 1 },
+      modelClient: capturingClient,
+    });
+    expect(result.outcome.source).toBe("model");
+    expect(visibleSignals).toHaveLength(1);
+    expect(visibleSignals[0]?.id).toBe("sig_pipeline");
+  });
+
+  it("fails before provider invocation when the input budget cannot fit verified context", async () => {
+    let calls = 0;
+    const client: RuntimeModelClient = {
+      async generate() {
+        calls += 1;
+        return clientReturning({}).generate({ system: "", user: "" }, basePolicy);
+      },
+    };
+    const result = await attachHybridActionDraft(recommendation, context, {
+      policy: { ...basePolicy, maxInputTokens: 256 },
+      modelClient: client,
+    });
+    expect(result.outcome.source).toBe("template_fallback");
+    expect(result.outcome.failureCode).toBe("DRAFT_INPUT_BUDGET_EXCEEDED");
+    expect(calls).toBe(0);
+  });
+
+  it("fails before provider invocation when the shared run token budget is exhausted", async () => {
+    let calls = 0;
+    const client: RuntimeModelClient = {
+      async generate() {
+        calls += 1;
+        return clientReturning({}).generate({ system: "", user: "" }, basePolicy);
+      },
+    };
+    const runBudget = createRuntimeDraftRunBudget(1);
+    const result = await attachHybridActionDraft(recommendation, context, {
+      policy: basePolicy,
+      modelClient: client,
+      runBudget,
+    });
+    expect(result.outcome.source).toBe("template_fallback");
+    expect(result.outcome.failureCode).toBe("DRAFT_RUN_BUDGET_EXCEEDED");
+    expect(calls).toBe(0);
+    expect(runBudget.reservedTokens).toBe(0);
+  });
+
+  it("bounds provider fan-out for a full owner run", async () => {
+    resetStore(createSeedStore());
+    let active = 0;
+    let maxActive = 0;
+    let calls = 0;
+    const boundedClient: RuntimeModelClient = {
+      async generate(request) {
+        active += 1;
+        calls += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        const visible = contextFromRequest(request);
+        active -= 1;
+        return {
+          output: {
+            schemaVersion: "1.0",
+            actionType: visible.actionType,
+            sentences: [
+              {
+                text: visible.signals[0]?.description,
+                sourceSignalIds: [visible.signals[0]?.id],
+              },
+            ],
+          },
+          telemetry: {
+            provider: "anthropic",
+            model: "pinned-test-model",
+            latencyMs: 10,
+          },
+        };
+      },
+    };
+
+    await runDailyPrioritizationForOwner("rep_alex", {
+      now: ISO,
+      autoApprove: true,
+      drafting: {
+        policy: { ...basePolicy, maxConcurrent: 2, maxRunTokens: 100000 },
+        modelClient: boundedClient,
+      },
+    });
+
+    expect(calls).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(2);
   });
 
   it("treats prompt-like CRM text as data and does not allow it to change authority", () => {
@@ -268,6 +461,33 @@ describe("runtime drafting contract", () => {
     expect(result.outcome.source).toBe("template_fallback");
     expect(result.outcome.failureCode).toBe("DRAFT_CLAIM_NOT_GROUNDED");
     expect(result.outcome.telemetry?.inputTokens).toBe(40);
+  });
+
+  it("retains provider identity and latency when the provider throws before a response", async () => {
+    const failingClient: RuntimeModelClient = {
+      async generate() {
+        throw new RuntimeModelError(
+          "DRAFT_MODEL_TIMEOUT",
+          "timed out",
+          {
+            provider: "anthropic",
+            model: "pinned-test-model",
+            latencyMs: 1000,
+          },
+        );
+      },
+    };
+    const result = await attachHybridActionDraft(recommendation, context, {
+      policy: basePolicy,
+      modelClient: failingClient,
+    });
+    expect(result.outcome.source).toBe("template_fallback");
+    expect(result.outcome.failureCode).toBe("DRAFT_MODEL_TIMEOUT");
+    expect(result.outcome.telemetry).toMatchObject({
+      provider: "anthropic",
+      model: "pinned-test-model",
+      latencyMs: 1000,
+    });
   });
 
   it("returns an explicit held state when policy forbids fallback", async () => {
