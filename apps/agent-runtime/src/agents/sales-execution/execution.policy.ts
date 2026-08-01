@@ -38,7 +38,7 @@ export interface RuntimeDraftingPolicyAuditSnapshot {
   maxSignals: number;
   maxConcurrent: number;
   maxRunTokens: number;
-  maxEvidenceAgeDays: number;
+  maxEvidenceAgeDays: number | null;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
 }
@@ -56,8 +56,7 @@ export function runtimeDraftingPolicyAuditSnapshot(
     maxSignals: policy.maxSignals,
     maxConcurrent: policy.maxConcurrent,
     maxRunTokens: policy.maxRunTokens,
-    maxEvidenceAgeDays:
-      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+    maxEvidenceAgeDays: policy.maxEvidenceAgeDays ?? null,
     maxAttempts: policy.maxAttempts,
     fallback: policy.fallback,
   };
