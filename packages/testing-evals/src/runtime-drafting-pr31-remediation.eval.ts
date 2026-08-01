@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   attachHybridActionDraft,
+  buildDailyPrioritizationEntrypointOptions,
   createSeedStore,
+  prioritizeAccounts,
   resetStore,
   runDailyPrioritizationForOwner,
   type RuntimeDraftingPolicy,
   type RuntimeModelClient,
 } from "agent-runtime";
-import type { Account, Recommendation } from "@repo/shared-schemas";
+import type { Account, Activity, Recommendation } from "@repo/shared-schemas";
 
 const ISO = "2026-08-01T09:15:00Z";
 
@@ -193,5 +195,139 @@ describe("PR #31 Codex remediation", () => {
     expect(result.outcome.claimCitations).not.toEqual(
       result.outcome.modelCandidateClaimCitations,
     );
+  });
+
+  it("resolves each intent code to its own verified observation and excludes untraceable intent authority", () => {
+    const intentAccount: Account = {
+      ...account,
+      id: "acc_intent_mapping",
+      ownerId: "rep_intent_mapping",
+      openPipelineUsd: 0,
+      intentSignals: ["pricing_page_visit", "demo_request"],
+    };
+    const activities: Activity[] = [
+      {
+        id: "act_pricing_old",
+        accountId: intentAccount.id,
+        type: "intent_event",
+        subject: "Visited pricing page",
+        occurredAt: "2026-01-01T00:00:00Z",
+        createdById: "system",
+        verified: true,
+      },
+      {
+        id: "act_demo_recent",
+        accountId: intentAccount.id,
+        type: "intent_event",
+        subject: "Demo requested",
+        occurredAt: ISO,
+        createdById: "system",
+        verified: true,
+      },
+    ];
+
+    const mapped = prioritizeAccounts({
+      runId: "run_intent_mapping",
+      createdAt: ISO,
+      contexts: [
+        {
+          account: intentAccount,
+          contacts: [],
+          opportunities: [],
+          activities,
+        },
+      ],
+    })[0];
+    const mappedIntents = mapped?.sourceSignals.filter((signal) => signal.kind === "intent") ?? [];
+    expect(mappedIntents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          refId: "act_pricing_old",
+          description: "Verified intent signal: pricing_page_visit.",
+          verified: true,
+        }),
+        expect.objectContaining({
+          refId: "act_demo_recent",
+          description: "Verified intent signal: demo_request.",
+          verified: true,
+        }),
+      ]),
+    );
+
+    const untraceableAccount: Account = {
+      ...intentAccount,
+      id: "acc_untraceable_intent",
+      intentSignals: ["exec_meeting_request"],
+    };
+    const unrelatedActivity: Activity = {
+      id: "act_unrelated_recent",
+      accountId: untraceableAccount.id,
+      type: "intent_event",
+      subject: "Demo requested",
+      occurredAt: ISO,
+      createdById: "system",
+      verified: true,
+    };
+    const unmatched = prioritizeAccounts({
+      runId: "run_unmatched_intent",
+      createdAt: ISO,
+      contexts: [
+        {
+          account: untraceableAccount,
+          contacts: [],
+          opportunities: [],
+          activities: [unrelatedActivity],
+        },
+      ],
+    })[0];
+    const noIntent = prioritizeAccounts({
+      runId: "run_no_intent",
+      createdAt: ISO,
+      contexts: [
+        {
+          account: { ...untraceableAccount, intentSignals: [] },
+          contacts: [],
+          opportunities: [],
+          activities: [unrelatedActivity],
+        },
+      ],
+    })[0];
+
+    expect(unmatched?.sourceSignals.some((signal) => signal.kind === "intent")).toBe(false);
+    expect(unmatched?.reasonCodes).not.toContain("verified_intent_signal");
+    expect(unmatched?.score).toBe(noIntent?.score);
+  });
+
+  it("builds a durable service-context production entrypoint and fails closed without production durability", () => {
+    const production = buildDailyPrioritizationEntrypointOptions(ISO, {
+      NODE_ENV: "production",
+      REQUIRE_HUMAN_APPROVAL: true,
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    });
+
+    expect(production.autoApprove).toBeUndefined();
+    expect(production.rlsContext).toEqual({
+      kind: "service",
+      actorId: "daily_prioritization_scheduler",
+    });
+
+    expect(() =>
+      buildDailyPrioritizationEntrypointOptions(ISO, {
+        NODE_ENV: "production",
+        REQUIRE_HUMAN_APPROVAL: true,
+        SUPABASE_URL: undefined,
+        SUPABASE_SERVICE_ROLE_KEY: undefined,
+      }),
+    ).toThrow("requires durable Supabase configuration");
+
+    expect(() =>
+      buildDailyPrioritizationEntrypointOptions(ISO, {
+        NODE_ENV: "production",
+        REQUIRE_HUMAN_APPROVAL: false,
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      }),
+    ).toThrow("requires human approval");
   });
 });
