@@ -70,6 +70,7 @@ run_gate "Deterministic evals" pnpm test:evals
 run_gate "Judge eval (heuristic offline)" bash -c 'EVAL_JUDGE_ENABLED=true pnpm test:judge'
 run_gate "No Prisma" pnpm check:no-prisma
 run_gate "Security package" pnpm verify:security
+run_gate "Migration invariants" pnpm verify:migrations
 run_gate "Observability package" pnpm verify:observability
 run_gate "Docker compose config" docker compose -f infra/compose.yaml config
 

@@ -401,6 +401,7 @@ pnpm build:api-python
 pnpm check:no-prisma
 pnpm verify:security
 pnpm verify:observability
+pnpm verify:migrations
 pnpm docker:config
 pnpm docker:build
 pnpm verify:production

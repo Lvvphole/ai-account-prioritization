@@ -279,6 +279,7 @@ All commands run from the repo root.
 | `pnpm build:api-python` | Build the Python support service |
 | `pnpm supabase:types` | Regenerate Supabase types |
 | `pnpm db:lint` | Lint Supabase migrations |
+| `pnpm verify:migrations` | Apply every migration to an empty database and assert its invariants |
 | `pnpm check:no-prisma` | Guard against Prisma |
 | `pnpm scan:secrets` | Scan tracked files for secrets |
 | `pnpm verify:security` | Verify the security package and runtime gate |
