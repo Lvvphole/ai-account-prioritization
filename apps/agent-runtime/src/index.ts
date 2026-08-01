@@ -20,6 +20,33 @@ export { mcpRegistry } from "./shared-tools/mcp/registry";
 export { createInProcessMcpClient } from "./shared-tools/mcp/client";
 export { ORCHESTRATOR_CONTRACT } from "./agents/orchestrator/orchestrator.prompt";
 export { resetStore, createSeedStore, type DataStore } from "./shared-tools/database/client";
+export {
+  attachActionDraft,
+  attachHybridActionDraft,
+  type HybridDraftOptions,
+  type HybridDraftOutcome,
+  type HybridDraftResult,
+} from "./agents/sales-execution/execution.agent";
+export { buildVerifiedDraftContext } from "./agents/sales-execution/build-draft-context";
+export {
+  validateDraftGrounding,
+  renderGroundedDraft,
+} from "./agents/sales-execution/validate-draft-grounding";
+export {
+  runtimeDraftingPolicyFromEnv,
+  type RuntimeDraftingPolicy,
+} from "./agents/sales-execution/execution.policy";
+export {
+  RUNTIME_DRAFT_PROMPT_HASH,
+  RUNTIME_DRAFT_PROMPT_VERSION,
+} from "./agents/sales-execution/execution.prompt";
+export {
+  anthropicRuntimeModelClient,
+  RuntimeModelError,
+  type RuntimeModelClient,
+  type RuntimeModelResult,
+  type RuntimeModelTelemetry,
+} from "./inference/runtime-model";
 
 // Supabase wiring (Sprint 4). The runtime stays on the in-memory store unless a
 // run supplies an RLS context AND Supabase is configured.
