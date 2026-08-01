@@ -23,7 +23,7 @@ export interface DraftContextLimits {
   maxSignals?: number;
   /** Injected deterministic clock. Defaults to the recommendation creation time. */
   now?: string;
-  /** When supplied, selected evidence must resolve to a source newer than this. */
+  /** Maximum evidence age. Omission uses the fail-closed runtime default. */
   maxEvidenceAgeDays?: number;
 }
 
@@ -87,10 +87,9 @@ const assertFreshSelectedEvidence = (
  * Build the minimum model-visible packet. Raw contacts, activities, opportunity
  * objects, notes, emails, and other unneeded CRM fields are deliberately omitted.
  * Verified evidence is stably prioritized for the authorized action and can be
- * capped before any model request is constructed. When a freshness policy is
- * supplied, every selected signal is resolved back to its source record and must
- * be neither future-dated nor older than policy before its description is
- * admitted to model-visible context.
+ * capped before any model request is constructed. Every selected signal is
+ * resolved back to its source record and must be neither future-dated nor older
+ * than the supplied freshness policy or the fail-closed 90-day default.
  */
 export function buildVerifiedDraftContext(
   rec: Recommendation,
@@ -104,6 +103,8 @@ export function buildVerifiedDraftContext(
   const priorities = ACTION_SIGNAL_PRIORITY[rec.nextBestAction.type];
   const maxSignals = limits.maxSignals ?? rec.sourceSignals.length;
   const now = limits.now ?? rec.createdAt;
+  const maxEvidenceAgeDays =
+    limits.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS;
   const selected = rec.sourceSignals
     .map((signal, index) => ({ signal, index }))
     .sort((a, b) => {
@@ -116,10 +117,8 @@ export function buildVerifiedDraftContext(
     throw new Error("DRAFT_CONTEXT_UNVERIFIED_SIGNAL");
   }
 
-  if (limits.maxEvidenceAgeDays !== undefined) {
-    for (const { signal } of selected) {
-      assertFreshSelectedEvidence(signal, ctx, now, limits.maxEvidenceAgeDays);
-    }
+  for (const { signal } of selected) {
+    assertFreshSelectedEvidence(signal, ctx, now, maxEvidenceAgeDays);
   }
 
   const signals = selected.map(({ signal }) => ({
