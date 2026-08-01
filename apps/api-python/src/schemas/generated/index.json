@@ -20,6 +20,7 @@
     "ImportCommit",
     "ImportLimits",
     "ImportRollback",
+    "ImportTemplate",
     "InboundRecordEnvelope",
     "IngestionBatch",
     "IngestionFile",

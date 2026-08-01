@@ -304,13 +304,33 @@ export const ChangeSetSchema = z
     referentialFailures: z.number().int().nonnegative(),
     duplicateRecords: z.number().int().nonnegative(),
     pipelineDeltaUsd: z.number(),
-    accountsEnteringTopN: z.number().int().nonnegative(),
-    accountsLeavingTopN: z.number().int().nonnegative(),
+    /**
+     * Null when rank impact could not be computed. Zero would read to an
+     * approver as "nothing moves", so the absence of a number is modelled
+     * rather than defaulted — see migration 0016.
+     */
+    accountsEnteringTopN: z.number().int().nonnegative().nullable(),
+    accountsLeavingTopN: z.number().int().nonnegative().nullable(),
+    rankImpactUnavailableReason: z.string().min(1).max(500).nullable(),
     predictedGuardrailHolds: z.number().int().nonnegative(),
     /** Free-form summary of territory or source concentration shifts. */
     concentrationNotes: z.string().max(1000).nullable(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (c) =>
+      (c.accountsEnteringTopN !== null &&
+        c.accountsLeavingTopN !== null &&
+        c.rankImpactUnavailableReason === null) ||
+      (c.accountsEnteringTopN === null &&
+        c.accountsLeavingTopN === null &&
+        c.rankImpactUnavailableReason !== null),
+    {
+      message:
+        "Rank impact is either both counts with no reason, or no counts with a reason. A partial answer is not representable.",
+      path: ["rankImpactUnavailableReason"],
+    },
+  );
 export type ChangeSet = z.infer<typeof ChangeSetSchema>;
 
 /* --------------------------------------------------------------- commit -- */

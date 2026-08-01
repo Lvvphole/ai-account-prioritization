@@ -179,9 +179,11 @@ select pg_temp.expect_fail(
 
 \echo '=== finding 3: a commit''s inputs all name the same batch ==='
 
-insert into public.change_sets (id, workspace_id, batch_id, new_records)
+insert into public.change_sets
+  (id, workspace_id, batch_id, new_records,
+   accounts_entering_top_n, accounts_leaving_top_n)
 values ('c0000000-0000-0000-0000-0000000000d1', 'aaaaaaaa-0000-0000-0000-000000000001',
-        'b0000000-0000-0000-0000-0000000000d1', 1);
+        'b0000000-0000-0000-0000-0000000000d1', 1, 0, 0);
 
 -- Approval a...000a belongs to batch b...000c; change set c...00d1 belongs to
 -- batch b...00d1. Neither pairing may be crossed.
