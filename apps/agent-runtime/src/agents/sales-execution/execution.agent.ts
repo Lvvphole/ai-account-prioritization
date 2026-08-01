@@ -10,7 +10,6 @@ import { generateEmailDraft } from "./tools/generate-email-draft";
 import { generateCrmNote } from "./tools/generate-crm-note";
 import {
   buildVerifiedDraftContext,
-  DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
   type VerifiedDraftContext,
 } from "./build-draft-context";
 import {
@@ -221,8 +220,7 @@ function buildBudgetedDraftRequest(
   const prioritized = buildVerifiedDraftContext(rec, ctx, {
     maxSignals: policy.maxSignals,
     now,
-    maxEvidenceAgeDays:
-      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+    maxEvidenceAgeDays: policy.maxEvidenceAgeDays,
   });
   const selected: VerifiedDraftContext["signals"] = [];
   let selectedRequest: RuntimeModelRequest | undefined;
@@ -296,8 +294,7 @@ function validatedTemplateProvenance(
   const validated = buildVerifiedDraftContext(rec, ctx, {
     maxSignals: rec.sourceSignals.length,
     now,
-    maxEvidenceAgeDays:
-      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+    maxEvidenceAgeDays: policy.maxEvidenceAgeDays,
   });
 
   return {
