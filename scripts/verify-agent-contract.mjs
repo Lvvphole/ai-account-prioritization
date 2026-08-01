@@ -83,6 +83,18 @@ export function parseRedesignAuthorization(body, marker) {
   }
 }
 
+export function parseScopedFixForwardAuthorization(body, marker) {
+  if (!body?.includes(marker)) return null;
+  const fenced = /```json\s*([\s\S]*?)```/i.exec(body);
+  if (!fenced) return null;
+  try {
+    const value = JSON.parse(fenced[1]);
+    return value.type === 'SCOPED_FIX_FORWARD_AUTHORIZED' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function applyRedesignCutovers(findings, authorizations) {
   const latest = new Map();
   for (const auth of authorizations) {
@@ -242,6 +254,40 @@ async function fetchRedesignAuthorizations({ apiUrl, repository, prNumber, token
   }).filter(Boolean);
 }
 
+async function fetchScopedFixForwardAuthorizations({ apiUrl, repository, prNumber, token, policy }) {
+  const comments = await fetchAllPages(`${apiUrl}/repos/${repository}/issues/${prNumber}/comments`, token);
+  return comments.map((comment) => {
+    const auth = parseScopedFixForwardAuthorization(comment.body, policy.authorization.marker);
+    if (!auth || !policy.authorization.trustedActors.includes(comment.user?.login)) return null;
+    return { ...auth, createdAt: comment.created_at, commentId: comment.id };
+  }).filter(Boolean);
+}
+
+function scopedFindingId(id) {
+  const match = /^github:review_comment:(\d+):\d+$/.exec(id ?? '');
+  return match ? `review-comment:${match[1]}` : id;
+}
+
+function applyScopedFixForward({ repair, authorizations, commits, headSha, policy, cwd }) {
+  const auth = authorizations.at(-1);
+  if (!auth || !auth.finding_ids?.length || auth.base_sha === headSha) return repair;
+  const allowedFindings = new Set(auth.finding_ids.map(scopedFindingId));
+  const scopedCodes = new Set(['NEW_VALID_P0_P1_AFTER_REPAIR', 'SAME_SUBSYSTEM_REPEAT_DEFECT']);
+  if (!repair.blockedReasons.length || repair.blockedReasons.some((reason) => !scopedCodes.has(reason.code) || !allowedFindings.has(reason.findingId))) return repair;
+  const changedPaths = git(['diff', '--name-only', auth.base_sha, headSha, '--'], cwd).split('\n').filter(Boolean).map(normalizePath);
+  if (changedPaths.some((filePath) => !auth.allowed_paths?.includes(filePath))) return repair;
+  const changedLines = countNumstat(git(['diff', '--numstat', '--no-renames', auth.base_sha, headSha, '--'], cwd), policy).total;
+  if (changedLines > auth.max_final_patch_lines) return repair;
+  const baseIndex = commits.findIndex((commit) => commit.sha === auth.base_sha);
+  if (baseIndex < 0) return repair;
+  const executionIds = new Set(commits.slice(baseIndex + 1).map((commit) => /(?:^|\n)Agent-Execution-Id:\s*(\S+)/.exec(commit.commit?.message ?? '')?.[1]).filter(Boolean));
+  if (!executionIds.size || executionIds.size > auth.max_executions) return repair;
+  repair.blockedReasons = [];
+  repair.circuitBreakerState = 'SCOPED_FIX_FORWARD';
+  repair.scopedFixForward = { commentId: auth.commentId, changedLines, executionIds: [...executionIds] };
+  return repair;
+}
+
 async function fetchCheckRuns({ apiUrl, repository, sha, token }) {
   const data = await githubJson(`${apiUrl}/repos/${repository}/commits/${sha}/check-runs?per_page=100&filter=latest`, token);
   return new Map(data.check_runs.filter((check) => check.status === 'completed' && check.conclusion).map((check) => [check.name, check.conclusion]));
@@ -324,10 +370,12 @@ export async function run(options = {}) {
     const commitOrder = commits.map((commit) => commit.sha);
     const findings = await fetchReviewFindings({ apiUrl, repository, prNumber, token, policy });
     const authorizations = await fetchRedesignAuthorizations({ apiUrl, repository, prNumber, token, policy });
+    const scopedAuthorizations = await fetchScopedFixForwardAuthorizations({ apiUrl, repository, prNumber, token, policy });
     const activeFindings = applyRedesignCutovers(findings, authorizations);
     repair = analyzeRepairHistory({ commitOrder, findings: activeFindings, policy });
     repair.historicalFindings = findings.length;
     repair.activeFindings = activeFindings.length;
+    applyScopedFixForward({ repair, authorizations: scopedAuthorizations, commits, headSha: event.pull_request.head.sha, policy, cwd });
     repair.newRegressions = await detectNewRegressions({ apiUrl, repository, token, rounds: repair.rounds });
     for (const issue of repair.newRegressions.filter((item) => item.code === 'VERIFICATION_INCOMPLETE')) {
       repair.blockedReasons.push(issue);
