@@ -5,39 +5,26 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-const ZERO_SHA = /^0{40}$/;
-const FAILURE_CONCLUSIONS = new Set([
-  'failure',
-  'timed_out',
-  'action_required',
-  'startup_failure',
-]);
+const FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'action_required', 'startup_failure']);
+const LEDGER_TYPES = new Set(['COMMIT_OBSERVED', 'DEFECT_DISCOVERED', 'REDESIGN_AUTHORIZED']);
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
-function git(args, options = {}) {
-  return execFileSync('git', args, {
-    cwd: options.cwd ?? process.cwd(),
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+function git(args, cwd = process.cwd()) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
 function normalizePath(filePath) {
-  return filePath.replaceAll('\\', '/').replace(/^\.\//, '');
+  return (filePath ?? '').replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
 export function isSourcePath(filePath, policy) {
   const normalized = normalizePath(filePath);
   const basename = path.posix.basename(normalized);
-
   if (policy.changeBudget.excludeBasenames.includes(basename)) return false;
-  if (policy.changeBudget.excludePrefixes.some((prefix) => normalized.startsWith(prefix))) {
-    return false;
-  }
-
+  if (policy.changeBudget.excludePrefixes.some((prefix) => normalized.startsWith(prefix))) return false;
   if (policy.changeBudget.sourceBasenames.includes(basename)) return true;
   return policy.changeBudget.sourceExtensions.includes(path.posix.extname(normalized));
 }
@@ -45,160 +32,35 @@ export function isSourcePath(filePath, policy) {
 export function countNumstat(numstat, policy) {
   let total = 0;
   const files = [];
-
   for (const line of numstat.split('\n')) {
     if (!line.trim()) continue;
     const [addedRaw, , ...pathParts] = line.split('\t');
     const filePath = pathParts.join('\t');
     if (!filePath || addedRaw === '-' || !isSourcePath(filePath, policy)) continue;
-
     const added = Number.parseInt(addedRaw, 10);
     if (!Number.isFinite(added)) continue;
     total += added;
     files.push({ path: normalizePath(filePath), changedSourceLines: added });
   }
-
   return { total, files };
 }
 
-function diffNumstat(from, to) {
-  return git(['diff', '--numstat', '--no-renames', from, to, '--']);
-}
-
-function showNumstat(commit) {
-  return git(['show', '--numstat', '--format=', '--no-renames', commit, '--']);
-}
-
-function listCommits(base, head) {
-  const output = git(['rev-list', '--reverse', `${base}..${head}`]);
-  return output ? output.split('\n').filter(Boolean) : [];
-}
-
 export function extractPriority(body, policy) {
-  const regex = new RegExp(policy.repair.priorityPattern, 'i');
-  const match = regex.exec(body ?? '');
+  const match = new RegExp(policy.repair.priorityPattern, 'i').exec(body ?? '');
   return match ? `P${match[1]}`.toUpperCase() : null;
 }
 
 export function subsystemForPath(filePath, policy) {
-  const normalized = normalizePath(filePath ?? 'unknown');
-
+  const normalized = normalizePath(filePath || 'unknown');
   for (const group of policy.repair.subsystemGroups) {
-    if (group.prefixes.some((prefix) => normalized === prefix || normalized.startsWith(prefix))) {
-      return group.name;
-    }
+    if (group.prefixes.some((prefix) => normalized === prefix || normalized.startsWith(prefix))) return group.name;
   }
-
   const parts = normalized.split('/');
   if (parts[0] === 'apps' && parts[2] === 'src' && parts[3] === 'agents' && parts[4]) {
     return parts.slice(0, 5).join('/');
   }
-  if ((parts[0] === 'apps' || parts[0] === 'packages') && parts[1]) {
-    return parts.slice(0, 2).join('/');
-  }
+  if ((parts[0] === 'apps' || parts[0] === 'packages') && parts[1]) return parts.slice(0, 2).join('/');
   return parts.length > 1 ? parts[0] : normalized;
-}
-
-function toEpoch(value) {
-  const epoch = Date.parse(value);
-  if (!Number.isFinite(epoch)) throw new Error(`Invalid timestamp: ${value}`);
-  return epoch;
-}
-
-export function analyzeRepairEvents({ commits, findings, policy }) {
-  const events = [
-    ...commits.map((commit) => ({ type: 'commit', at: toEpoch(commit.committedAt), value: commit })),
-    ...findings.map((finding) => ({ type: 'finding', at: toEpoch(finding.createdAt), value: finding })),
-  ].sort((a, b) => a.at - b.at || (a.type === 'finding' ? -1 : 1));
-
-  const rounds = [];
-  const blockedReasons = [];
-  let awaitingRepair = false;
-  let pendingFindings = [];
-  let lastRoundSubsystems = new Set();
-  let repairRound = 0;
-
-  for (const event of events) {
-    if (event.type === 'finding') {
-      const finding = event.value;
-      const subsystem = subsystemForPath(finding.path, policy);
-      const priority = finding.priority;
-
-      if (repairRound > 0 && !finding.resolved) {
-        if ((priority === 'P0' || priority === 'P1') && policy.repair.newValidP0P1AfterRepair === 0) {
-          blockedReasons.push({
-            code: 'NEW_VALID_P0_P1_AFTER_REPAIR',
-            findingId: finding.id,
-            subsystem,
-            priority,
-          });
-        }
-
-        if (
-          lastRoundSubsystems.has(subsystem) &&
-          policy.repair.sameSubsystemRepeatDefectBudget === 0
-        ) {
-          blockedReasons.push({
-            code: 'SAME_SUBSYSTEM_REPEAT_DEFECT',
-            findingId: finding.id,
-            subsystem,
-            priority,
-          });
-        }
-
-        if (repairRound >= policy.repair.maxRoundsPerPr) {
-          blockedReasons.push({
-            code: 'MAX_REPAIR_ROUNDS_EXCEEDED',
-            findingId: finding.id,
-            subsystem,
-            priority,
-          });
-        }
-      }
-
-      awaitingRepair = true;
-      pendingFindings.push({ ...finding, subsystem });
-      continue;
-    }
-
-    if (awaitingRepair) {
-      repairRound += 1;
-      const subsystems = [...new Set(pendingFindings.map((finding) => finding.subsystem))];
-      const round = {
-        number: repairRound,
-        firstCommitSha: event.value.sha,
-        firstCommitAt: event.value.committedAt,
-        findingIds: pendingFindings.map((finding) => finding.id),
-        subsystems,
-      };
-      rounds.push(round);
-      lastRoundSubsystems = new Set(subsystems);
-      pendingFindings = [];
-      awaitingRepair = false;
-
-      if (repairRound > policy.repair.maxRoundsPerPr) {
-        blockedReasons.push({
-          code: 'MAX_REPAIR_ROUNDS_EXCEEDED',
-          commitSha: event.value.sha,
-        });
-      }
-    }
-  }
-
-  const pendingUnresolved = pendingFindings.filter((finding) => !finding.resolved);
-  const circuitBreakerState = blockedReasons.length > 0
-    ? 'BLOCKED'
-    : pendingUnresolved.length > 0
-      ? 'AWAITING_REPAIR'
-      : 'OPEN';
-
-  return {
-    repairRound,
-    rounds,
-    pendingUnresolved,
-    blockedReasons: dedupeReasons(blockedReasons),
-    circuitBreakerState,
-  };
 }
 
 function dedupeReasons(reasons) {
@@ -211,6 +73,134 @@ function dedupeReasons(reasons) {
   });
 }
 
+export function parseLedgerComment(body, marker) {
+  if (!body?.includes(marker)) return null;
+  const fenced = /```json\s*([\s\S]*?)```/i.exec(body);
+  if (!fenced) return null;
+  try {
+    const event = JSON.parse(fenced[1]);
+    return LEDGER_TYPES.has(event.type) ? event : null;
+  } catch {
+    return null;
+  }
+}
+
+function eventEpoch(item) {
+  const value = item.occurredAt ?? item.createdAt;
+  const epoch = Date.parse(value);
+  if (!Number.isFinite(epoch)) throw new Error(`Invalid ledger timestamp: ${value}`);
+  return epoch;
+}
+
+function ledgerKey(event) {
+  if (event.type === 'COMMIT_OBSERVED') return `commit:${event.sha}`;
+  if (event.type === 'DEFECT_DISCOVERED') return `finding:${event.findingId}`;
+  if (event.type === 'REDESIGN_AUTHORIZED') return `redesign:${event.subsystem}:${event.headSha}`;
+  return JSON.stringify(event);
+}
+
+function dedupeLedger(events) {
+  const seen = new Set();
+  return events.filter((event) => {
+    const key = ledgerKey(event);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function analyzeLedger({ ledger, policy }) {
+  const ordered = dedupeLedger([...ledger]).sort((a, b) => eventEpoch(a) - eventEpoch(b) || a.sequence - b.sequence);
+  const latestAuthorization = new Map();
+  for (const item of ordered) {
+    if (item.type === 'REDESIGN_AUTHORIZED') latestAuthorization.set(item.subsystem, item);
+  }
+
+  const active = ordered.filter((item) => {
+    if (item.type === 'REDESIGN_AUTHORIZED' || item.type === 'COMMIT_OBSERVED') return true;
+    const authorization = item.subsystem ? latestAuthorization.get(item.subsystem) : null;
+    return !authorization || eventEpoch(item) > eventEpoch(authorization);
+  });
+
+  const rounds = [];
+  const blockedReasons = [];
+  let pendingFindings = [];
+  let currentRound = null;
+  let completedRoundSubsystems = new Set();
+
+  for (const event of active) {
+    if (event.type === 'REDESIGN_AUTHORIZED') {
+      pendingFindings = [];
+      currentRound = null;
+      completedRoundSubsystems = new Set();
+      continue;
+    }
+
+    if (event.type === 'DEFECT_DISCOVERED') {
+      if (currentRound?.commitShas.length) {
+        rounds.push(currentRound);
+        completedRoundSubsystems = new Set(currentRound.subsystems);
+        currentRound = null;
+      }
+
+      const roundCount = rounds.length;
+      if (roundCount > 0) {
+        if ((event.priority === 'P0' || event.priority === 'P1') && policy.repair.newValidP0P1AfterRepair === 0) {
+          blockedReasons.push({ code: 'NEW_VALID_P0_P1_AFTER_REPAIR', findingId: event.findingId, subsystem: event.subsystem, priority: event.priority });
+        }
+        if (completedRoundSubsystems.has(event.subsystem) && policy.repair.sameSubsystemRepeatDefectBudget === 0) {
+          blockedReasons.push({ code: 'SAME_SUBSYSTEM_REPEAT_DEFECT', findingId: event.findingId, subsystem: event.subsystem, priority: event.priority });
+        }
+        if (roundCount >= policy.repair.maxRoundsPerPr) {
+          blockedReasons.push({ code: 'MAX_REPAIR_ROUNDS_EXCEEDED', findingId: event.findingId, subsystem: event.subsystem });
+        }
+      }
+      pendingFindings.push(event);
+      continue;
+    }
+
+    if (event.type === 'COMMIT_OBSERVED') {
+      if (pendingFindings.length && !currentRound) {
+        const number = rounds.length + 1;
+        currentRound = {
+          number,
+          findingIds: pendingFindings.map((finding) => finding.findingId),
+          subsystems: [...new Set(pendingFindings.map((finding) => finding.subsystem))],
+          commitShas: [],
+        };
+        pendingFindings = [];
+      }
+      if (currentRound) currentRound.commitShas.push(event.sha);
+    }
+  }
+
+  if (currentRound?.commitShas.length) rounds.push(currentRound);
+  if (rounds.length > policy.repair.maxRoundsPerPr) {
+    blockedReasons.push({ code: 'MAX_REPAIR_ROUNDS_EXCEEDED', rounds: rounds.length, budget: policy.repair.maxRoundsPerPr });
+  }
+
+  return {
+    repairRound: rounds.length,
+    rounds,
+    pendingFindingIds: pendingFindings.map((finding) => finding.findingId),
+    blockedReasons: dedupeReasons(blockedReasons),
+    circuitBreakerState: blockedReasons.length ? 'BLOCKED' : pendingFindings.length ? 'AWAITING_REPAIR' : 'OPEN',
+  };
+}
+
+export function findRegressionCandidates({ rounds, commitOrder }) {
+  const index = new Map(commitOrder.map((sha, i) => [sha, i]));
+  return rounds.map((round) => {
+    const firstIndex = index.get(round.commitShas[0]);
+    if (firstIndex == null) throw new Error(`Round commit missing from PR: ${round.commitShas[0]}`);
+    return {
+      ...round,
+      baselineSha: firstIndex > 0 ? commitOrder[firstIndex - 1] : null,
+      checkShas: [...round.commitShas],
+    };
+  });
+}
+
 function verifyContractDrift(policy, agentsPath) {
   const text = fs.readFileSync(agentsPath, 'utf8');
   const expected = new Map([
@@ -220,13 +210,7 @@ function verifyContractDrift(policy, agentsPath) {
     ['NEW_VALID_P0_P1_AFTER_REPAIR', policy.repair.newValidP0P1AfterRepair],
     ['SAME_SUBSYSTEM_REPEAT_DEFECT_BUDGET', policy.repair.sameSubsystemRepeatDefectBudget],
   ]);
-
-  const drift = [];
-  for (const [name, value] of expected) {
-    const regex = new RegExp(`${name}\\s*=\\s*${value}(?:\\s|$)`);
-    if (!regex.test(text)) drift.push(`${name}=${value}`);
-  }
-  return drift;
+  return [...expected].filter(([name, value]) => !new RegExp(`${name}\\s*=\\s*${value}(?:\\s|$)`).test(text)).map(([name, value]) => `${name}=${value}`);
 }
 
 async function githubJson(url, token, init = {}) {
@@ -239,144 +223,140 @@ async function githubJson(url, token, init = {}) {
       ...(init.headers ?? {}),
     },
   });
-  if (!response.ok) {
-    throw new Error(`GitHub API ${response.status} ${response.statusText}: ${await response.text()}`);
-  }
-  return response.json();
+  if (!response.ok) throw new Error(`GitHub API ${response.status} ${response.statusText}: ${await response.text()}`);
+  return response.status === 204 ? null : response.json();
 }
 
-async function fetchAllPrCommits({ apiUrl, repository, prNumber, token }) {
-  const commits = [];
+async function fetchAllPages(url, token) {
+  const rows = [];
   for (let page = 1; ; page += 1) {
-    const batch = await githubJson(
-      `${apiUrl}/repos/${repository}/pulls/${prNumber}/commits?per_page=100&page=${page}`,
-      token,
-    );
-    commits.push(...batch.map((item) => ({
-      sha: item.sha,
-      committedAt: item.commit.committer?.date ?? item.commit.author?.date,
-    })));
+    const separator = url.includes('?') ? '&' : '?';
+    const batch = await githubJson(`${url}${separator}per_page=100&page=${page}`, token);
+    rows.push(...batch);
     if (batch.length < 100) break;
   }
-  return commits;
+  return rows;
+}
+
+async function fetchPrCommits({ apiUrl, repository, prNumber, token }) {
+  const rows = await fetchAllPages(`${apiUrl}/repos/${repository}/pulls/${prNumber}/commits`, token);
+  return rows.map((row) => ({ sha: row.sha }));
+}
+
+async function fetchIssueComments({ apiUrl, repository, prNumber, token }) {
+  return fetchAllPages(`${apiUrl}/repos/${repository}/issues/${prNumber}/comments`, token);
 }
 
 async function fetchReviewThreads({ repository, prNumber, token }) {
   const [owner, name] = repository.split('/');
-  const query = `
-    query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
-      repository(owner: $owner, name: $name) {
-        pullRequest(number: $number) {
-          reviewThreads(first: 100, after: $cursor) {
-            nodes {
-              id
-              isResolved
-              path
-              comments(first: 1) {
-                nodes { id body createdAt url author { login } }
-              }
-            }
-            pageInfo { hasNextPage endCursor }
-          }
-        }
-      }
-    }
-  `;
-
+  const query = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){nodes{id path comments(first:1){nodes{id body createdAt url author{login}}}} pageInfo{hasNextPage endCursor}}}}}`;
   const threads = [];
   let cursor = null;
   do {
     const data = await githubJson('https://api.github.com/graphql', token, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { owner, name, number: prNumber, cursor } }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { owner, name, number: prNumber, cursor } }),
     });
     if (data.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(data.errors)}`);
     const page = data.data.repository.pullRequest.reviewThreads;
     threads.push(...page.nodes);
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (cursor);
-
   return threads;
 }
 
-async function fetchCheckRuns({ apiUrl, repository, sha, token }) {
-  const data = await githubJson(
-    `${apiUrl}/repos/${repository}/commits/${sha}/check-runs?per_page=100&filter=latest`,
-    token,
-  );
-  return new Map(
-    data.check_runs
-      .filter((check) => check.status === 'completed' && check.conclusion)
-      .map((check) => [check.name, check.conclusion]),
-  );
+function ledgerBody(event, marker) {
+  return `${marker}\n\`\`\`json\n${JSON.stringify(event)}\n\`\`\`\n`;
 }
 
-async function detectNewRegressions({ apiUrl, repository, token, baseSha, commits, rounds }) {
-  const commitIndex = new Map(commits.map((commit, index) => [commit.sha, index]));
-  const regressions = [];
-  const cache = new Map();
+async function appendLedgerEvent({ apiUrl, repository, prNumber, token, marker, event }) {
+  return githubJson(`${apiUrl}/repos/${repository}/issues/${prNumber}/comments`, token, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: ledgerBody(event, marker) }),
+  });
+}
 
+async function synchronizeLedger({ apiUrl, repository, prNumber, token, policy, commits, threads }) {
+  const comments = await fetchIssueComments({ apiUrl, repository, prNumber, token });
+  const ledger = comments.map((comment) => {
+    const event = parseLedgerComment(comment.body, policy.ledger.marker);
+    if (!event) return null;
+    const actor = comment.user?.login ?? 'unknown';
+    const allowed = event.type === 'REDESIGN_AUTHORIZED'
+      ? policy.ledger.trustedActors.includes(actor)
+      : policy.ledger.writerActors.includes(actor);
+    return allowed ? { ...event, sequence: comment.id, createdAt: comment.created_at, ledgerCommentId: comment.id, actor } : null;
+  }).filter(Boolean);
+
+  const observedCommits = new Set(ledger.filter((event) => event.type === 'COMMIT_OBSERVED').map((event) => event.sha));
+  const observedFindings = new Set(ledger.filter((event) => event.type === 'DEFECT_DISCOVERED').map((event) => event.findingId));
+
+  for (const commit of commits) {
+    if (observedCommits.has(commit.sha)) continue;
+    const created = await appendLedgerEvent({ apiUrl, repository, prNumber, token, marker: policy.ledger.marker, event: { type: 'COMMIT_OBSERVED', sha: commit.sha } });
+    ledger.push({ type: 'COMMIT_OBSERVED', sha: commit.sha, sequence: created.id, createdAt: created.created_at, ledgerCommentId: created.id });
+  }
+
+  for (const thread of threads) {
+    const comment = thread.comments.nodes[0];
+    if (!comment || observedFindings.has(thread.id)) continue;
+    const priority = extractPriority(comment.body, policy);
+    if (!priority) continue;
+    const event = {
+      type: 'DEFECT_DISCOVERED', findingId: thread.id, reviewCommentId: comment.id, priority,
+      subsystem: subsystemForPath(thread.path, policy), path: thread.path, reviewUrl: comment.url, occurredAt: comment.createdAt,
+    };
+    const created = await appendLedgerEvent({ apiUrl, repository, prNumber, token, marker: policy.ledger.marker, event });
+    ledger.push({ ...event, sequence: created.id, createdAt: created.created_at, ledgerCommentId: created.id });
+  }
+
+  return dedupeLedger(ledger).sort((a, b) => eventEpoch(a) - eventEpoch(b) || a.sequence - b.sequence);
+}
+
+async function fetchCheckRuns({ apiUrl, repository, sha, token }) {
+  const data = await githubJson(`${apiUrl}/repos/${repository}/commits/${sha}/check-runs?per_page=100&filter=latest`, token);
+  return new Map(data.check_runs.filter((check) => check.status === 'completed' && check.conclusion).map((check) => [check.name, check.conclusion]));
+}
+
+async function detectNewRegressions({ apiUrl, repository, token, baseSha, commitOrder, rounds }) {
+  const candidates = findRegressionCandidates({ rounds, commitOrder });
+  const cache = new Map();
   const checks = async (sha) => {
     if (!cache.has(sha)) cache.set(sha, await fetchCheckRuns({ apiUrl, repository, sha, token }));
     return cache.get(sha);
   };
-
-  for (const round of rounds) {
-    const index = commitIndex.get(round.firstCommitSha);
-    const baselineSha = index > 0 ? commits[index - 1].sha : baseSha;
-    const baselineChecks = await checks(baselineSha);
-    const repairChecks = await checks(round.firstCommitSha);
-
-    for (const [name, conclusion] of repairChecks) {
-      if (!FAILURE_CONCLUSIONS.has(conclusion)) continue;
-      if (baselineChecks.get(name) === 'success') {
-        regressions.push({ round: round.number, check: name, baselineSha, repairSha: round.firstCommitSha });
+  const regressions = [];
+  for (const round of candidates) {
+    const baselineSha = round.baselineSha ?? baseSha;
+    const baseline = await checks(baselineSha);
+    for (const repairSha of round.checkShas) {
+      const repair = await checks(repairSha);
+      for (const [name, conclusion] of repair) {
+        if (FAILURE_CONCLUSIONS.has(conclusion) && baseline.get(name) === 'success') {
+          regressions.push({ round: round.number, check: name, baselineSha, repairSha });
+        }
       }
     }
   }
-
   return regressions;
 }
 
-function buildChangeBudgetReport({ event, policy }) {
+function buildChangeBudgetReport({ event, policy, cwd }) {
   const limit = policy.changeBudget.maxChangedSourceLinesPerExecution;
-  const executions = [];
-
-  if (event.pull_request) {
-    const base = event.pull_request.base.sha;
-    const head = event.pull_request.head.sha;
-    for (const sha of listCommits(base, head)) {
-      const count = countNumstat(showNumstat(sha), policy);
-      executions.push({ kind: 'commit', sha, changedSourceLines: count.total, files: count.files });
-    }
-  } else if (event.before && event.after && !ZERO_SHA.test(event.before)) {
-    const count = countNumstat(diffNumstat(event.before, event.after), policy);
-    executions.push({
-      kind: 'push',
-      from: event.before,
-      to: event.after,
-      changedSourceLines: count.total,
-      files: count.files,
-    });
-  } else {
-    const head = process.env.GITHUB_SHA || git(['rev-parse', 'HEAD']);
-    const count = countNumstat(showNumstat(head), policy);
-    executions.push({ kind: 'commit', sha: head, changedSourceLines: count.total, files: count.files });
-  }
-
-  const violations = executions.filter((execution) => execution.changedSourceLines > limit);
-  return { limit, executions, violations };
+  if (policy.changeBudget.executionBoundary !== 'pull_request') throw new Error('Unsupported execution boundary');
+  if (!event.pull_request) return { boundary: 'pull_request', limit, changedSourceLines: 0, files: [], violations: [] };
+  const base = event.pull_request.base.sha;
+  const head = event.pull_request.head.sha;
+  const numstat = git(['diff', '--numstat', '--no-renames', base, head, '--'], cwd);
+  const count = countNumstat(numstat, policy);
+  return { boundary: 'pull_request', base, head, limit, changedSourceLines: count.total, files: count.files, violations: count.total > limit ? [{ changedSourceLines: count.total, limit }] : [] };
 }
 
 function appendSummary(report) {
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryPath) return;
-
   const lines = [
-    '## Agent contract gate',
-    '',
-    `- Change budget: ${report.changeBudget.violations.length ? 'BLOCKED' : 'PASS'} (limit ${report.changeBudget.limit})`,
+    '## Agent contract gate', '',
+    `- Execution boundary: ${report.changeBudget.boundary}`,
+    `- Changed source/config lines: ${report.changeBudget.changedSourceLines}/${report.changeBudget.limit}`,
     `- Repair round: ${report.repair?.repairRound ?? 'n/a'}`,
     `- New regressions: ${report.repair?.newRegressions?.length ?? 'n/a'}`,
     `- Circuit breaker: ${report.repair?.circuitBreakerState ?? 'n/a'}`,
@@ -390,106 +370,53 @@ function appendSummary(report) {
 
 export async function run(options = {}) {
   const cwd = options.cwd ?? process.cwd();
-  const policyPath = options.policyPath ?? path.join(cwd, '.harness', 'policy.json');
+  const policy = options.policy ?? readJson(options.policyPath ?? path.join(cwd, '.harness', 'policy.json'));
   const agentsPath = options.agentsPath ?? path.join(cwd, 'AGENTS.md');
   const eventPath = options.eventPath ?? process.env.GITHUB_EVENT_PATH;
   const event = options.event ?? (eventPath && fs.existsSync(eventPath) ? readJson(eventPath) : {});
-  const policy = options.policy ?? readJson(policyPath);
-  const blockedReasons = [];
-
-  const drift = verifyContractDrift(policy, agentsPath);
-  for (const item of drift) blockedReasons.push({ code: 'POLICY_CONTRACT_DRIFT', expected: item });
-
-  const previousCwd = process.cwd();
-  process.chdir(cwd);
-  let changeBudget;
-  try {
-    changeBudget = buildChangeBudgetReport({ event, policy });
-  } finally {
-    process.chdir(previousCwd);
-  }
-
-  for (const violation of changeBudget.violations) {
-    blockedReasons.push({
-      code: 'CODE_CHANGE_BUDGET_EXCEEDED',
-      changedSourceLines: violation.changedSourceLines,
-      limit: changeBudget.limit,
-      execution: violation.sha ?? `${violation.from}..${violation.to}`,
-    });
-  }
+  const blockedReasons = verifyContractDrift(policy, agentsPath).map((expected) => ({ code: 'POLICY_CONTRACT_DRIFT', expected }));
+  const changeBudget = buildChangeBudgetReport({ event, policy, cwd });
+  if (changeBudget.violations.length) blockedReasons.push({ code: 'CODE_CHANGE_BUDGET_EXCEEDED', changedSourceLines: changeBudget.changedSourceLines, limit: changeBudget.limit });
 
   let repair = null;
   const token = options.token ?? process.env.GITHUB_TOKEN;
   const repository = options.repository ?? process.env.GITHUB_REPOSITORY;
   const apiUrl = options.apiUrl ?? process.env.GITHUB_API_URL ?? 'https://api.github.com';
 
-  if (event.pull_request && token && repository) {
+  if (event.pull_request && (!token || !repository)) {
+    blockedReasons.push({ code: 'LEDGER_UNAVAILABLE' });
+  } else if (event.pull_request && token && repository) {
     const prNumber = event.pull_request.number ?? event.number;
-    const commits = await fetchAllPrCommits({ apiUrl, repository, prNumber, token });
+    const commits = await fetchPrCommits({ apiUrl, repository, prNumber, token });
     const threads = await fetchReviewThreads({ repository, prNumber, token });
-    const findings = threads
-      .map((thread) => {
-        const comment = thread.comments.nodes[0];
-        if (!comment) return null;
-        return {
-          id: thread.id,
-          commentId: comment.id,
-          body: comment.body,
-          createdAt: comment.createdAt,
-          path: thread.path,
-          resolved: thread.isResolved,
-          priority: extractPriority(comment.body, policy),
-          author: comment.author?.login ?? 'unknown',
-          url: comment.url,
-        };
-      })
-      .filter(Boolean);
-
-    repair = analyzeRepairEvents({ commits, findings, policy });
-    const newRegressions = await detectNewRegressions({
-      apiUrl,
-      repository,
-      token,
-      baseSha: event.pull_request.base.sha,
-      commits,
-      rounds: repair.rounds,
+    const ledger = await synchronizeLedger({ apiUrl, repository, prNumber, token, policy, commits, threads });
+    repair = analyzeLedger({ ledger, policy });
+    repair.ledgerEvents = ledger.length;
+    repair.newRegressions = await detectNewRegressions({
+      apiUrl, repository, token, baseSha: event.pull_request.base.sha,
+      commitOrder: commits.map((commit) => commit.sha), rounds: repair.rounds,
     });
-    repair.newRegressions = newRegressions;
-
-    if (newRegressions.length > policy.repair.newRegressionBudget) {
-      repair.blockedReasons.push({
-        code: 'NEW_REGRESSION_BUDGET_EXCEEDED',
-        count: newRegressions.length,
-        budget: policy.repair.newRegressionBudget,
-      });
+    if (repair.newRegressions.length > policy.repair.newRegressionBudget) {
+      repair.blockedReasons.push({ code: 'NEW_REGRESSION_BUDGET_EXCEEDED', count: repair.newRegressions.length, budget: policy.repair.newRegressionBudget });
       repair.circuitBreakerState = 'BLOCKED';
     }
     blockedReasons.push(...repair.blockedReasons);
   }
 
-  const report = {
-    policyVersion: policy.version,
-    changeBudget,
-    repair,
-    blockedReasons: dedupeReasons(blockedReasons),
-  };
-
+  const report = { policyVersion: policy.version, changeBudget, repair, blockedReasons: dedupeReasons(blockedReasons) };
   appendSummary(report);
   console.log(JSON.stringify(report, null, 2));
-
   return report;
 }
 
 async function main() {
   try {
     const report = await run();
-    if (report.blockedReasons.length > 0) process.exitCode = 1;
+    if (report.blockedReasons.length) process.exitCode = 1;
   } catch (error) {
     console.error('[agent-contract] enforcement error:', error instanceof Error ? error.stack : error);
     process.exitCode = 1;
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await main();
-}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
