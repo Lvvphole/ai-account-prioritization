@@ -42,6 +42,9 @@ const COMMA = ",";
 const CR = "\r";
 const LF = "\n";
 
+/** Bounds the refusal list so a hostile file cannot grow it without limit. */
+const MAX_ROW_ERRORS = 1000;
+
 /** Maps an encoding rejection onto the parse vocabulary. */
 function fromEncoding(rejection: EncodingRejection): ParseRejection {
   return rejection;
@@ -87,6 +90,12 @@ export async function parseCsvStream(
   let quoteJustClosed = false;
   let rowNumber = 1;
   let sawAnyContent = false;
+  // Counts every data row, including malformed ones.
+  let totalDataRows = 0;
+  // True until the first character of the current field is consumed. RFC 4180
+  // only permits a quote to open a field, so this is what makes `a"x"` an
+  // error rather than something silently normalized to `ax`.
+  let atFieldStart = true;
 
   const finishField = (): void => {
     if (field.length > limits.maxCellCharacters) {
@@ -120,19 +129,33 @@ export async function parseCsvStream(
       return;
     }
 
+    // Every data row counts against the limit, well-formed or not. Counting
+    // only the good ones let a file of millions of malformed short rows run to
+    // completion without ever tripping `row_limit_exceeded`.
+    totalDataRows += 1;
+    if (totalDataRows > limits.maxRows) {
+      throw new ParseAbort("row_limit_exceeded");
+    }
+
+    // The deadline is checked here as well as per chunk, because one large
+    // chunk or a slow `onRow` can otherwise overrun it without a refusal.
+    if ((totalDataRows & 0xff) === 0 && now() - startedAt > limits.maxProcessingMs) {
+      throw new ParseAbort("duration_exceeded");
+    }
+
     if (row.length !== headers.length) {
       // A row with the wrong shape is refused on its own. Continuing lets an
       // administrator see every bad row at once instead of one per re-upload.
-      rowErrors.push({ rowNumber, reason: "inconsistent_column_count" });
+      // The list is bounded so a hostile file cannot grow it without limit.
+      if (rowErrors.length < MAX_ROW_ERRORS) {
+        rowErrors.push({ rowNumber, reason: "inconsistent_column_count" });
+      }
       row = [];
       rowNumber += 1;
       return;
     }
 
     rowsParsed += 1;
-    if (rowsParsed > limits.maxRows) {
-      throw new ParseAbort("row_limit_exceeded");
-    }
 
     const values: Record<string, string> = {};
     for (let i = 0; i < headers.length; i += 1) {
@@ -173,7 +196,13 @@ export async function parseCsvStream(
               continue;
             }
             inQuotes = false;
-            // Fall through so the character is handled unquoted.
+            // A closing quote must be followed by a delimiter or a row ending.
+            // Anything else means the file is not the shape it claims, and
+            // guessing would corrupt the value rather than refuse it.
+            if (char !== COMMA && char !== LF && char !== CR) {
+              throw new ParseAbort("quote_outside_field");
+            }
+            // Fall through so the delimiter is handled unquoted.
           } else if (char === QUOTE) {
             quoteJustClosed = true;
             continue;
@@ -187,21 +216,27 @@ export async function parseCsvStream(
         }
 
         if (char === QUOTE) {
+          // Only at the start of a field. `a"x",1` is malformed, not `ax,1`.
+          if (!atFieldStart) throw new ParseAbort("quote_outside_field");
           inQuotes = true;
+          atFieldStart = false;
           continue;
         }
         if (char === COMMA) {
           finishField();
+          atFieldStart = true;
           continue;
         }
         if (char === LF) {
           finishRow();
+          atFieldStart = true;
           continue;
         }
         if (char === CR) {
           continue; // CRLF: the LF does the work.
         }
         field += char;
+        atFieldStart = false;
         if (field.length > limits.maxCellCharacters) {
           throw new ParseAbort("cell_length_exceeded");
         }
@@ -221,7 +256,12 @@ export async function parseCsvStream(
     }
 
     if (!sawAnyContent) throw new ParseAbort("empty_file");
-    if (inQuotes && !quoteJustClosed) throw new ParseAbort("unterminated_quote");
+    // A quote that closed immediately before EOF completes its field.
+    if (quoteJustClosed) {
+      inQuotes = false;
+      quoteJustClosed = false;
+    }
+    if (inQuotes) throw new ParseAbort("unterminated_quote");
 
     // A final row with no trailing newline still counts.
     if (field.length > 0 || row.length > 0) finishRow();

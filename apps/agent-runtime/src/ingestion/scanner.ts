@@ -11,6 +11,9 @@ import type { ScanCheck, ScanCheckResult, ScanVerdict } from "@repo/shared-schem
  * collapse the two.
  */
 
+/** How long a provider gets before its silence counts as unavailable. */
+export const DEFAULT_SCAN_TIMEOUT_MS = 60_000;
+
 /** What a provider must implement. Deliberately narrow. */
 export interface MalwareScanner {
   readonly providerId: string;
@@ -27,6 +30,19 @@ export interface MalwareScanner {
     signal?: AbortSignal;
   }): Promise<{ status: "clean" | "infected" | "unavailable"; detail?: string }>;
 }
+
+/**
+ * The checks a verdict must carry before the malware result means anything.
+ * Section 7.2 step 5 lists them; absence is treated as failure, not as silence.
+ */
+export const REQUIRED_CHECKS: readonly Exclude<ScanCheck, "malware">[] = [
+  "authorization",
+  "workspace_binding",
+  "object_ownership",
+  "size_limits",
+  "text_format",
+  "parser_safety",
+];
 
 export interface ScanGateOptions {
   /** Null when no provider is configured for this deployment. */
@@ -61,8 +77,16 @@ export function evaluateScanGate(
   verdict: ScanVerdict,
   options: ScanGateOptions,
 ): { allowed: true } | { allowed: false; reason: ScanBlock } {
-  const failedPrecheck = verdict.checks.find((c) => !c.passed && c.check !== "malware");
-  if (failedPrecheck) return { allowed: false, reason: "precheck_failed" };
+  // Every non-malware check must be present and passing. Looking only for a
+  // failure would let a verdict that simply omits the prechecks through: an
+  // array containing nothing but a passing malware result has no failure in it,
+  // and would otherwise be indistinguishable from a fully checked file.
+  for (const required of REQUIRED_CHECKS) {
+    const results = verdict.checks.filter((c) => c.check === required);
+    if (results.length !== 1 || !results[0]?.passed) {
+      return { allowed: false, reason: "precheck_failed" };
+    }
+  }
 
   if (verdict.malwareStatus === "infected") {
     return { allowed: false, reason: "malware_detected" };
@@ -109,6 +133,8 @@ export async function runSecurityScan(input: {
   /** Results of checks the caller already performed (authorization, ownership). */
   precheck: Partial<Record<Exclude<ScanCheck, "malware">, boolean>>;
   scanner: MalwareScanner | null;
+  /** Deadline for the provider call. Defaults to DEFAULT_SCAN_TIMEOUT_MS. */
+  timeoutMs?: number;
   now?: () => Date;
 }): Promise<ScanVerdict> {
   const now = input.now ?? (() => new Date());
@@ -130,21 +156,46 @@ export async function runSecurityScan(input: {
   let detail: string | null = null;
 
   if (input.scanner) {
+    const controller = new AbortController();
+    const timeoutMs = input.timeoutMs ?? DEFAULT_SCAN_TIMEOUT_MS;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const result = await input.scanner.scan({
-        workspaceId: input.workspaceId,
-        bucket: input.bucket,
-        storagePath: input.storagePath,
-        sha256: input.sha256,
-      });
-      malwareStatus = result.status;
-      detail = result.detail ?? null;
+      // A provider that never settles would otherwise leave the batch in
+      // security_scanning forever, which is neither a pass nor the fail-closed
+      // refusal the spec requires. The race turns a hang into `unavailable`.
+      const result = await Promise.race([
+        input.scanner.scan({
+          workspaceId: input.workspaceId,
+          bucket: input.bucket,
+          storagePath: input.storagePath,
+          sha256: input.sha256,
+          signal: controller.signal,
+        }),
+        new Promise<never>((_, reject) => {
+          controller.signal.addEventListener("abort", () =>
+            reject(new Error("scan timed out")),
+          );
+        }),
+      ]);
+
+      // TypeScript does not validate what came back over a network. A provider
+      // returning an unexpected status would otherwise assign it here and fall
+      // through the gate, so anything outside the known set is `unavailable`.
+      if (result && (result.status === "clean" || result.status === "infected")) {
+        malwareStatus = result.status;
+        detail = typeof result.detail === "string" ? result.detail.slice(0, 500) : null;
+      } else {
+        malwareStatus = "unavailable";
+        detail = "scanner returned an unrecognised status";
+      }
     } catch {
       // A provider that threw has not cleared the file. Recording `unavailable`
       // rather than letting the exception escape keeps the decision with the
       // gate, which knows whether this deployment is allowed to continue.
       malwareStatus = "unavailable";
       detail = "scanner did not return a verdict";
+    } finally {
+      clearTimeout(timer);
     }
   } else {
     detail = "no scanning provider configured";

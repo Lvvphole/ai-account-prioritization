@@ -454,3 +454,163 @@ describe("scan gate fails closed in production", () => {
     });
   });
 });
+
+describe("review findings on PR #28", () => {
+  const enc2 = new TextEncoder();
+  async function* src(text: string): AsyncIterable<Uint8Array> {
+    yield enc2.encode(text);
+  }
+
+  it("counts malformed rows against the row limit", async () => {
+    // Previously only well-formed rows incremented the counter, so a file of
+    // millions of short malformed rows ran to completion.
+    const body = `a,b\n${Array.from({ length: 50 }, () => "x").join("\n")}\n`;
+    const rows: ParsedRow[] = [];
+    const outcome = await parseCsvStream(src(body), (r) => rows.push(r), {
+      limits: { ...DEFAULT_IMPORT_LIMITS, maxRows: 5 },
+    });
+    expect(outcome.fatal).toBe("row_limit_exceeded");
+    expect(rows).toHaveLength(0);
+  });
+
+  it("bounds the row-error list regardless of file size", async () => {
+    const body = `a,b\n${Array.from({ length: 3000 }, () => "x").join("\n")}\n`;
+    const outcome = await parseCsvStream(src(body), () => {}, {
+      limits: { ...DEFAULT_IMPORT_LIMITS, maxRows: 100_000 },
+    });
+    expect(outcome.rowErrors.length).toBeLessThanOrEqual(1000);
+  });
+
+  it("refuses a quote that does not open a field", async () => {
+    // `a"x",1` used to be silently normalized to `ax,1`, corrupting the value.
+    const outcome = await parseCsvStream(src('a,b\nq"x",1\n'), () => {}, {
+      limits: DEFAULT_IMPORT_LIMITS,
+    });
+    expect(outcome.fatal).toBe("quote_outside_field");
+  });
+
+  it("refuses text immediately after a closing quote", async () => {
+    const outcome = await parseCsvStream(src('a,b\n"x"trailing,1\n'), () => {}, {
+      limits: DEFAULT_IMPORT_LIMITS,
+    });
+    expect(outcome.fatal).toBe("quote_outside_field");
+  });
+
+  it("still accepts a properly quoted field at EOF", async () => {
+    const rows: ParsedRow[] = [];
+    const outcome = await parseCsvStream(src('a,b\n"x",1'), (r) => rows.push(r), {
+      limits: DEFAULT_IMPORT_LIMITS,
+    });
+    expect(outcome.fatal).toBeNull();
+    expect(rows[0]?.values.a).toBe("x");
+  });
+
+  it("enforces the deadline inside a single chunk", async () => {
+    // One chunk, so the per-chunk check runs exactly once and cannot be what
+    // catches this. The per-row sample is. The fake clock advances per call,
+    // and the sample runs every 256 rows, so the step has to be large enough
+    // that one sample crosses the budget.
+    let clock = 0;
+    const body = `a,b\n${Array.from({ length: 2000 }, (_, i) => `x,${i}`).join("\n")}\n`;
+    const outcome = await parseCsvStream(src(body), () => {}, {
+      limits: { ...DEFAULT_IMPORT_LIMITS, maxProcessingMs: 10 },
+      now: () => (clock += 100),
+    });
+    expect(outcome.fatal).toBe("duration_exceeded");
+    // And it stopped early rather than after the whole file.
+    expect(outcome.rowsParsed).toBeLessThan(2000);
+  });
+
+  it("refuses a verdict that omits the prechecks", () => {
+    // An array with nothing but a passing malware result has no failure in it,
+    // and used to be indistinguishable from a fully checked file.
+    const verdict = {
+      batchId: "44444444-4444-4444-8444-444444444444",
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      checks: [{ check: "malware" as const, passed: true, detail: null }],
+      malwareStatus: "clean" as const,
+      providerId: "p",
+      scannedAt: "2026-08-01T00:00:00.000Z",
+    };
+    expect(evaluateScanGate(verdict, { scanner: null, isProduction: false })).toEqual({
+      allowed: false,
+      reason: "precheck_failed",
+    });
+  });
+
+  it("refuses a verdict with a duplicated precheck", () => {
+    const checks = [
+      { check: "authorization" as const, passed: false, detail: null },
+      { check: "authorization" as const, passed: true, detail: null },
+      { check: "workspace_binding" as const, passed: true, detail: null },
+      { check: "object_ownership" as const, passed: true, detail: null },
+      { check: "size_limits" as const, passed: true, detail: null },
+      { check: "text_format" as const, passed: true, detail: null },
+      { check: "parser_safety" as const, passed: true, detail: null },
+    ];
+    const verdict = {
+      batchId: "44444444-4444-4444-8444-444444444444",
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      checks,
+      malwareStatus: "clean" as const,
+      providerId: "p",
+      scannedAt: "2026-08-01T00:00:00.000Z",
+    };
+    // A second, passing copy must not overwrite the failing one.
+    expect(evaluateScanGate(verdict, { scanner: null, isProduction: false }).allowed).toBe(false);
+  });
+
+  it("maps an unrecognised provider status to unavailable", async () => {
+    const verdict = await runSecurityScan({
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      batchId: "44444444-4444-4444-8444-444444444444",
+      bucket: "ingestion-quarantine",
+      storagePath: "a/b/c.csv",
+      sha256: "a".repeat(64),
+      byteSize: 100,
+      maxBytes: 1000,
+      precheck: {
+        authorization: true,
+        workspace_binding: true,
+        object_ownership: true,
+        text_format: true,
+        parser_safety: true,
+      },
+      scanner: {
+        providerId: "buggy",
+        // A real adapter can return anything; TypeScript does not check it.
+        scan: async () => ({ status: "error" }) as never,
+      },
+    });
+    expect(verdict.malwareStatus).toBe("unavailable");
+    expect(
+      evaluateScanGate(verdict, { scanner: null, isProduction: true }).allowed,
+    ).toBe(false);
+  });
+
+  it("times out a provider that never settles", async () => {
+    const verdict = await runSecurityScan({
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      batchId: "44444444-4444-4444-8444-444444444444",
+      bucket: "ingestion-quarantine",
+      storagePath: "a/b/c.csv",
+      sha256: "a".repeat(64),
+      byteSize: 100,
+      maxBytes: 1000,
+      precheck: {
+        authorization: true,
+        workspace_binding: true,
+        object_ownership: true,
+        text_format: true,
+        parser_safety: true,
+      },
+      timeoutMs: 20,
+      scanner: {
+        providerId: "hanging",
+        scan: () => new Promise(() => {}),
+      },
+    });
+    // A hang becomes the fail-closed verdict rather than a stuck batch.
+    expect(verdict.malwareStatus).toBe("unavailable");
+  }, 5000);
+});

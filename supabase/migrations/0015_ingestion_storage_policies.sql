@@ -8,20 +8,20 @@
 --   ingestion-rejected    rejected-row reports
 --   ingestion-reports     change-set and commit reports
 --
--- The access rule is one predicate: an object's first path segment is the
--- workspace it belongs to, and a caller reaches it only by holding admin in
--- that workspace. Paths are server-generated (`buildQuarantinePath` in
--- `@repo/security`), so the prefix is trustworthy in a way a client-supplied
--- filename never is.
+-- The access rule is that no browser role reaches these objects at all.
+-- Section 16.1 requires that a browser cannot list a workspace bucket and that
+-- access is by short-lived signed URL, so reads and writes go through the
+-- service role, which mints those URLs. Object paths are server-generated
+-- (`buildQuarantinePath` in `@repo/security`) and workspace-prefixed, so the
+-- prefix stays meaningful for the sweeper and for audit even though no policy
+-- keys off it.
 --
--- Listing is deliberately absent. A browser that could list a workspace bucket
--- would learn how many imports a tenant ran and when, which is not information
--- the import UI needs.
+-- The browser learns which files exist from `ingestion_files`, which is
+-- workspace-scoped and carries the metadata the import UI needs without
+-- exposing the objects.
 --
 -- Supabase's storage schema exists in a hosted project but not in a bare
--- PostgreSQL used for migration verification, so every statement here is
--- guarded. The guard skips the policies rather than inventing a fake storage
--- schema: a test double would prove the policy parses, not that it holds.
+-- PostgreSQL used for verification, so the bucket work is guarded.
 
 do $$
 begin
@@ -61,27 +61,19 @@ begin
     raise notice 'storage.objects RLS is managed by the platform; leaving as is';
   end;
 
+  -- No browser role gets any policy on these buckets.
+  --
+  -- Section 16.1 says the browser cannot list a workspace bucket and that
+  -- access is by short-lived signed URL. A SELECT policy scoped to the
+  -- workspace would satisfy the tenancy half and break the listing half: an
+  -- admin could enumerate every quarantined upload through the Storage API.
+  --
+  -- So reads and writes both go through the service role, which mints signed
+  -- URLs. The browser learns what files exist from `ingestion_files`, which is
+  -- already workspace-scoped and carries the metadata the import UI needs
+  -- without exposing the objects themselves.
   execute $p$drop policy if exists "ingestion_objects_admin_read" on storage.objects$p$;
-  execute $p$
-    create policy "ingestion_objects_admin_read"
-      on storage.objects for select
-      using (
-        bucket_id in ('ingestion-quarantine', 'ingestion-rejected', 'ingestion-reports')
-        and public.is_workspace_admin((storage.foldername(name))[1]::uuid)
-      )
-  $p$;
-
-  -- Insert only. There is no update policy: a raw upload is evidence, and an
-  -- object that can be replaced after scanning is evidence of nothing.
   execute $p$drop policy if exists "ingestion_objects_admin_insert" on storage.objects$p$;
-  execute $p$
-    create policy "ingestion_objects_admin_insert"
-      on storage.objects for insert
-      with check (
-        bucket_id = 'ingestion-quarantine'
-        and public.is_workspace_admin((storage.foldername(name))[1]::uuid)
-      )
-  $p$;
 
   -- Deletion is how retention is enforced, and retention is a server job.
   -- No browser role gets a delete policy.

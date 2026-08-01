@@ -52,6 +52,24 @@ export {
   type ScanGateOptions,
   type ScanBlock,
 } from "./ingestion/scanner";
+export {
+  normalizeRow,
+  applyTransform,
+  classifyTrust,
+  computeRowHash,
+  type NormalizedRow,
+  type TransformFailure,
+} from "./ingestion/normalization";
+export {
+  validateBatch,
+  dispositionFor,
+  DEFAULT_ANOMALY_THRESHOLDS,
+  type ValidationContext,
+  type ValidationResult,
+  type ValidatedRow,
+  type RowFinding,
+  type AnomalyThresholds,
+} from "./ingestion/validation";
 
 /**
  * Register read-only runtime tools on the MCP registry. Side-effecting tools

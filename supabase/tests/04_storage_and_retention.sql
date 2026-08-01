@@ -66,7 +66,7 @@ select pg_temp.expect_fail(
     values ('ingestion-reports', 0)$$,
   'a zero-day retention window');
 
-\echo '=== object access follows the workspace prefix ==='
+\echo '=== no browser role reaches a stored object ==='
 
 -- Two objects, one per tenant, written as the owner before any role switch.
 insert into storage.objects (bucket_id, name) values
@@ -75,17 +75,21 @@ insert into storage.objects (bucket_id, name) values
   ('ingestion-quarantine',
    'bbbbbbbb-0000-0000-0000-000000000002/b0000000-0000-0000-0000-00000000000b/u2.csv');
 
+-- Section 16.1: the browser cannot list a workspace bucket. A workspace-scoped
+-- read policy would satisfy tenancy and still permit enumeration, so there is
+-- no policy at all and every role below sees nothing.
 set role authenticated;
 set request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
 select pg_temp.expect_count(
-  $$select count(*) from storage.objects$$, 1,
-  'tenant A admin sees only tenant A objects');
+  $$select count(*) from storage.objects$$, 0,
+  'a workspace admin cannot enumerate quarantined uploads');
 
-select pg_temp.expect_count(
-  $$select count(*) from storage.objects
-     where name like 'bbbbbbbb%'$$, 0,
-  'tenant A admin cannot read tenant B objects');
+select pg_temp.expect_fail(
+  $$insert into storage.objects (bucket_id, name)
+    values ('ingestion-quarantine',
+            'aaaaaaaa-0000-0000-0000-000000000001/b0000000-0000-0000-0000-00000000000a/x.csv')$$,
+  'a workspace admin writing an object directly');
 
 reset role;
 set role authenticated;
@@ -103,21 +107,9 @@ select pg_temp.expect_count(
   $$select count(*) from storage.objects$$, 0,
   'a rep reads no raw uploads');
 
--- An admin cannot write an object under another tenant's prefix, which is the
--- case a crafted storage path would be trying to reach.
 reset role;
-set role authenticated;
-set request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
-select pg_temp.expect_fail(
-  $$insert into storage.objects (bucket_id, name)
-    values ('ingestion-quarantine',
-            'bbbbbbbb-0000-0000-0000-000000000002/b0000000-0000-0000-0000-00000000000b/evil.csv')$$,
-  'tenant A admin writing under tenant B prefix');
-
-select pg_temp.expect_fail(
-  $$update storage.objects set name = 'x'
-     where name like 'aaaaaaaa%'$$,
-  'replacing a scanned upload');
-
-reset role;
+-- The service role still reaches them, which is how signed URLs get minted.
+select pg_temp.expect_count(
+  $$select count(*) from storage.objects$$, 2,
+  'the service context still sees both objects');

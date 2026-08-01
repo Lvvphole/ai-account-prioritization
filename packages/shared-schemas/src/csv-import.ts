@@ -159,6 +159,7 @@ export const ParseRejection = z.enum([
   "duration_exceeded",
   "inconsistent_column_count",
   "unterminated_quote",
+  "quote_outside_field",
   "empty_file",
   "missing_header",
   "duplicate_header",
