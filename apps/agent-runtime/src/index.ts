@@ -23,16 +23,21 @@ export { resetStore, createSeedStore, type DataStore } from "./shared-tools/data
 export {
   attachActionDraft,
   attachHybridActionDraft,
+  createRuntimeDraftRunBudget,
+  estimateRuntimeModelInputTokensUpperBound,
   type HybridDraftOptions,
   type HybridDraftOutcome,
   type HybridDraftResult,
+  type RuntimeDraftRunBudget,
 } from "./agents/sales-execution/execution.agent";
 export { buildVerifiedDraftContext } from "./agents/sales-execution/build-draft-context";
 export {
+  DRAFT_GROUNDING_RULES_VERSION,
   validateDraftGrounding,
   renderGroundedDraft,
 } from "./agents/sales-execution/validate-draft-grounding";
 export {
+  RUNTIME_DRAFT_POLICY_VERSION,
   runtimeDraftingPolicyFromEnv,
   type RuntimeDraftingPolicy,
 } from "./agents/sales-execution/execution.policy";
@@ -44,6 +49,7 @@ export {
   anthropicRuntimeModelClient,
   RuntimeModelError,
   type RuntimeModelClient,
+  type RuntimeModelRequest,
   type RuntimeModelResult,
   type RuntimeModelTelemetry,
 } from "./inference/runtime-model";
