@@ -1,6 +1,6 @@
 export type DraftFallbackPolicy = "template" | "hold";
 
-export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v1";
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v2";
 
 export interface RuntimeDraftingPolicy {
   enabled: boolean;
@@ -8,7 +8,16 @@ export interface RuntimeDraftingPolicy {
   apiKey?: string;
   model?: string;
   timeoutMs: number;
+  /** Maximum output tokens for one provider call. */
   maxTokens: number;
+  /** Conservative upper bound for one request's model-visible input tokens. */
+  maxInputTokens: number;
+  /** Maximum verified evidence signals admitted to one model-visible context. */
+  maxSignals: number;
+  /** Maximum simultaneous provider calls in one prioritization run. */
+  maxConcurrent: number;
+  /** Conservative run-level input + output token reservation budget. */
+  maxRunTokens: number;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
 }
@@ -48,6 +57,10 @@ export function runtimeDraftingPolicyFromEnv(
     model: env.RUNTIME_DRAFT_MODEL,
     timeoutMs: intFromEnv(env.RUNTIME_DRAFT_TIMEOUT_MS, 5000, 250, 30000),
     maxTokens: intFromEnv(env.RUNTIME_DRAFT_MAX_TOKENS, 600, 64, 2000),
+    maxInputTokens: intFromEnv(env.RUNTIME_DRAFT_MAX_INPUT_TOKENS, 4000, 256, 32000),
+    maxSignals: intFromEnv(env.RUNTIME_DRAFT_MAX_SIGNALS, 6, 1, 32),
+    maxConcurrent: intFromEnv(env.RUNTIME_DRAFT_MAX_CONCURRENT, 4, 1, 16),
+    maxRunTokens: intFromEnv(env.RUNTIME_DRAFT_MAX_RUN_TOKENS, 20000, 256, 500000),
     maxAttempts: 1,
     fallback,
   };
