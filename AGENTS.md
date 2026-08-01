@@ -174,8 +174,12 @@ For pull-request, security, automated, Codex, and human review findings:
    invariant, and acceptance criterion.
 2. Validate each finding as valid, partially valid, invalid, duplicate, outdated,
    or out of scope. Do not modify code merely because a reviewer requested it.
-3. For valid findings, apply the smallest coherent fix. For invalid or outdated
-   findings, provide a concise evidence-based rebuttal.
+3. For valid findings, apply the smallest coherent fix. For partially valid
+   findings, fix the valid portion and rebut the remainder in the same reply.
+   For duplicate findings, reference the thread that owns the fix and resolve
+   only after that thread is resolved. For out-of-scope findings, record the
+   follow-up, state where it is tracked, and do not expand the change set. For
+   invalid or outdated findings, provide a concise evidence-based rebuttal.
 4. Run the narrowest relevant verification first, followed by all affected
    change-set gates.
 5. Reply to the review with the change, commit or diff reference, and verification
