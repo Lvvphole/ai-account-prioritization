@@ -122,7 +122,7 @@ export default function HomePage() {
           <Guarantee
             icon="✓"
             title="Human Approval"
-            body="Customer-facing sends are gated on a person, never a prompt."
+            body="Every customer-facing message waits for your approval. The AI never sends on its own."
           />
           <Guarantee
             icon="⛁"

@@ -91,8 +91,8 @@ export default async function LoginPage({
         )}
 
         <p className="signin-foot">
-          Recommendations are drafted, never auto-sent. Customer-facing actions stay
-          gated on a human.
+          Recommendations are drafted, never auto-sent. Every customer-facing message
+          waits for your approval.
         </p>
       </div>
     </div>
