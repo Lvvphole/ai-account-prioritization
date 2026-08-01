@@ -152,7 +152,6 @@ export interface HybridDraftInvocationStart {
 
 export interface HybridDraftOptions {
   policy?: RuntimeDraftingPolicy;
-  /** Dependency-injected model clients are a test seam; production calls still require durable audit. */
   modelClient?: RuntimeModelClient;
   runBudget?: RuntimeDraftRunBudget;
   /** Injected deterministic clock used for source freshness. */
@@ -398,35 +397,28 @@ export async function attachHybridActionDraft(
     }
     reservedRunTokens = requestedRunTokens;
 
-    // Vitest injects model clients that never cross the external provider
-    // boundary. Every non-test runtime model invocation requires durable start
-    // evidence before client.generate can execute.
-    const testInjectedClient =
-      options.modelClient !== undefined && process.env.VITEST === "true";
-    if (!options.beforeModelInvoke && !testInjectedClient) {
+    if (!options.beforeModelInvoke) {
       throw new Error("DRAFT_AUDIT_START_REQUIRED");
     }
 
-    if (options.beforeModelInvoke) {
-      try {
-        await options.beforeModelInvoke({
-          recommendationId: rec.id,
-          accountId: rec.accountId,
-          selectedSourceSignalIds: [...selectedSourceSignalIds],
-          provider: policy.provider,
-          model: policy.model ?? null,
-          promptVersion: baseOutcome.promptVersion,
-          promptHash: baseOutcome.promptHash,
-          schemaVersion: baseOutcome.schemaVersion,
-          policyVersion: baseOutcome.policyVersion,
-          effectivePolicyHash: baseOutcome.effectivePolicyHash,
-          groundingVersion: baseOutcome.groundingVersion,
-          inputTokenUpperBound,
-          reservedRunTokens,
-        });
-      } catch {
-        throw new Error("DRAFT_AUDIT_START_FAILED");
-      }
+    try {
+      await options.beforeModelInvoke({
+        recommendationId: rec.id,
+        accountId: rec.accountId,
+        selectedSourceSignalIds: [...selectedSourceSignalIds],
+        provider: policy.provider,
+        model: policy.model ?? null,
+        promptVersion: baseOutcome.promptVersion,
+        promptHash: baseOutcome.promptHash,
+        schemaVersion: baseOutcome.schemaVersion,
+        policyVersion: baseOutcome.policyVersion,
+        effectivePolicyHash: baseOutcome.effectivePolicyHash,
+        groundingVersion: baseOutcome.groundingVersion,
+        inputTokenUpperBound,
+        reservedRunTokens,
+      });
+    } catch {
+      throw new Error("DRAFT_AUDIT_START_FAILED");
     }
 
     const client = options.modelClient ?? anthropicRuntimeModelClient;
