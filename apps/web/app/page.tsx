@@ -4,135 +4,103 @@ import {
   accountProfile,
   accountValue,
 } from "./lib/mock-data";
-import type { Recommendation } from "./lib/types";
+import { formatUsd, humanizeCode } from "./lib/display";
 import { isSupabaseConfigured } from "./lib/supabase/config";
-import {
-  actionIcon,
-  actionLabel,
-  formatUsd,
-  humanizeCode,
-  priorityTier,
-  evidenceBand,
-} from "./lib/display";
+import styles from "./marketing.module.css";
 
 export default function HomePage() {
   const plan = [...MOCK_RECOMMENDATIONS].sort((a, b) => a.rank - b.rank);
   const signals = plan.flatMap((rec) => rec.sourceSignals);
-  const verified = signals.filter((s) => s.verified).length;
+  const verified = signals.filter((signal) => signal.verified).length;
   const pipeline = plan.reduce((sum, rec) => sum + accountValue(rec.accountId), 0);
-  // Only the credential-free demo deploy lets a visitor in without a login;
-  // when Supabase is configured the portal requires email + password.
   const demo = !isSupabaseConfigured();
 
   return (
-    <section>
-      <div className="hero">
-        <span className="hero-pill">
-          <span className="pulse" aria-hidden="true" />
-          {demo
-            ? "Live demo · no credentials required"
-            : "Deterministic · eval-gated · human-approved"}
-        </span>
-        <h1>
-          Turn CRM Noise into <span className="hl">Closed Revenue</span>
-        </h1>
-        <p className="hero-sub">
-          Know which accounts to work first, and why. Each one arrives with the
-          evidence and a drafted next step.
-        </p>
-        <div className="hero-cta">
-          <a className="btn-cta" href="/login">
-            Enter the Portal →
-          </a>
-          <a className="btn-ghost" href="#how">
-            How It Works
-          </a>
-        </div>
+    <section className={styles.page}>
+      <section className={styles.hero} id="product">
+        <div className={styles.heroCopy}>
+          <div className={styles.demoPill}>
+            <span className={styles.liveDot} aria-hidden="true" />
+            <span>{demo ? "LIVE DEMO" : "AI SALES WORKSPACE"}</span>
+            <span className={styles.demoMuted}>
+              {demo ? "No credit card required" : "Verified CRM priorities"}
+            </span>
+          </div>
 
-        <div className="stat-strip">
-          <Stat value={String(plan.length)} label="Accounts Ranked Today" />
-          <Stat value={formatUsd(pipeline)} label="Revenue in View" />
-          <Stat value={`${verified}/${signals.length}`} label="Signals Verified" />
-          <Stat value={String(MOCK_BLOCKED.length)} label="Held by Guardrails" />
-        </div>
-      </div>
+          <h1>
+            Focus on the accounts <span className={styles.gradientText}>that matter most today.</span>
+          </h1>
+          <p className={styles.heroSub}>
+            Verified CRM signals are ranked by a deterministic scoring engine. AI then
+            explains why each account matters and drafts the next best move, so your team
+            can spend less time sorting data and more time selling.
+          </p>
 
-      <div className="preview">
-        <div className="preview-chrome">
-          <span className="dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span className="preview-url">Rep Dashboard · today’s plan</span>
-        </div>
-        <div className="preview-body">
-          <div className="preview-head">
-            <div>
-              <h3>Today’s Plan</h3>
-              <p className="preview-sub">Ranked by the deterministic scorer · run_demo</p>
-            </div>
-            <a className="btn-sm" href="/dashboard">
-              View All →
+          <div className={styles.heroActions}>
+            <a className={styles.primaryCta} href="/login">
+              {demo ? "Enter the Live Demo →" : "Sign in to Workspace →"}
+            </a>
+            <a className={styles.secondaryCta} href="#how-it-works">
+              See How It Works
             </a>
           </div>
-          <ol className="plan">
-            {plan.slice(0, 3).map((rec) => (
-              <PlanRow key={rec.id} rec={rec} />
-            ))}
-          </ol>
-        </div>
-      </div>
 
-      <section className="band" id="how">
-        <p className="band-label">How It Works</p>
-        <h2 className="band-title">What Happens Before You Log In</h2>
-        <div className="steps">
-          <Step
-            n="1"
-            title="Verify"
-            body="Every signal is checked against the CRM record it came from. Nothing unverified reaches your list."
-          />
-          <Step
-            n="2"
-            title="Rank"
-            body="A fixed formula orders your accounts by where revenue is most likely to move. The model never sets the order."
-          />
-          <Step
-            n="3"
-            title="Act"
-            body="Each account arrives with a drafted email, call or meeting. You approve before anything sends."
-          />
+          <div className={styles.stats} aria-label="Demo metrics">
+            <Stat icon="↗" value={String(plan.length)} label="Accounts ranked today" />
+            <Stat icon="$" value={formatUsd(pipeline)} label="Revenue in view" />
+            <Stat icon="✓" value={`${verified}/${signals.length}`} label="Signals verified" />
+            <Stat icon="▣" value={String(MOCK_BLOCKED.length)} label="Held for review" />
+          </div>
+        </div>
+
+        <ProductPreview plan={plan.slice(0, 3)} pipeline={pipeline} verified={verified} totalSignals={signals.length} />
+      </section>
+
+      <section className={styles.valueBand} id="how-it-works">
+        <div className={styles.valueInner}>
+          <span className={styles.valueKicker}>One clear daily workflow</span>
+          <span className={styles.valueItem}>
+            <i className={styles.valueDot} /> Connect CRM signals
+          </span>
+          <span className={styles.valueItem}>
+            <i className={styles.valueDot} /> Prioritize the right accounts
+          </span>
+          <span className={styles.valueItem}>
+            <i className={styles.valueDot} /> Review the evidence
+          </span>
+          <span className={styles.valueItem}>
+            <i className={styles.valueDot} /> Approve the next move
+          </span>
         </div>
       </section>
 
-      <section className="band">
-        <p className="band-label">Built on Guarantees, Not Vibes</p>
-        <div className="guarantees">
-          <Guarantee
+      <section className={styles.features} id="security">
+        <h2 className={styles.featuresTitle}>Built for revenue teams that need clarity and control</h2>
+        <div className={styles.featureGrid}>
+          <Feature
+            icon="↗"
+            title="Explainable Priorities"
+            body="Every account is ordered from verified CRM inputs, with the exact business signals that put it on the list."
+          />
+          <Feature
             icon="◎"
-            title="Deterministic Scoring"
-            body="Ranking is a pure function of verified inputs. No drift between runs."
+            title="Evidence You Can Inspect"
+            body="Reps see the opportunity, intent, activity, and account context behind each recommendation before they act."
           />
-          <Guarantee
-            icon="≡"
-            title="Reason Codes"
-            body="Every rank ships with the specific signals that produced it."
-          />
-          <Guarantee
-            icon="✓"
+          <Feature
+            icon="○"
             title="Human Approval"
-            body="Customer-facing sends are gated on a person, never a prompt."
+            body="Drafted customer actions stay under human control. Nothing customer-facing sends without approval."
           />
-          <Guarantee
-            icon="⛁"
-            title="Immutable Audit"
-            body="Publishes, blocks and CRM writes are written once and retained."
+          <Feature
+            icon="◇"
+            title="Enterprise Controls"
+            body="Role-based access, audit history, guardrails, and evaluation gates keep the workflow accountable."
           />
-          <Guarantee
-            icon="⚑"
-            title="Eval-Gated CI"
-            body="Ranking changes must pass deterministic evals before they ship."
+          <Feature
+            icon="$"
+            title="Built Around Revenue Work"
+            body="The workspace centers each seller on the accounts, pipeline, and next actions that deserve attention now."
           />
         </div>
       </section>
@@ -140,98 +108,160 @@ export default function HomePage() {
   );
 }
 
-function PlanRow({ rec }: { rec: Recommendation }) {
-  const profile = accountProfile(rec.accountId);
-  const tier = priorityTier(rec.score);
-  const evidence = rec.sourceSignals[0];
+type PreviewRecommendation = (typeof MOCK_RECOMMENDATIONS)[number];
 
+function ProductPreview({
+  plan,
+  pipeline,
+  verified,
+  totalSignals,
+}: {
+  plan: PreviewRecommendation[];
+  pipeline: number;
+  verified: number;
+  totalSignals: number;
+}) {
   return (
-    <li className="plan-item">
-      <div className="plan-main">
-        <span className={`rank-badge rank-${tier.tone}`}>{rec.rank}</span>
-        <div className="plan-id">
-          <a className="plan-name" href={`/accounts/${rec.accountId}`}>
-            {profile?.name ?? rec.accountId}
-          </a>
-          <p className="plan-meta">
-            {profile ? `${profile.industry} · ${profile.tier}` : rec.accountId}
-          </p>
+    <div className={styles.productStage} aria-label="Product dashboard preview">
+      <div className={styles.productGlow} aria-hidden="true" />
+      <div className={styles.productWindow}>
+        <div className={styles.windowTop}>
+          <div className={styles.windowTitle}>
+            <span className={styles.windowLogo} aria-hidden="true">A</span>
+            <span>Rep Dashboard</span>
+          </div>
+          <div className={styles.userRow}>
+            <span>Filters</span>
+            <span>⌁</span>
+            <span className={styles.avatar} aria-hidden="true">AR</span>
+            <span>Alex Rivera</span>
+          </div>
         </div>
-        <div className="plan-score">
-          <div className="score-row">
-            <span className="score-val">{rec.score.toFixed(1)}</span>
-            <span className="score-max">/100</span>
+
+        <div className={styles.tabs} aria-hidden="true">
+          <span className={styles.tabActive}>Today&apos;s Plan</span>
+          <span>All Accounts</span>
+          <span>Activity</span>
+        </div>
+
+        <div className={styles.windowBody}>
+          <div>
+            <div className={styles.accountList}>
+              {plan.map((rec) => {
+                const profile = accountProfile(rec.accountId);
+                return (
+                  <article className={styles.accountRow} key={rec.id}>
+                    <div className={styles.accountHead}>
+                      <span className={styles.rankBadge}>{rec.rank}</span>
+                      <div>
+                        <div className={styles.accountName}>{profile?.name ?? rec.accountId}</div>
+                        <div className={styles.accountMeta}>
+                          {profile
+                            ? `${profile.industry} · ${formatTier(profile.tier)}`
+                            : rec.accountId}
+                        </div>
+                      </div>
+                      <div className={styles.score}>
+                        <span className={styles.scoreNumber}>{rec.score.toFixed(1)}</span>
+                        <span className={styles.scoreMax}> /100</span>
+                        <div className={styles.scoreBar} aria-hidden="true">
+                          <span
+                            className={styles.scoreFill}
+                            style={{ width: `${Math.min(rec.score, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <p className={styles.recommendation}>{rec.nextBestAction.objective}</p>
+                    <div className={styles.reasonRow}>
+                      {rec.reasonCodes.slice(0, 3).map((reason) => (
+                        <span className={styles.reason} key={reason}>
+                          {humanizeCode(reason)}
+                        </span>
+                      ))}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className={styles.viewAll}>View all accounts →</div>
           </div>
-          <div className={`meter meter-${tier.tone}`}>
-            <span style={{ width: `${Math.min(rec.score, 100)}%` }} />
-          </div>
-          <span className="score-tier">{tier.label}</span>
+
+          <aside className={styles.sideRail}>
+            <div className={styles.metricCard}>
+              <div className={styles.metricLabel}>Revenue in view</div>
+              <div className={styles.metricValue}>{formatUsd(pipeline)}</div>
+              <div className={styles.metricSub}>Across today&apos;s ranked account list</div>
+              <svg className={styles.sparkline} viewBox="0 0 180 44" role="img" aria-label="Revenue trend illustration">
+                <polyline
+                  points="0,32 14,27 28,30 42,22 56,24 70,14 84,25 98,22 112,31 126,20 140,11 154,18 168,8 180,3"
+                  fill="none"
+                  stroke="#5b7cff"
+                  strokeWidth="2"
+                />
+              </svg>
+            </div>
+
+            <div className={styles.metricCard}>
+              <div className={styles.metricLabel}>Signals verified</div>
+              <div className={styles.signalRingWrap}>
+                <div className={styles.signalRing}>
+                  <div className={styles.signalCenter}>
+                    {verified}/{totalSignals}
+                    <small>This run</small>
+                  </div>
+                </div>
+                <div className={styles.signalLegend}>
+                  <span><b>Account</b><em>verified</em></span>
+                  <span><b>Intent</b><em>verified</em></span>
+                  <span><b>Opportunity</b><em>verified</em></span>
+                  <span><b>Activity</b><em>verified</em></span>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.metricCard}>
+              <div className={styles.metricLabel}>Human review</div>
+              <div className={styles.guardrailValue}>
+                <span className={styles.shield} aria-hidden="true">✓</span>
+                <div>
+                  <div className={styles.metricValue}>{MOCK_BLOCKED.length}</div>
+                  <div className={styles.metricSub}>Accounts held before outreach</div>
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
-
-      <p className="plan-obj">
-        <span className="act-pill">
-          <span aria-hidden="true">{actionIcon(rec.nextBestAction.type)}</span>
-          {actionLabel(rec.nextBestAction.type)}
-        </span>
-        {rec.nextBestAction.objective}
-      </p>
-
-      <div className="chip-row">
-        {rec.reasonCodes.map((code) => (
-          <span className="chip" key={code}>
-            {humanizeCode(code)}
-          </span>
-        ))}
-        <span className="chip chip-conf">{evidenceBand(rec.confidence).label}</span>
-      </div>
-
-      {evidence ? (
-        <p className="evidence">
-          <span className="tick" aria-hidden="true">
-            ✓
-          </span>
-          <span>
-            {evidence.description}
-            <span className="muted">
-              {" "}
-              · {rec.sourceSignals.length} verified signal
-              {rec.sourceSignals.length === 1 ? "" : "s"}
-            </span>
-          </span>
-        </p>
-      ) : null}
-    </li>
-  );
-}
-
-function Stat({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="stat">
-      <span className="stat-val">{value}</span>
-      <span className="stat-label">{label}</span>
     </div>
   );
 }
 
-function Step({ n, title, body }: { n: string; title: string; body: string }) {
+function Stat({ icon, value, label }: { icon: string; value: string; label: string }) {
   return (
-    <div className="step">
-      <span className="step-num">{n}</span>
-      <h3>{title}</h3>
-      <p className="muted">{body}</p>
-    </div>
-  );
-}
-
-function Guarantee({ icon, title, body }: { icon: string; title: string; body: string }) {
-  return (
-    <div className="g-card">
-      <span className="g-icon" aria-hidden="true">
-        {icon}
+    <div className={styles.stat}>
+      <span className={styles.statValue}>
+        <span className={styles.statIcon} aria-hidden="true">{icon}</span>
+        {value}
       </span>
-      <h3>{title}</h3>
-      <p className="muted">{body}</p>
+      <span className={styles.statLabel}>{label}</span>
     </div>
   );
+}
+
+function Feature({ icon, title, body }: { icon: string; title: string; body: string }) {
+  return (
+    <article className={styles.feature}>
+      <span className={styles.featureIcon} aria-hidden="true">{icon}</span>
+      <h3>{title}</h3>
+      <p>{body}</p>
+    </article>
+  );
+}
+
+function formatTier(tier: string): string {
+  return tier
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }

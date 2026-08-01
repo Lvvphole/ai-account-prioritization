@@ -1,0 +1,26 @@
+.signin {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.signin-brand {
+  background: linear-gradient(
+    158deg,
+    rgba(37, 99, 235, 0.18),
+    rgba(79, 70, 229, 0.13) 62%,
+    rgba(124, 58, 237, 0.1)
+  );
+  border-color: rgba(129, 140, 248, 0.24);
+}
+
+.signin-brand h1 {
+  color: #f8fafc;
+}
+
+.signin-brand > p {
+  color: #9eacc0;
+}
+
+.signin-points li {
+  color: #c8d1df;
+}

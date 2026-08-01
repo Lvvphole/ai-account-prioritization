@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import type { AppRole } from "@repo/supabase-client";
 import { roleHome } from "../../lib/auth";
+import { safeInternalDestination } from "../../lib/redirect";
 
 /**
  * Demo-mode role entry: pick Rep / Manager / Admin (no real auth configured).
@@ -19,8 +20,16 @@ export async function POST(request: NextRequest) {
     maxAge: 60 * 60 * 24 * 7,
   });
 
+  // Honor the page the visitor was heading for before being sent to the picker,
+  // else drop them at the role's home. Pathname and search are assigned apart so
+  // a destination like /admin/data/imports/new?kind=activities keeps its query.
+  const destination = safeInternalDestination(
+    String(form.get("redirectTo") ?? ""),
+    request.nextUrl.origin,
+  );
+
   const url = request.nextUrl.clone();
-  url.pathname = roleHome(role);
-  url.search = "";
+  url.pathname = destination?.pathname ?? roleHome(role);
+  url.search = destination?.search ?? "";
   return NextResponse.redirect(url, { status: 303 });
 }
