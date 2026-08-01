@@ -1,5 +1,6 @@
 import type { Account, Activity, Contact, Opportunity } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../config/runtime";
+import { resolveVerifiedIntentObservations } from "./tools/resolve-verified-intent-observations";
 
 /**
  * Prioritizer policy — pure, deterministic feature extraction.
@@ -31,7 +32,10 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
   const a = ctx.account;
 
   const pipeline = clamp01(a.openPipelineUsd / cfg.pipelineSaturationUsd);
-  const intent = clamp01(a.intentSignals.length / cfg.intentSaturationCount);
+  // Account intent codes influence authority only when each code can be traced
+  // back to a matching verified intent-event observation.
+  const verifiedIntentCount = resolveVerifiedIntentObservations(a, ctx.activities).length;
+  const intent = clamp01(verifiedIntentCount / cfg.intentSaturationCount);
 
   // Missing contact data is treated as maximally stale (worst case) by design.
   const days =
