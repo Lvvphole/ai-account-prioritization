@@ -6,7 +6,8 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'action_required', 'startup_failure']);
-const INCOMPLETE_CONCLUSIONS = new Set(['cancelled', 'skipped', 'neutral', 'stale']);
+const INCOMPLETE_CONCLUSIONS = new Set(['cancelled', 'skipped', 'neutral', 'stale', 'queued', 'in_progress', 'waiting', 'requested', 'pending']);
+const FINDING_CONTROL_TYPES = new Set(['FINDING_VALIDATED', 'FINDING_REBUTTED', 'FINDING_INVALIDATED', 'FINDING_RESOLVED', 'FINDING_ATTRIBUTED']);
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -71,28 +72,131 @@ function dedupeReasons(reasons) {
   });
 }
 
-export function parseRedesignAuthorization(body, marker) {
+function parseLedgerRecord(body, marker) {
   if (!body?.includes(marker)) return null;
   const fenced = /```json\s*([\s\S]*?)```/i.exec(body);
   if (!fenced) return null;
   try {
-    const value = JSON.parse(fenced[1]);
-    return value.type === 'REDESIGN_AUTHORIZED' ? value : null;
+    return JSON.parse(fenced[1]);
   } catch {
     return null;
   }
 }
 
+export function parseRedesignAuthorization(body, marker) {
+  const value = parseLedgerRecord(body, marker);
+  return value?.type === 'REDESIGN_AUTHORIZED' ? value : null;
+}
+
 export function parseScopedFixForwardAuthorization(body, marker) {
-  if (!body?.includes(marker)) return null;
-  const fenced = /```json\s*([\s\S]*?)```/i.exec(body);
-  if (!fenced) return null;
-  try {
-    const value = JSON.parse(fenced[1]);
-    return value.type === 'SCOPED_FIX_FORWARD_AUTHORIZED' ? value : null;
-  } catch {
-    return null;
+  const value = parseLedgerRecord(body, marker);
+  return value?.type === 'SCOPED_FIX_FORWARD_AUTHORIZED' ? value : null;
+}
+
+export function parseFindingControlRecord(body, marker) {
+  const value = parseLedgerRecord(body, marker);
+  return FINDING_CONTROL_TYPES.has(value?.type) ? value : null;
+}
+
+function runtimeFindingId(id) {
+  let match = /^github:review_comment:(\d+):\d+$/.exec(id ?? '');
+  if (match) return `review-comment:${match[1]}`;
+  match = /^github:review:(\d+):\d+$/.exec(id ?? '');
+  if (match) return `review-body:${match[1]}`;
+  return id;
+}
+
+function normalizeAttribution(value) {
+  if (value === 'NEWLY_INTRODUCED' || value === 'PRE_EXISTING') return value;
+  if (value === 'PRE_EXISTING_BY_DIFF') return 'PRE_EXISTING';
+  if (value === 'INDIRECTLY_INTRODUCED') return 'NEWLY_INTRODUCED';
+  return null;
+}
+
+export function applyFindingControls(findings, records) {
+  const state = new Map();
+  const ordered = [...records].sort((a, b) => {
+    const byTime = Date.parse(a.createdAt ?? 0) - Date.parse(b.createdAt ?? 0);
+    return byTime || String(a.commentId ?? '').localeCompare(String(b.commentId ?? ''));
+  });
+  for (const record of ordered) {
+    const id = runtimeFindingId(record.finding_id);
+    if (!id) continue;
+    const current = state.get(id) ?? { validationState: 'PENDING', validatedPriority: null, resolved: false, attribution: null };
+    if (record.type === 'FINDING_VALIDATED') {
+      current.validationState = 'VALID';
+      current.validatedPriority = record.validated_priority ?? null;
+      current.resolved = false;
+      current.attribution = normalizeAttribution(record.attribution) ?? current.attribution;
+    } else if (record.type === 'FINDING_REBUTTED') {
+      current.validationState = 'REBUTTED';
+      current.validatedPriority = null;
+      current.resolved = true;
+    } else if (record.type === 'FINDING_INVALIDATED') {
+      current.validationState = 'INVALID';
+      current.validatedPriority = null;
+      current.resolved = true;
+    } else if (record.type === 'FINDING_RESOLVED') {
+      current.resolved = true;
+    } else if (record.type === 'FINDING_ATTRIBUTED') {
+      current.attribution = normalizeAttribution(record.introduction_state);
+    }
+    state.set(id, current);
   }
+  return findings.map((finding) => {
+    const control = state.get(finding.id) ?? { validationState: 'PENDING', validatedPriority: null, resolved: false, attribution: null };
+    return {
+      ...finding,
+      reportedPriority: finding.priority,
+      priority: control.validationState === 'VALID' ? control.validatedPriority : null,
+      validationState: control.validationState,
+      resolved: control.resolved,
+      attribution: control.attribution,
+    };
+  });
+}
+
+export function parseChangedRightLines(diff) {
+  const byPath = new Map();
+  let filePath = null;
+  let rightLine = null;
+  for (const line of (diff ?? '').split('\n')) {
+    if (line.startsWith('+++ ')) {
+      const next = line.slice(4);
+      filePath = next === '/dev/null' ? null : normalizePath(next.replace(/^b\//, ''));
+      continue;
+    }
+    if (line.startsWith('@@')) {
+      const match = /\+(\d+)(?:,\d+)?/.exec(line);
+      rightLine = match ? Number.parseInt(match[1], 10) : null;
+      continue;
+    }
+    if (!filePath || rightLine == null) continue;
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      const set = byPath.get(filePath) ?? new Set();
+      set.add(rightLine);
+      byPath.set(filePath, set);
+      rightLine += 1;
+    } else if (line.startsWith('-') && !line.startsWith('---')) {
+      // deletion consumes no right-side line
+    } else {
+      rightLine += 1;
+    }
+  }
+  return byPath;
+}
+
+export function classifyFindingAttribution(finding, changedRightLines, ownerAttribution = finding.attribution) {
+  const override = normalizeAttribution(ownerAttribution);
+  if (override) return override;
+  if (!finding.path || !Number.isInteger(finding.line)) return 'PRE_EXISTING';
+  const changed = changedRightLines.get(normalizePath(finding.path));
+  if (!changed) return 'PRE_EXISTING';
+  const start = Number.isInteger(finding.startLine) ? finding.startLine : finding.line;
+  for (let line = start; line <= finding.line; line += 1) {
+    if (changed.has(line)) return 'NEWLY_INTRODUCED';
+  }
+  return 'PRE_EXISTING';
 }
 
 export function applyRedesignCutovers(findings, authorizations) {
@@ -107,7 +211,7 @@ export function applyRedesignCutovers(findings, authorizations) {
   });
 }
 
-export function analyzeRepairHistory({ commitOrder, findings, policy }) {
+export function analyzeRepairHistory({ commitOrder, findings, policy, classifyIntroduction = (finding) => finding.attribution ?? 'NEWLY_INTRODUCED' }) {
   const commitIndex = new Map(commitOrder.map((sha, index) => [sha, index]));
   const grouped = new Map();
 
@@ -130,11 +234,13 @@ export function analyzeRepairHistory({ commitOrder, findings, policy }) {
 
     if (priorRound) {
       for (const finding of checkpoint.findings) {
-        if ((finding.priority === 'P0' || finding.priority === 'P1') && policy.repair.newValidP0P1AfterRepair === 0) {
-          blockedReasons.push({ code: 'NEW_VALID_P0_P1_AFTER_REPAIR', findingId: finding.id, subsystem: finding.subsystem, priority: finding.priority });
+        const introduction = classifyIntroduction(finding, priorRound);
+        const highSeverity = finding.priority === 'P0' || finding.priority === 'P1';
+        if (highSeverity && introduction === 'NEWLY_INTRODUCED' && policy.repair.newValidP0P1AfterRepair === 0) {
+          blockedReasons.push({ code: 'NEW_VALID_P0_P1_AFTER_REPAIR', findingId: finding.id, subsystem: finding.subsystem, priority: finding.priority, attribution: introduction });
         }
-        if ((finding.priority === 'P0' || finding.priority === 'P1') && priorRound.subsystems.includes(finding.subsystem) && policy.repair.sameSubsystemRepeatDefectBudget === 0) {
-          blockedReasons.push({ code: 'SAME_SUBSYSTEM_REPEAT_DEFECT', findingId: finding.id, subsystem: finding.subsystem, priority: finding.priority });
+        if (highSeverity && introduction === 'NEWLY_INTRODUCED' && priorRound.subsystems.includes(finding.subsystem) && policy.repair.sameSubsystemRepeatDefectBudget === 0) {
+          blockedReasons.push({ code: 'SAME_SUBSYSTEM_REPEAT_DEFECT', findingId: finding.id, subsystem: finding.subsystem, priority: finding.priority, attribution: introduction });
         }
         if (rounds.length >= policy.repair.maxRoundsPerPr) {
           blockedReasons.push({ code: 'MAX_REPAIR_ROUNDS_EXCEEDED', findingId: finding.id, subsystem: finding.subsystem });
@@ -216,6 +322,8 @@ export function reviewBodyFinding(review, policy) {
     priority,
     subsystem: subsystemForPath(null, policy),
     path: null,
+    line: null,
+    startLine: null,
     reviewedCommitSha: review.commit_id,
     createdAt: review.submitted_at,
     url: review.html_url,
@@ -235,6 +343,8 @@ async function fetchReviewFindings({ apiUrl, repository, prNumber, token, policy
         priority,
         subsystem: subsystemForPath(comment.path, policy),
         path: comment.path,
+        line: comment.line ?? comment.original_line ?? null,
+        startLine: comment.start_line ?? comment.original_start_line ?? comment.line ?? comment.original_line ?? null,
         reviewedCommitSha: comment.commit_id ?? comment.original_commit_id,
         createdAt: comment.created_at,
         url: comment.html_url,
@@ -242,7 +352,16 @@ async function fetchReviewFindings({ apiUrl, repository, prNumber, token, policy
     })
     .filter((finding) => finding?.reviewedCommitSha);
   const reviewBodyFindings = reviews.map((review) => reviewBodyFinding(review, policy)).filter(Boolean);
-  return [...inlineFindings, ...reviewBodyFindings];
+  return { findings: [...inlineFindings, ...reviewBodyFindings], reviewComments: comments };
+}
+
+async function fetchFindingControlRecords({ apiUrl, repository, prNumber, token, policy, reviewComments }) {
+  const issueComments = await fetchAllPages(`${apiUrl}/repos/${repository}/issues/${prNumber}/comments`, token);
+  return [...issueComments, ...reviewComments].map((comment) => {
+    if (!policy.authorization.trustedActors.includes(comment.user?.login)) return null;
+    const record = parseFindingControlRecord(comment.body, policy.authorization.marker);
+    return record ? { ...record, createdAt: comment.created_at, commentId: comment.id } : null;
+  }).filter(Boolean);
 }
 
 async function fetchRedesignAuthorizations({ apiUrl, repository, prNumber, token, policy }) {
@@ -264,8 +383,7 @@ async function fetchScopedFixForwardAuthorizations({ apiUrl, repository, prNumbe
 }
 
 function scopedFindingId(id) {
-  const match = /^github:review_comment:(\d+):\d+$/.exec(id ?? '');
-  return match ? `review-comment:${match[1]}` : id;
+  return runtimeFindingId(id);
 }
 
 function applyScopedFixForward({ repair, authorizations, commits, headSha, policy, cwd }) {
@@ -282,25 +400,27 @@ function applyScopedFixForward({ repair, authorizations, commits, headSha, polic
   if (baseIndex < 0) return repair;
   const executionIds = new Set(commits.slice(baseIndex + 1).map((commit) => /(?:^|\n)Agent-Execution-Id:\s*(\S+)/.exec(commit.commit?.message ?? '')?.[1]).filter(Boolean));
   if (!executionIds.size || executionIds.size > auth.max_executions) return repair;
+  if (auth.execution_id && (!executionIds.has(auth.execution_id) || executionIds.size !== 1)) return repair;
   repair.blockedReasons = [];
   repair.circuitBreakerState = 'SCOPED_FIX_FORWARD';
-  repair.scopedFixForward = { commentId: auth.commentId, changedLines, executionIds: [...executionIds] };
+  repair.scopedFixForward = { commentId: auth.commentId, changedLines, executionIds: [...executionIds], allowedFindingIds: [...allowedFindings] };
   return repair;
 }
 
 async function fetchCheckRuns({ apiUrl, repository, sha, token }) {
   const data = await githubJson(`${apiUrl}/repos/${repository}/commits/${sha}/check-runs?per_page=100&filter=latest`, token);
-  return new Map(data.check_runs.filter((check) => check.status === 'completed' && check.conclusion).map((check) => [check.name, check.conclusion]));
+  return new Map(data.check_runs.map((check) => [check.name, check.status === 'completed' ? check.conclusion : check.status]));
 }
 
 export function classifyCheckDelta(baselineConclusion, repairConclusion) {
   if (baselineConclusion !== 'success') return null;
+  if (repairConclusion == null) return 'VERIFICATION_INCOMPLETE';
   if (FAILURE_CONCLUSIONS.has(repairConclusion)) return 'NEW_REGRESSION';
   if (INCOMPLETE_CONCLUSIONS.has(repairConclusion)) return 'VERIFICATION_INCOMPLETE';
   return null;
 }
 
-async function detectNewRegressions({ apiUrl, repository, token, rounds }) {
+async function detectNewRegressions({ apiUrl, repository, token, rounds, deferIncompleteForSha = null }) {
   const cache = new Map();
   const checks = async (sha) => {
     if (!cache.has(sha)) cache.set(sha, await fetchCheckRuns({ apiUrl, repository, sha, token }));
@@ -311,9 +431,16 @@ async function detectNewRegressions({ apiUrl, repository, token, rounds }) {
     const baseline = await checks(round.baselineSha);
     for (const repairSha of round.repairCommitShas) {
       const repair = await checks(repairSha);
-      for (const [name, conclusion] of repair) {
-        const code = classifyCheckDelta(baseline.get(name), conclusion);
-        if (code) regressions.push({ code, round: round.number, check: name, baselineSha: round.baselineSha, repairSha });
+      for (const [name, baselineConclusion] of baseline) {
+        const code = classifyCheckDelta(baselineConclusion, repair.get(name));
+        if (!code) continue;
+        regressions.push({
+          code: code === 'VERIFICATION_INCOMPLETE' && repairSha === deferIncompleteForSha ? 'VERIFICATION_PENDING' : code,
+          round: round.number,
+          check: name,
+          baselineSha: round.baselineSha,
+          repairSha,
+        });
       }
     }
   }
@@ -354,6 +481,7 @@ export async function run(options = {}) {
   const agentsPath = options.agentsPath ?? path.join(cwd, 'AGENTS.md');
   const eventPath = options.eventPath ?? process.env.GITHUB_EVENT_PATH;
   const event = options.event ?? (eventPath && fs.existsSync(eventPath) ? readJson(eventPath) : {});
+  const eventName = options.eventName ?? process.env.GITHUB_EVENT_NAME ?? '';
   const blockedReasons = verifyContractDrift(policy, agentsPath).map((expected) => ({ code: 'POLICY_CONTRACT_DRIFT', expected }));
   const changeBudget = buildChangeBudgetReport({ event, policy, cwd });
   if (changeBudget.violations.length) blockedReasons.push({ code: 'CODE_CHANGE_BUDGET_EXCEEDED', changedSourceLines: changeBudget.changedSourceLines, limit: changeBudget.limit });
@@ -368,22 +496,56 @@ export async function run(options = {}) {
     const prNumber = event.pull_request.number ?? event.number;
     const commits = await fetchPrCommits({ apiUrl, repository, prNumber, token });
     const commitOrder = commits.map((commit) => commit.sha);
-    const findings = await fetchReviewFindings({ apiUrl, repository, prNumber, token, policy });
+    const reviewData = await fetchReviewFindings({ apiUrl, repository, prNumber, token, policy });
+    const controls = await fetchFindingControlRecords({ apiUrl, repository, prNumber, token, policy, reviewComments: reviewData.reviewComments });
+    const controlledFindings = applyFindingControls(reviewData.findings, controls);
     const authorizations = await fetchRedesignAuthorizations({ apiUrl, repository, prNumber, token, policy });
     const scopedAuthorizations = await fetchScopedFixForwardAuthorizations({ apiUrl, repository, prNumber, token, policy });
-    const activeFindings = applyRedesignCutovers(findings, authorizations);
-    repair = analyzeRepairHistory({ commitOrder, findings: activeFindings, policy });
-    repair.historicalFindings = findings.length;
+    const activeFindings = applyRedesignCutovers(controlledFindings, authorizations);
+    const validatedFindings = activeFindings.filter((finding) => finding.validationState === 'VALID');
+    const diffCache = new Map();
+    const classifyIntroduction = (finding, priorRound) => {
+      if (finding.attribution) return finding.attribution;
+      const repairHead = priorRound.repairCommitShas.at(-1);
+      const key = `${priorRound.baselineSha}:${repairHead}`;
+      if (!diffCache.has(key)) {
+        diffCache.set(key, parseChangedRightLines(git(['diff', '--unified=0', '--no-renames', priorRound.baselineSha, repairHead, '--'], cwd)));
+      }
+      return classifyFindingAttribution(finding, diffCache.get(key));
+    };
+    repair = analyzeRepairHistory({ commitOrder, findings: validatedFindings, policy, classifyIntroduction });
+    repair.historicalFindings = controlledFindings.length;
     repair.activeFindings = activeFindings.length;
     applyScopedFixForward({ repair, authorizations: scopedAuthorizations, commits, headSha: event.pull_request.head.sha, policy, cwd });
-    repair.newRegressions = await detectNewRegressions({ apiUrl, repository, token, rounds: repair.rounds });
+
+    const scopedAllowed = new Set(repair.scopedFixForward?.allowedFindingIds ?? []);
+    const pendingP0P1 = activeFindings.filter((finding) =>
+      finding.validationState === 'PENDING'
+      && (finding.reportedPriority === 'P0' || finding.reportedPriority === 'P1')
+      && !scopedAllowed.has(finding.id));
+    if ((policy.repair.blockOnPendingP0P1 ?? true) && pendingP0P1.length) {
+      repair.blockedReasons.push({ code: 'PENDING_P0_P1_OWNER_REVIEW', findingIds: pendingP0P1.map((finding) => finding.id) });
+    }
+
+    const openValidP0P1 = activeFindings.filter((finding) =>
+      finding.validationState === 'VALID'
+      && !finding.resolved
+      && (finding.priority === 'P0' || finding.priority === 'P1')
+      && !scopedAllowed.has(finding.id));
+    if (openValidP0P1.length) {
+      repair.blockedReasons.push({ code: 'VALID_FINDINGS_OPEN', findingIds: openValidP0P1.map((finding) => finding.id) });
+    }
+
+    const deferIncompleteForSha = eventName === 'pull_request' ? event.pull_request.head.sha : null;
+    repair.newRegressions = await detectNewRegressions({ apiUrl, repository, token, rounds: repair.rounds, deferIncompleteForSha });
     for (const issue of repair.newRegressions.filter((item) => item.code === 'VERIFICATION_INCOMPLETE')) {
       repair.blockedReasons.push(issue);
     }
-    if (repair.newRegressions.length > policy.repair.newRegressionBudget) {
-      repair.blockedReasons.push({ code: 'NEW_REGRESSION_BUDGET_EXCEEDED', count: repair.newRegressions.length, budget: policy.repair.newRegressionBudget });
-      repair.circuitBreakerState = 'BLOCKED';
+    const actualRegressions = repair.newRegressions.filter((item) => item.code === 'NEW_REGRESSION');
+    if (actualRegressions.length > policy.repair.newRegressionBudget) {
+      repair.blockedReasons.push({ code: 'NEW_REGRESSION_BUDGET_EXCEEDED', count: actualRegressions.length, budget: policy.repair.newRegressionBudget });
     }
+    if (repair.blockedReasons.length) repair.circuitBreakerState = repair.blockedReasons.some((reason) => ['NEW_VALID_P0_P1_AFTER_REPAIR', 'SAME_SUBSYSTEM_REPEAT_DEFECT'].includes(reason.code)) ? 'BLOCKED' : repair.circuitBreakerState;
     blockedReasons.push(...repair.blockedReasons);
   }
 
