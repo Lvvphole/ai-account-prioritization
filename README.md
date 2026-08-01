@@ -17,10 +17,10 @@ every gate.
 </div>
 
 > **The LLM never ranks accounts.** Deterministic TypeScript decides score,
-> rank, reason codes, next-best-action type, permissions, verification, and
-> publication. The approved hybrid architecture permits a constrained runtime
-> LLM only for grounded signal synthesis and action drafting. Human approval is
-> still required before customer-facing sends or CRM write-back.
+> rank, reason codes, next-best-action type, permissions, and approval
+> requirements. The approved hybrid architecture permits a constrained runtime
+> LLM only for grounded signal synthesis and action drafting. A deterministic
+> post-draft verifier and human approval decide publication.
 
 ---
 
@@ -38,14 +38,16 @@ This product answers six questions with receipts:
 | 3 | What should I do? | Deterministically selected next-best action |
 | 4 | How should I express it? | Grounded AI draft or deterministic template fallback |
 | 5 | What backs every claim? | Verified source-signal references |
-| 6 | Is it safe to publish? | Schema, grounding, guardrail, source, permission, and approval gates |
+| 6 | Is it safe to publish? | Deterministic schema, grounding, guardrail, source, permission, and approval gates |
 
-The architecture separates authority from generation:
+The architecture separates four boundaries:
 
-- **Deterministic decision core:** decides who, why, what action, and whether the
-  result may publish.
+- **Pre-draft deterministic authority:** decides who, why, action type,
+  permissions, and approval requirements.
 - **Bounded runtime generation:** may determine how a verified recommendation is
   expressed.
+- **Post-draft deterministic verification:** decides whether the candidate may
+  publish or must be held.
 - **Asynchronous evaluation:** assesses quality and can block deployment, but
   cannot alter a live recommendation.
 
@@ -135,7 +137,8 @@ flowchart LR
 
 The runtime model may only create candidate language. It has no tool authority,
 no side effects, and no power to score, rank, select actions, approve, verify, or
-publish.
+publish. Different candidates may produce different deterministic gate results;
+the verifier, not the model, owns those outcomes.
 
 ## Scoring
 
@@ -184,7 +187,7 @@ persisted runtime recommendations remains required.
 | `/admin/data/imports` | CSV import, scan, validation, change set, commit |
 | `/admin/policy` | Deterministic scoring policy and simulation |
 | `/admin/drafting` | Runtime model, prompt, schema, grounding, fallback |
-| `/admin/evals` | Deterministic, generative, and judge suites |
+| `/admin/evals` | Current deterministic/judge suites and planned generation suites |
 | `/admin/guardrails` | Holds, failed rules, approval rules |
 | `/admin/runs` | Run history and recommendation inspector |
 | `/admin/users` | Capability matrix and account access |
@@ -199,7 +202,7 @@ failure modes, metrics, and rollback paths.
 ```mermaid
 flowchart TB
     W["apps/web<br/>rep · manager · admin"]
-    R["apps/agent-runtime<br/>deterministic authority + bounded drafting"]
+    R["apps/agent-runtime<br/>deterministic authority + bounded drafting + deterministic verification"]
     S["packages/shared-schemas<br/>Zod source of truth"]
     SEC["packages/security<br/>RBAC · approval · policy"]
     OBS["packages/observability<br/>PII-safe telemetry"]
@@ -223,7 +226,7 @@ The Python service never ranks accounts or controls the runtime.
 
 ```text
 apps/
-  agent-runtime/   Hybrid runtime; deterministic decision authority
+  agent-runtime/   Hybrid runtime; deterministic authority and verification
   web/             Next.js rep, manager, account, and admin workspace
   api-python/      FastAPI support service
 packages/
@@ -296,7 +299,7 @@ EVAL_JUDGE_ENABLED=true pnpm test:judge
 The current deterministic suites cover scoring, stable ranking, guardrails,
 adversarial security, and a golden run.
 
-The hybrid implementation must add deployment-blocking tests for:
+The hybrid implementation must add and register deployment-blocking tests for:
 
 - generated-output schema
 - authoritative-field immutability
@@ -307,7 +310,8 @@ The hybrid implementation must add deployment-blocking tests for:
 - approval and publication separation
 - model and prompt provenance
 
-The LLM judge remains outside the runtime path.
+These runtime-generation gates are planned, not currently shipped. The LLM judge
+remains outside the runtime path.
 
 ## Data and security
 
