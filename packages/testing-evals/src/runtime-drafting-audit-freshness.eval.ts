@@ -102,15 +102,23 @@ describe("runtime drafting freshness and durable-audit boundary", () => {
     expect(calls).toBe(0);
   });
 
-  it("fails closed before the default provider when durable invocation-start auditing is absent", async () => {
+  it("fails closed before any model client when durable invocation-start auditing is absent", async () => {
     const account = accountAt(NOW);
     const rec = recommendationFor(account);
+    let calls = 0;
+    const client: RuntimeModelClient = {
+      async generate() {
+        calls += 1;
+        throw new Error("model client must not run without durable invocation audit");
+      },
+    };
 
     const result = await attachHybridActionDraft(
       rec,
       { account, contacts: [], opportunities: [], activities: [] },
       {
         policy: policyWithoutFreshness(),
+        modelClient: client,
         now: NOW,
       },
     );
@@ -118,5 +126,6 @@ describe("runtime drafting freshness and durable-audit boundary", () => {
     expect(result.outcome.source).toBe("held");
     expect(result.outcome.failureCode).toBe("DRAFT_AUDIT_START_REQUIRED");
     expect(result.recommendation.nextBestAction.draft).toBeUndefined();
+    expect(calls).toBe(0);
   });
 });
