@@ -14,6 +14,7 @@ import {
   attachHybridActionDraft,
   createRuntimeDraftRunBudget,
   hybridDraftContractMetadata,
+  type HybridDraftInvocationStart,
   type HybridDraftOptions,
   type HybridDraftOutcome,
 } from "../sales-execution/execution.agent";
@@ -128,6 +129,40 @@ async function applyApproval(
   return { ...rec, approvalStatus: "approved" };
 }
 
+async function auditDraftInvocationStart(
+  invocation: HybridDraftInvocationStart,
+  runId: string,
+  now: string,
+  repo: RuntimeRepository,
+): Promise<void> {
+  await writeAuditLog(
+    {
+      runId,
+      accountId: invocation.accountId,
+      actorId: "runtime_drafter",
+      action: "runtime_draft_invocation_start",
+      decision: "allowed",
+      reason: "Durable invocation-start evidence persisted before external runtime-model call.",
+      evidence: {
+        recommendationId: invocation.recommendationId,
+        selectedSourceSignalIds: invocation.selectedSourceSignalIds,
+        provider: invocation.provider,
+        model: invocation.model,
+        promptVersion: invocation.promptVersion,
+        promptHash: invocation.promptHash,
+        schemaVersion: invocation.schemaVersion,
+        policyVersion: invocation.policyVersion,
+        effectivePolicyHash: invocation.effectivePolicyHash,
+        groundingVersion: invocation.groundingVersion,
+        inputTokenUpperBound: invocation.inputTokenUpperBound,
+        reservedRunTokens: invocation.reservedRunTokens,
+      },
+      occurredAt: now,
+    },
+    repo,
+  );
+}
+
 async function auditDraftOutcome(
   rec: Recommendation,
   outcome: HybridDraftOutcome,
@@ -212,11 +247,18 @@ export async function runDailyPrioritizationForOwner(
   // --- EXECUTE (bounded model drafting or deterministic template fallback) ---
   const draftingPolicy = opts.drafting?.policy ?? runtimeDraftingPolicyFromEnv();
   const runBudget = createRuntimeDraftRunBudget(draftingPolicy.maxRunTokens);
+  const callerBeforeModelInvoke = opts.drafting?.beforeModelInvoke;
   const draftingOptions: HybridDraftOptions = {
     policy: draftingPolicy,
     modelClient: opts.drafting?.modelClient,
     runBudget,
     now,
+    beforeModelInvoke: async (invocation) => {
+      await auditDraftInvocationStart(invocation, runId, now, repo);
+      if (callerBeforeModelInvoke) {
+        await callerBeforeModelInvoke(invocation);
+      }
+    },
   };
 
   const draftResults = await mapWithConcurrency(
@@ -224,29 +266,30 @@ export async function runDailyPrioritizationForOwner(
     draftingPolicy.maxConcurrent,
     async (rec) => {
       const ctx = contextByAccount.get(rec.accountId);
-      if (!ctx) {
-        return {
-          recommendation: rec,
-          outcome: {
-            source: "held" as const,
-            recommendationId: rec.id,
-            selectedSourceSignalIds: [],
-            claimCitations: [],
-            schemaValidation: "not_run" as const,
-            groundingValidation: "not_run" as const,
-            groundingFailedGates: [],
-            failureCode: "DRAFT_CONTEXT_MISSING",
-            ...hybridDraftContractMetadata(draftingPolicy),
-          },
-        };
-      }
-      return attachHybridActionDraft(rec, ctx, draftingOptions);
+      const result = ctx
+        ? await attachHybridActionDraft(rec, ctx, draftingOptions)
+        : {
+            recommendation: rec,
+            outcome: {
+              source: "held" as const,
+              recommendationId: rec.id,
+              selectedSourceSignalIds: [],
+              claimCitations: [],
+              schemaValidation: "not_run" as const,
+              groundingValidation: "not_run" as const,
+              groundingFailedGates: [],
+              failureCode: "DRAFT_CONTEXT_MISSING",
+              ...hybridDraftContractMetadata(draftingPolicy),
+            },
+          };
+
+      // Persist the outcome in the same worker immediately after drafting. If
+      // durable audit storage fails here, the worker rejects and verification /
+      // publication never begins for the run.
+      await auditDraftOutcome(result.recommendation, result.outcome, runId, now, repo);
+      return result;
     },
   );
-
-  for (const result of draftResults) {
-    await auditDraftOutcome(result.recommendation, result.outcome, runId, now, repo);
-  }
 
   const withDrafts = draftResults.map((result) => result.recommendation);
   state = transition(state, "EXECUTE", { candidates: withDrafts });
