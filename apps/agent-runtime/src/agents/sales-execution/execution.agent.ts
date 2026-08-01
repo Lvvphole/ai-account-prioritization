@@ -1,4 +1,5 @@
 import {
+  GENERATED_DRAFT_SCHEMA_VERSION,
   GeneratedDraftSchema,
   type Recommendation,
 } from "@repo/shared-schemas";
@@ -14,6 +15,7 @@ import {
   RUNTIME_DRAFT_SYSTEM_PROMPT,
 } from "./execution.prompt";
 import {
+  RUNTIME_DRAFT_POLICY_VERSION,
   runtimeDraftingPolicyFromEnv,
   type RuntimeDraftingPolicy,
 } from "./execution.policy";
@@ -24,9 +26,12 @@ import {
   type RuntimeModelTelemetry,
 } from "../../inference/runtime-model";
 import {
+  DRAFT_GROUNDING_RULES_VERSION,
   renderGroundedDraft,
   validateDraftGrounding,
 } from "./validate-draft-grounding";
+
+export const DETERMINISTIC_DRAFT_FALLBACK_VERSION = "deterministic-template-v1";
 
 /**
  * Deterministic template drafter retained as the offline baseline and explicit
@@ -83,6 +88,10 @@ export interface HybridDraftOutcome {
   telemetry?: RuntimeModelTelemetry;
   promptVersion: string;
   promptHash: string;
+  schemaVersion: string;
+  policyVersion: string;
+  groundingVersion: string;
+  fallbackVersion: string;
 }
 
 export interface HybridDraftResult {
@@ -93,6 +102,25 @@ export interface HybridDraftResult {
 export interface HybridDraftOptions {
   policy?: RuntimeDraftingPolicy;
   modelClient?: RuntimeModelClient;
+}
+
+export function hybridDraftContractMetadata(): Pick<
+  HybridDraftOutcome,
+  | "promptVersion"
+  | "promptHash"
+  | "schemaVersion"
+  | "policyVersion"
+  | "groundingVersion"
+  | "fallbackVersion"
+> {
+  return {
+    promptVersion: RUNTIME_DRAFT_PROMPT_VERSION,
+    promptHash: RUNTIME_DRAFT_PROMPT_HASH,
+    schemaVersion: GENERATED_DRAFT_SCHEMA_VERSION,
+    policyVersion: RUNTIME_DRAFT_POLICY_VERSION,
+    groundingVersion: DRAFT_GROUNDING_RULES_VERSION,
+    fallbackVersion: DETERMINISTIC_DRAFT_FALLBACK_VERSION,
+  };
 }
 
 const modelDraftable = (type: Recommendation["nextBestAction"]["type"]): boolean =>
@@ -113,10 +141,8 @@ export async function attachHybridActionDraft(
 ): Promise<HybridDraftResult> {
   const policy = options.policy ?? runtimeDraftingPolicyFromEnv();
   const template = (): Recommendation => attachActionDraft(rec, ctx);
-  const baseOutcome = {
-    promptVersion: RUNTIME_DRAFT_PROMPT_VERSION,
-    promptHash: RUNTIME_DRAFT_PROMPT_HASH,
-  };
+  const baseOutcome = hybridDraftContractMetadata();
+  let modelTelemetry: RuntimeModelTelemetry | undefined;
 
   if (!policy.enabled || !modelDraftable(rec.nextBestAction.type)) {
     return {
@@ -135,6 +161,7 @@ export async function attachHybridActionDraft(
       },
       policy,
     );
+    modelTelemetry = modelResult.telemetry;
 
     const parsed = GeneratedDraftSchema.safeParse(modelResult.output);
     if (!parsed.success) {
@@ -157,7 +184,7 @@ export async function attachHybridActionDraft(
       outcome: {
         ...baseOutcome,
         source: "model",
-        telemetry: modelResult.telemetry,
+        telemetry: modelTelemetry,
       },
     };
   } catch (error) {
@@ -175,6 +202,7 @@ export async function attachHybridActionDraft(
           ...baseOutcome,
           source: "template_fallback",
           failureCode,
+          telemetry: modelTelemetry,
         },
       };
     }
@@ -185,6 +213,7 @@ export async function attachHybridActionDraft(
         ...baseOutcome,
         source: "held",
         failureCode,
+        telemetry: modelTelemetry,
       },
     };
   }
