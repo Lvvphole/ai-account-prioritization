@@ -6,17 +6,18 @@ on:
   pull_request:
     branches: ["**"]
   pull_request_review:
-    types: [submitted, edited, dismissed]
+    types: [submitted]
   pull_request_review_comment:
-    types: [created, edited, deleted]
+    types: [created]
 
 permissions:
   contents: read
   pull-requests: read
   checks: read
+  issues: write
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,7 +38,7 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      # Gate 0: fail-closed coding-agent change budget and PR repair circuit breaker.
+      # Gate 0: fail-closed coding-agent change budget and append-only PR repair ledger.
       # Runs before dependency installation so violations fail early and cheaply.
       - name: Verify coding-agent contract
         env:
@@ -48,51 +49,60 @@ jobs:
         run: node --test scripts/verify-agent-contract.test.mjs
 
       - name: Setup Python
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: pnpm install --frozen-lockfile
 
       # Gate 1: schema generation (TS/Zod -> JSON Schema for Python)
       - name: Generate schemas
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: pnpm generate:schemas
 
       - name: Fail if generated schemas drifted
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: git diff --exit-code -- packages/shared-schemas/generated apps/api-python/src/schemas/generated
 
       # Gate 2: build everything through Turbo
       - name: Build
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: pnpm build
 
       # Gate 3: typecheck everything through Turbo
       - name: Typecheck
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: pnpm typecheck
 
       # Gate 4: deterministic evals (runtime path)
       - name: Run evals
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: pnpm test:evals
 
       # Python support service syntax/build check
       - name: Build Python support service
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: pnpm build:api-python
 
       # Guard: Prisma is deferred (Execution Rule #28)
       - name: Check no Prisma
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: pnpm check:no-prisma
 
-      # Gate 5: the schema enforces its invariants, not just its shape. Applies
-      # every migration to an empty database and asserts the behaviour: a batch
-      # cannot skip approval, an unauthenticated connection cannot record one,
-      # a hard block cannot be resolved, RLS holds per role.
+      # Gate 5: the schema enforces its invariants, not just its shape.
       - name: Verify migrations
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: pnpm verify:migrations
 
       # Gate 6: containerization — validate Compose (config needs no daemon)
       - name: Validate Docker Compose
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: docker compose -f infra/compose.yaml config
 
       # Gate 7: build all images (daemon available on GitHub runners)
       - name: Build Docker images
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: docker compose -f infra/compose.yaml build
