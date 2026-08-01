@@ -75,6 +75,9 @@ const assertFreshSelectedEvidence = (
   if (!Number.isFinite(ageMs)) {
     throw new Error("DRAFT_CONTEXT_SOURCE_TIME_INVALID");
   }
+  if (ageMs < 0) {
+    throw new Error("DRAFT_CONTEXT_FUTURE_SIGNAL");
+  }
   if (ageMs > maxEvidenceAgeDays * MS_PER_DAY) {
     throw new Error("DRAFT_CONTEXT_STALE_SIGNAL");
   }
@@ -86,7 +89,8 @@ const assertFreshSelectedEvidence = (
  * Verified evidence is stably prioritized for the authorized action and can be
  * capped before any model request is constructed. When a freshness policy is
  * supplied, every selected signal is resolved back to its source record and must
- * be fresh enough before its description is admitted to model-visible context.
+ * be neither future-dated nor older than policy before its description is
+ * admitted to model-visible context.
  */
 export function buildVerifiedDraftContext(
   rec: Recommendation,
