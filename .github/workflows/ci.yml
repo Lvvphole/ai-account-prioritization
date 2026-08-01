@@ -17,7 +17,7 @@ permissions:
   issues: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request_review_comment') && format('control-{0}', github.event.pull_request.number) || format('validation-{0}', github.event.pull_request.number || github.ref) }}
   cancel-in-progress: true
 
 jobs:
