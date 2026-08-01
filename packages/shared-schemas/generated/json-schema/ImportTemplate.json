@@ -1,0 +1,127 @@
+{
+  "$ref": "#/definitions/ImportTemplate",
+  "definitions": {
+    "ImportTemplate": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "accounts",
+            "contacts",
+            "opportunities",
+            "activities",
+            "intent_signals",
+            "account_health",
+            "combined_crm"
+          ]
+        },
+        "objectType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "account",
+                "contact",
+                "opportunity",
+                "activity",
+                "intent_signal",
+                "account_health",
+                "contract"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v\\d+$"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "canonicalField": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "transform": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "trim",
+                  "lowercase",
+                  "uppercase",
+                  "parse_iso_date",
+                  "parse_decimal",
+                  "parse_integer",
+                  "parse_boolean",
+                  "normalize_currency_usd"
+                ]
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "enumValues": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "maxLength": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "canonicalField",
+              "required",
+              "transform",
+              "description"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 200
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "minItems": 1,
+          "maxItems": 10
+        }
+      },
+      "required": [
+        "kind",
+        "objectType",
+        "label",
+        "version",
+        "columns",
+        "examples"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

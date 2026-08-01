@@ -159,6 +159,7 @@ badge, policy and prompt versions, last run, and health.
 | ------- | ------- |
 | `/admin` | Operational health, effectiveness, attention queue |
 | `/admin/data` | Source health, freshness, rejects, lineage |
+| `/admin/data/imports` | Manual CSV imports: template, pre-flight, scan, findings, change set, commit |
 | `/admin/policy` | Deterministic scoring policy and safe change workflow |
 | `/admin/drafting` | Model, prompt, schema, allowed actions, groundedness |
 | `/admin/evals` | Deterministic suites, generative suites, experiments |

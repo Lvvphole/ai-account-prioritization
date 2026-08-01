@@ -57,6 +57,7 @@ import {
   ScanVerdictSchema,
   ParseOutcomeSchema,
 } from "./csv-import";
+import { ImportTemplateSchema } from "./import-template";
 import {
   DomainEventSchema,
   TriggerDefinitionSchema,
@@ -81,6 +82,7 @@ export * from "./ingestion";
 export * from "./ingestion-state-machine";
 export * from "./trigger";
 export * from "./csv-import";
+export * from "./import-template";
 
 /**
  * Registry of every schema that should be emitted as a JSON Schema artifact.
@@ -145,6 +147,7 @@ export const SCHEMA_REGISTRY = {
   FinalizeUploadRequest: FinalizeUploadRequestSchema,
   ScanVerdict: ScanVerdictSchema,
   ParseOutcome: ParseOutcomeSchema,
+  ImportTemplate: ImportTemplateSchema,
 } satisfies Record<string, z.ZodTypeAny>;
 
 export type SchemaName = keyof typeof SCHEMA_REGISTRY;

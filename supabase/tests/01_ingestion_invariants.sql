@@ -195,9 +195,11 @@ values ('a0000000-0000-0000-0000-0000000000f1', 'aaaaaaaa-0000-0000-0000-0000000
 
 reset role;
 
-insert into public.change_sets (id, workspace_id, batch_id, new_records)
+insert into public.change_sets
+  (id, workspace_id, batch_id, new_records,
+   accounts_entering_top_n, accounts_leaving_top_n)
 values ('c0000000-0000-0000-0000-0000000000f1', 'aaaaaaaa-0000-0000-0000-000000000001',
-        'b0000000-0000-0000-0000-00000000000c', 1);
+        'b0000000-0000-0000-0000-00000000000c', 1, 0, 0);
 
 select pg_temp.expect_fail(
   $$insert into public.import_commits
@@ -430,3 +432,59 @@ select pg_temp.expect_fail(
 select pg_temp.expect_fail(
   $$delete from public.audit_evidence$$,
   'deleting audit evidence');
+
+\echo '=== 12. rank impact is known or explained, never defaulted ==='
+
+-- Migration 0016. The preview refuses to compute top-N movement without full
+-- scoring context, and a NOT NULL DEFAULT 0 column would turn that refusal into
+-- the number 0 on the way to storage. An approver reads 0 as "nothing moves".
+
+-- Rolled back at the end of the section. The scratch batches below would
+-- otherwise change the row counts 02_rls_by_role asserts on, and a test that
+-- silently retunes another file's expectations is how a real RLS regression
+-- gets absorbed as an off-by-two.
+begin;
+
+-- Real batches, because `change_sets.batch_id` is a foreign key: without them
+-- the refusals below would be foreign-key violations and `expect_fail` would
+-- pass without the CHECK ever being reached.
+insert into public.ingestion_batches
+  (id, workspace_id, source_id, state, object_type, mapping_version_id, created_by)
+values
+  ('b0000000-0000-0000-0000-00000000000d', 'aaaaaaaa-0000-0000-0000-000000000001',
+   'd0000000-0000-0000-0000-00000000000a', 'draft', 'account',
+   '30000000-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111'),
+  ('b0000000-0000-0000-0000-00000000000e', 'aaaaaaaa-0000-0000-0000-000000000001',
+   'd0000000-0000-0000-0000-00000000000a', 'draft', 'account',
+   '30000000-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111');
+
+insert into public.change_sets
+  (id, workspace_id, batch_id, new_records, rank_impact_unavailable_reason)
+values ('c0000000-0000-0000-0000-0000000000f2', 'aaaaaaaa-0000-0000-0000-000000000001',
+        'b0000000-0000-0000-0000-00000000000d', 1,
+        'No scoring context was supplied for this batch.');
+\echo 'PASS  a change set may record why rank impact is unknown'
+
+select pg_temp.expect_fail(
+  $$insert into public.change_sets (workspace_id, batch_id, new_records)
+    values ('aaaaaaaa-0000-0000-0000-000000000001',
+            'b0000000-0000-0000-0000-00000000000e', 1)$$,
+  'a change set with neither the counts nor a reason');
+
+select pg_temp.expect_fail(
+  $$insert into public.change_sets
+      (workspace_id, batch_id, new_records,
+       accounts_entering_top_n, accounts_leaving_top_n, rank_impact_unavailable_reason)
+    values ('aaaaaaaa-0000-0000-0000-000000000001',
+            'b0000000-0000-0000-0000-00000000000e', 1, 0, 0, 'unavailable')$$,
+  'a change set claiming both a count and a reason');
+
+select pg_temp.expect_fail(
+  $$insert into public.change_sets
+      (workspace_id, batch_id, new_records, accounts_entering_top_n)
+    values ('aaaaaaaa-0000-0000-0000-000000000001',
+            'b0000000-0000-0000-0000-00000000000e', 1, 3)$$,
+  'a change set knowing only half of the rank impact');
+
+rollback;
+\echo 'PASS  rank-impact scratch rows rolled back'

@@ -1,5 +1,6 @@
 import { INTEGRATIONS, LINEAGE_EXAMPLE } from "../../lib/admin-data";
 import { HealthPill, Section } from "../../components/AdminBits";
+import DataSubnav from "../../components/DataSubnav";
 
 export default function AdminDataPage() {
   return (
@@ -12,6 +13,8 @@ export default function AdminDataPage() {
           what is failing to arrive.
         </p>
       </div>
+
+      <DataSubnav />
 
       {INTEGRATIONS.map((s) => (
         <div className="card" key={s.id}>
