@@ -80,7 +80,7 @@ export default function ActionBar({ rec }: { rec: Recommendation }) {
 
       {rec.nextBestAction.customerFacing ? (
         <p className="note">
-          Draft only — waits for your approval before sending (status: {rec.approvalStatus}).
+          Draft only — requires your approval before sending (status: {rec.approvalStatus}).
         </p>
       ) : null}
 
