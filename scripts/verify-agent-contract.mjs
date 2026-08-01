@@ -391,7 +391,7 @@ function applyScopedFixForward({ repair, authorizations, commits, headSha, polic
   if (!auth || !auth.finding_ids?.length || auth.base_sha === headSha) return repair;
   const allowedFindings = new Set(auth.finding_ids.map(scopedFindingId));
   const scopedCodes = new Set(['NEW_VALID_P0_P1_AFTER_REPAIR', 'SAME_SUBSYSTEM_REPEAT_DEFECT']);
-  if (!repair.blockedReasons.length || repair.blockedReasons.some((reason) => !scopedCodes.has(reason.code) || !allowedFindings.has(reason.findingId))) return repair;
+  if (repair.blockedReasons.some((reason) => !scopedCodes.has(reason.code) || !allowedFindings.has(reason.findingId))) return repair;
   const changedPaths = git(['diff', '--name-only', auth.base_sha, headSha, '--'], cwd).split('\n').filter(Boolean).map(normalizePath);
   if (changedPaths.some((filePath) => !auth.allowed_paths?.includes(filePath))) return repair;
   const changedLines = countNumstat(git(['diff', '--numstat', '--no-renames', auth.base_sha, headSha, '--'], cwd), policy).total;
@@ -502,7 +502,7 @@ export async function run(options = {}) {
     const authorizations = await fetchRedesignAuthorizations({ apiUrl, repository, prNumber, token, policy });
     const scopedAuthorizations = await fetchScopedFixForwardAuthorizations({ apiUrl, repository, prNumber, token, policy });
     const activeFindings = applyRedesignCutovers(controlledFindings, authorizations);
-    const validatedFindings = activeFindings.filter((finding) => finding.validationState === 'VALID');
+    const validatedFindings = activeFindings.filter((finding) => finding.validationState === 'VALID' && !finding.resolved);
     const diffCache = new Map();
     const classifyIntroduction = (finding, priorRound) => {
       if (finding.attribution) return finding.attribution;
@@ -536,8 +536,11 @@ export async function run(options = {}) {
       repair.blockedReasons.push({ code: 'VALID_FINDINGS_OPEN', findingIds: openValidP0P1.map((finding) => finding.id) });
     }
 
+    const verificationRounds = repair.scopedFixForward && repair.rounds.length
+      ? repair.rounds.map((round, index) => index === repair.rounds.length - 1 ? { ...round, repairCommitShas: [event.pull_request.head.sha] } : round)
+      : repair.rounds;
     const deferIncompleteForSha = eventName === 'pull_request' ? event.pull_request.head.sha : null;
-    repair.newRegressions = await detectNewRegressions({ apiUrl, repository, token, rounds: repair.rounds, deferIncompleteForSha });
+    repair.newRegressions = await detectNewRegressions({ apiUrl, repository, token, rounds: verificationRounds, deferIncompleteForSha });
     for (const issue of repair.newRegressions.filter((item) => item.code === 'VERIFICATION_INCOMPLETE')) {
       repair.blockedReasons.push(issue);
     }
