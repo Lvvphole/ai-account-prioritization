@@ -166,6 +166,28 @@ contract → baseline → plan → execute → verify → evaluate → iterate �
 - Maximum repair attempts for the same gate: **3**.
 - Repeated identical failure after attempted repair becomes `BLOCKED`.
 
+### Review handling: identify → validate → fix_or_rebut → verify → respond → resolve
+
+For pull-request, security, automated, Codex, and human review findings:
+
+1. Identify every unresolved finding and map it to the affected file, line,
+   invariant, and acceptance criterion.
+2. Validate each finding as valid, partially valid, invalid, duplicate, outdated,
+   or out of scope. Do not modify code merely because a reviewer requested it.
+3. For valid findings, apply the smallest coherent fix. For invalid or outdated
+   findings, provide a concise evidence-based rebuttal.
+4. Run the narrowest relevant verification first, followed by all affected
+   change-set gates.
+5. Reply to the review with the change, commit or diff reference, and verification
+   evidence.
+6. Resolve the thread only when the concern is corrected or conclusively answered.
+7. The executor may resolve an individual review thread after producing evidence,
+   but must not treat resolved threads as completion certification. The verifier
+   retains final completion judgment.
+8. Do not dismiss, hide, or resolve a finding merely to obtain a clean review state.
+9. If a requested fix conflicts with a higher-priority invariant, stop and report
+   the conflict rather than weakening the harness.
+
 ### Stop or blocked
 
 Stop only when required gates pass and completion evidence is reported.
