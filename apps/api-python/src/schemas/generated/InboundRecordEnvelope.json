@@ -1,0 +1,113 @@
+{
+  "$ref": "#/definitions/InboundRecordEnvelope",
+  "definitions": {
+    "InboundRecordEnvelope": {
+      "type": "object",
+      "properties": {
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "objectType": {
+          "type": "string",
+          "enum": [
+            "account",
+            "contact",
+            "opportunity",
+            "activity",
+            "intent_signal",
+            "account_health",
+            "contract"
+          ]
+        },
+        "externalId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "externalParentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "schemaVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "receivedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payloadHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceRowNumber": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "normalizedPayload": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "sourceType": {
+              "type": "string",
+              "enum": [
+                "csv",
+                "webhook",
+                "native_crm",
+                "mcp"
+              ]
+            },
+            "sourceRecordUrl": {
+              "type": "string",
+              "format": "uri"
+            },
+            "syncCursor": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "externalEventId": {
+              "type": "string",
+              "maxLength": 255
+            }
+          },
+          "required": [
+            "sourceType"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "workspaceId",
+        "sourceId",
+        "batchId",
+        "objectType",
+        "externalId",
+        "schemaVersion",
+        "receivedAt",
+        "payloadHash",
+        "normalizedPayload",
+        "provenance"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

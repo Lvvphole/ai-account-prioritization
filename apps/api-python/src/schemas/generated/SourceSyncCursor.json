@@ -1,0 +1,64 @@
+{
+  "$ref": "#/definitions/SourceSyncCursor",
+  "definitions": {
+    "SourceSyncCursor": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "objectType": {
+          "type": "string",
+          "enum": [
+            "account",
+            "contact",
+            "opportunity",
+            "activity",
+            "intent_signal",
+            "account_health",
+            "contract"
+          ]
+        },
+        "cursor": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "lastReconciledAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "sourceId",
+        "objectType",
+        "cursor",
+        "lastReconciledAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

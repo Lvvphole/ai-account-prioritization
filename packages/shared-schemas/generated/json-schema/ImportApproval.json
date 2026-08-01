@@ -1,0 +1,61 @@
+{
+  "$ref": "#/definitions/ImportApproval",
+  "definitions": {
+    "ImportApproval": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approvedBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "businessReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "secondApprovalRequired": {
+          "type": "boolean"
+        },
+        "secondApprovedBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approvedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "batchId",
+        "approvedBy",
+        "businessReason",
+        "secondApprovalRequired",
+        "secondApprovedBy",
+        "approvedAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,70 @@
+{
+  "$ref": "#/definitions/ExternalRecordLink",
+  "definitions": {
+    "ExternalRecordLink": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "objectType": {
+          "type": "string",
+          "enum": [
+            "account",
+            "contact",
+            "opportunity",
+            "activity",
+            "intent_signal",
+            "account_health",
+            "contract"
+          ]
+        },
+        "externalId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "internalRecordId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "lastCommitId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastSeenAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "sourceId",
+        "objectType",
+        "externalId",
+        "internalRecordId",
+        "lastCommitId",
+        "lastSeenAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

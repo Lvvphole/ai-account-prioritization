@@ -1,0 +1,85 @@
+{
+  "$ref": "#/definitions/ChangeSetItem",
+  "definitions": {
+    "ChangeSetItem": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "changeSetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "stagedRecordId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "objectType": {
+          "type": "string",
+          "enum": [
+            "account",
+            "contact",
+            "opportunity",
+            "activity",
+            "intent_signal",
+            "account_health",
+            "contract"
+          ]
+        },
+        "externalId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "targetRecordId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "changeKind": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "unchanged",
+            "owner_change"
+          ]
+        },
+        "beforeValues": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "afterValues": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "changeSetId",
+        "stagedRecordId",
+        "objectType",
+        "externalId",
+        "targetRecordId",
+        "changeKind",
+        "beforeValues",
+        "afterValues"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

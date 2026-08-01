@@ -1,0 +1,66 @@
+{
+  "$ref": "#/definitions/ToolPolicy",
+  "definitions": {
+    "ToolPolicy": {
+      "type": "object",
+      "properties": {
+        "toolName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "risk": {
+          "type": "string",
+          "const": "read_only"
+        },
+        "allowedRoles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "service"
+            ]
+          },
+          "minItems": 1
+        },
+        "workspaceScoped": {
+          "type": "boolean",
+          "const": true
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        },
+        "maxInputBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "auditable": {
+          "type": "boolean",
+          "const": true
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "toolName",
+        "risk",
+        "allowedRoles",
+        "workspaceScoped",
+        "timeoutMs",
+        "maxInputBytes",
+        "maxOutputBytes",
+        "auditable",
+        "enabled"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

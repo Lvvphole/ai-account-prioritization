@@ -1,0 +1,130 @@
+{
+  "$ref": "#/definitions/DataSource",
+  "definitions": {
+    "DataSource": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "salesforce",
+            "hubspot",
+            "generic_webhook",
+            "remote_mcp",
+            "manual_csv"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "csv",
+            "webhook",
+            "native_crm",
+            "mcp"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "not_configured",
+            "connecting",
+            "testing",
+            "backfilling",
+            "healthy",
+            "degraded",
+            "failed",
+            "paused",
+            "revoked"
+          ]
+        },
+        "enabledObjects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "account",
+              "contact",
+              "opportunity",
+              "activity",
+              "intent_signal",
+              "account_health",
+              "contract"
+            ]
+          },
+          "maxItems": 7
+        },
+        "activeMappingVersionId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ownerLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "lastEventAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastSuccessfulSyncAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "name",
+        "provider",
+        "kind",
+        "state",
+        "enabledObjects",
+        "activeMappingVersionId",
+        "ownerLabel",
+        "lastEventAt",
+        "lastSuccessfulSyncAt",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,71 @@
+{
+  "$ref": "#/definitions/TriggerAction",
+  "definitions": {
+    "TriggerAction": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "triggerVersionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actionType": {
+          "type": "string",
+          "enum": [
+            "recompute_affected_account",
+            "recompute_owner_book",
+            "create_manager_attention_item",
+            "hold_recommendation",
+            "notify_admin",
+            "notify_manager",
+            "notify_account_owner",
+            "start_delta_reconciliation"
+          ]
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "notifyRole": {
+              "type": "string",
+              "enum": [
+                "admin",
+                "manager",
+                "account_owner"
+              ]
+            },
+            "attentionReason": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "holdReason": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "triggerVersionId",
+        "actionType",
+        "ordinal",
+        "params"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

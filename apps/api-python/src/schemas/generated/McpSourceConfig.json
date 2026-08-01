@@ -1,0 +1,151 @@
+{
+  "$ref": "#/definitions/McpSourceConfig",
+  "definitions": {
+    "McpSourceConfig": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "endpointUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "protocolVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "authorizationServer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resourceMetadataUrl": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approvedTools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "toolName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "risk": {
+                "type": "string",
+                "const": "read_only"
+              },
+              "allowedRoles": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "admin",
+                    "service"
+                  ]
+                },
+                "minItems": 1
+              },
+              "workspaceScoped": {
+                "type": "boolean",
+                "const": true
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 60000
+              },
+              "maxInputBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "maxOutputBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "auditable": {
+                "type": "boolean",
+                "const": true
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "toolName",
+              "risk",
+              "allowedRoles",
+              "workspaceScoped",
+              "timeoutMs",
+              "maxInputBytes",
+              "maxOutputBytes",
+              "auditable",
+              "enabled"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 100
+        },
+        "connectTimeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        },
+        "readTimeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "sourceId",
+        "endpointUrl",
+        "protocolVersion",
+        "authorizationServer",
+        "resourceMetadataUrl",
+        "approvedTools",
+        "connectTimeoutMs",
+        "readTimeoutMs",
+        "maxOutputBytes",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
