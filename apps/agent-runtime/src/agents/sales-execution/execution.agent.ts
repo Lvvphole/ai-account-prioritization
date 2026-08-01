@@ -273,17 +273,19 @@ function reserveRunBudget(
 
 const uniqueIds = (ids: string[]): string[] => [...new Set(ids)];
 
-const TEMPLATE_SIGNAL_ACTIONS = new Set<Recommendation["nextBestAction"]["type"]>([
+const TEMPLATE_INTERPOLATES_SIGNALS = new Set<Recommendation["nextBestAction"]["type"]>([
   "call",
   "schedule_meeting",
   "log_research_note",
 ]);
 
 /**
- * Validate every source signal that a deterministic template will consume,
- * regardless of the model-visible maxSignals cap. This prevents a fallback from
- * reintroducing stale, future-dated, unresolved, or unverified evidence that was
- * not selected for the provider request.
+ * Validate every authoritative source signal before any deterministic template
+ * can proceed, regardless of whether the rendered text interpolates evidence or
+ * of the model-visible maxSignals cap. This prevents stale, future-dated,
+ * unresolved, or unverified authority from reaching publication through direct
+ * template mode or fallback. Claim citations remain limited to templates that
+ * actually embed signal descriptions.
  */
 function validatedTemplateProvenance(
   rec: Recommendation,
@@ -294,22 +296,21 @@ function validatedTemplateProvenance(
   selectedSourceSignalIds: string[];
   claimCitations: DraftClaimCitation[];
 } {
-  if (!TEMPLATE_SIGNAL_ACTIONS.has(rec.nextBestAction.type)) {
-    return { selectedSourceSignalIds: [], claimCitations: [] };
-  }
-
   const validated = buildVerifiedDraftContext(rec, ctx, {
     maxSignals: rec.sourceSignals.length,
     now,
     maxEvidenceAgeDays: policy.maxEvidenceAgeDays,
   });
+  const interpolatesSignals = TEMPLATE_INTERPOLATES_SIGNALS.has(rec.nextBestAction.type);
 
   return {
     selectedSourceSignalIds: uniqueIds(validated.signals.map((signal) => signal.id)),
-    claimCitations: validated.signals.map((signal) => ({
-      text: signal.description,
-      sourceSignalIds: [signal.id],
-    })),
+    claimCitations: interpolatesSignals
+      ? validated.signals.map((signal) => ({
+          text: signal.description,
+          sourceSignalIds: [signal.id],
+        }))
+      : [],
   };
 }
 
