@@ -1,7 +1,7 @@
 import type { GeneratedDraft } from "@repo/shared-schemas";
 import type { VerifiedDraftContext, VerifiedDraftSignal } from "./build-draft-context";
 
-export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v3";
+export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v4";
 
 export interface DraftGroundingResult {
   passed: boolean;
@@ -82,6 +82,29 @@ const numericTokens = (value: string): string[] =>
 const hasNegation = (value: string): boolean =>
   normalizedTokens(value).some((token) => NEGATION_TOKENS.has(token));
 
+const isOrderedSubsequence = (claim: string[], evidence: string[]): boolean => {
+  if (claim.length === 0) return false;
+  let claimIndex = 0;
+  for (const token of evidence) {
+    if (token === claim[claimIndex]) claimIndex += 1;
+    if (claimIndex === claim.length) return true;
+  }
+  return false;
+};
+
+const hasTokenMembership = (claim: string[], evidence: string[]): boolean => {
+  const available = new Map<string, number>();
+  for (const token of evidence) {
+    available.set(token, (available.get(token) ?? 0) + 1);
+  }
+  for (const token of claim) {
+    const remaining = available.get(token) ?? 0;
+    if (remaining === 0) return false;
+    available.set(token, remaining - 1);
+  }
+  return true;
+};
+
 const groupSignalsById = (
   signals: VerifiedDraftSignal[],
 ): Map<string, VerifiedDraftSignal[]> => {
@@ -96,10 +119,10 @@ const groupSignalsById = (
 
 /**
  * Conservative deterministic grounding check. A sentence must cite only source
- * ids supplied to the model, preserve action authority, and be fully supported
- * by at least one complete verified description under every cited source id.
- * Negation polarity must also match; deleting "no"/"not" or adding negation to
- * positive evidence therefore fails closed instead of reversing the source fact.
+ * ids supplied to the model, preserve action authority, and be supported by one
+ * complete verified description under every cited source id. Significant claim
+ * tokens must occur in evidence order, which prevents entity/relationship swaps
+ * that retain the same unordered token set. Negation polarity must also match.
  * Multiple verified signals may share one source-record id and are all retained.
  */
 export function validateDraftGrounding(
@@ -140,23 +163,36 @@ export function validateDraftGrounding(
 
       let fullySupported = false;
       let contentSupportedWithOppositePolarity = false;
+      let relationshipReordered = false;
       let numericSupported = false;
 
       for (const signal of group) {
-        const evidenceTokens = new Set(significantTokens(signal.description));
+        const evidenceTokens = significantTokens(signal.description);
+        const evidenceContentTokens = evidenceTokens.filter(
+          (token) => !NEGATION_TOKENS.has(token),
+        );
         const evidenceNumbers = new Set(numericTokens(signal.description));
         const numbersMatch = claimNumbers.every((token) => evidenceNumbers.has(token));
-        const contentMatches = claimContentTokens.every((token) =>
-          evidenceTokens.has(token),
+        const contentInOrder = isOrderedSubsequence(
+          claimContentTokens,
+          evidenceContentTokens,
         );
-        const allTokensMatch = claimTokens.every((token) => evidenceTokens.has(token));
+        const allTokensInOrder = isOrderedSubsequence(claimTokens, evidenceTokens);
         const polarityMatches = claimIsNegated === hasNegation(signal.description);
 
         numericSupported ||= numbersMatch;
-        if (contentMatches && numbersMatch && !polarityMatches) {
+        if (contentInOrder && numbersMatch && !polarityMatches) {
           contentSupportedWithOppositePolarity = true;
         }
-        if (allTokensMatch && numbersMatch && polarityMatches) {
+        if (
+          numbersMatch &&
+          polarityMatches &&
+          hasTokenMembership(claimTokens, evidenceTokens) &&
+          !allTokensInOrder
+        ) {
+          relationshipReordered = true;
+        }
+        if (allTokensInOrder && numbersMatch && polarityMatches) {
           fullySupported = true;
           break;
         }
@@ -168,6 +204,8 @@ export function validateDraftGrounding(
       }
       if (contentSupportedWithOppositePolarity) {
         failures.add("DRAFT_POLARITY_MISMATCH");
+      } else if (relationshipReordered) {
+        failures.add("DRAFT_RELATIONSHIP_MISMATCH");
       } else {
         failures.add("DRAFT_CLAIM_NOT_GROUNDED");
       }
