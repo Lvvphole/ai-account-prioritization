@@ -10,7 +10,18 @@ import {
 } from "./orchestrator.state";
 import { prioritizeAccounts } from "../account-prioritizer/prioritizer.agent";
 import type { AccountContext } from "../account-prioritizer/prioritizer.policy";
-import { attachActionDraft } from "../sales-execution/execution.agent";
+import {
+  attachHybridActionDraft,
+  createRuntimeDraftRunBudget,
+  hybridDraftContractMetadata,
+  type HybridDraftInvocationStart,
+  type HybridDraftOptions,
+  type HybridDraftOutcome,
+} from "../sales-execution/execution.agent";
+import {
+  normalizeRuntimeDraftingPolicy,
+  runtimeDraftingPolicyFromEnv,
+} from "../sales-execution/execution.policy";
 import { verifyRecommendation } from "../guardrails/guardrail.agent";
 import { readAccounts } from "../../shared-tools/crm/read-accounts";
 import { readContacts } from "../../shared-tools/crm/read-contacts";
@@ -19,17 +30,12 @@ import { readActivities } from "../../shared-tools/crm/read-activities";
 import { writeAuditLog } from "../../shared-tools/audit/write-audit-log";
 import { trackEvent } from "../../shared-tools/analytics/track-event";
 import {
+  inMemoryRepository,
   resolveRepository,
   type RuntimeRepository,
 } from "../../shared-tools/runtime-repository";
 import type { RlsContext } from "../../shared-tools/supabase/rls-context";
 
-/**
- * Orchestrator — the synchronous, deterministic runtime loop.
- *
- * DISCOVER -> PLAN -> EXECUTE -> VERIFY -> ITERATE -> PUBLISH. No LLM ranking,
- * no async judge, fail-closed at the guardrail gate, full audit trail.
- */
 export interface RunOptions {
   /** Injected clock for deterministic runs/evals. Defaults to now. */
   now?: string;
@@ -37,11 +43,9 @@ export interface RunOptions {
   approvals?: Record<string, boolean>;
   /** Approve all approval-gated actions (demo/eval convenience). */
   autoApprove?: boolean;
-  /**
-   * Optional RLS context. When supplied AND Supabase is configured, the run
-   * reads source signals from Supabase and writes audit evidence to
-   * `audit_evidence`. Absent => deterministic, offline in-memory store.
-   */
+  /** Optional bounded runtime-drafting policy/client overrides for tests. */
+  drafting?: HybridDraftOptions;
+  /** Optional RLS context for durable Supabase-backed runs. */
   rlsContext?: RlsContext;
 }
 
@@ -52,6 +56,28 @@ function buildContexts(inputs: OrchestratorInputs): AccountContext[] {
     opportunities: inputs.opportunities.filter((o) => o.accountId === account.id),
     activities: inputs.activities.filter((a) => a.accountId === account.id),
   }));
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const runWorker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index] as T, index);
+    }
+  };
+
+  const workerCount = Math.min(Math.max(1, limit), Math.max(1, items.length));
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
 }
 
 async function applyApproval(
@@ -107,15 +133,100 @@ async function applyApproval(
   return { ...rec, approvalStatus: "approved" };
 }
 
+async function auditDraftInvocationStart(
+  invocation: HybridDraftInvocationStart,
+  runId: string,
+  now: string,
+  repo: RuntimeRepository,
+): Promise<void> {
+  await writeAuditLog(
+    {
+      runId,
+      accountId: invocation.accountId,
+      actorId: "runtime_drafter",
+      action: "runtime_draft_invocation_start",
+      decision: "allowed",
+      reason: "Durable invocation-start evidence persisted before external runtime-model call.",
+      evidence: {
+        recommendationId: invocation.recommendationId,
+        selectedSourceSignalIds: invocation.selectedSourceSignalIds,
+        provider: invocation.provider,
+        model: invocation.model,
+        promptVersion: invocation.promptVersion,
+        promptHash: invocation.promptHash,
+        schemaVersion: invocation.schemaVersion,
+        policyVersion: invocation.policyVersion,
+        effectivePolicyHash: invocation.effectivePolicyHash,
+        groundingVersion: invocation.groundingVersion,
+        inputTokenUpperBound: invocation.inputTokenUpperBound,
+        reservedRunTokens: invocation.reservedRunTokens,
+      },
+      occurredAt: now,
+    },
+    repo,
+  );
+}
+
+async function auditDraftOutcome(
+  rec: Recommendation,
+  outcome: HybridDraftOutcome,
+  runId: string,
+  now: string,
+  repo: RuntimeRepository,
+): Promise<void> {
+  await writeAuditLog(
+    {
+      runId,
+      accountId: rec.accountId,
+      actorId: "runtime_drafter",
+      action: "runtime_draft",
+      decision: outcome.source === "held" ? "blocked" : "allowed",
+      reason:
+        outcome.source === "model"
+          ? "Bounded runtime model draft passed schema and grounding validation."
+          : outcome.source === "template"
+            ? "Deterministic template draft used; runtime model was not invoked."
+            : outcome.source === "template_fallback"
+              ? `Runtime model draft failed; deterministic template fallback used (${outcome.failureCode ?? "unknown"}).`
+              : `Runtime draft held (${outcome.failureCode ?? "unknown"}).`,
+      evidence: {
+        recommendationId: outcome.recommendationId,
+        draftSource: outcome.source,
+        selectedSourceSignalIds: outcome.selectedSourceSignalIds,
+        claimCitations: outcome.claimCitations,
+        modelCandidateClaimCitations: outcome.modelCandidateClaimCitations,
+        schemaValidation: outcome.schemaValidation,
+        groundingValidation: outcome.groundingValidation,
+        groundingFailedGates: outcome.groundingFailedGates,
+        provider: outcome.telemetry?.provider,
+        model: outcome.telemetry?.model,
+        promptVersion: outcome.promptVersion,
+        promptHash: outcome.promptHash,
+        schemaVersion: outcome.schemaVersion,
+        policyVersion: outcome.policyVersion,
+        effectivePolicyHash: outcome.effectivePolicyHash,
+        effectivePolicy: outcome.effectivePolicy,
+        groundingVersion: outcome.groundingVersion,
+        fallbackVersion: outcome.fallbackVersion,
+        latencyMs: outcome.telemetry?.latencyMs,
+        inputTokens: outcome.telemetry?.inputTokens,
+        outputTokens: outcome.telemetry?.outputTokens,
+        inputTokenUpperBound: outcome.inputTokenUpperBound,
+        reservedRunTokens: outcome.reservedRunTokens,
+        failureCode: outcome.failureCode,
+      },
+      occurredAt: now,
+    },
+    repo,
+  );
+}
+
 export async function runDailyPrioritizationForOwner(
   ownerId: string,
   opts: RunOptions = {},
 ): Promise<PrioritizationRun> {
   const now = opts.now ?? new Date().toISOString();
   const runId = `run_${ownerId}_${now}`;
-
-  // Resolve the run's data port once: Supabase when an RLS context is supplied
-  // and configured, else the deterministic in-memory store.
   const repo = resolveRepository(opts.rlsContext, now);
 
   await trackEvent({ name: "run_started", runId, userId: ownerId, occurredAt: now }, repo);
@@ -134,22 +245,98 @@ export async function runDailyPrioritizationForOwner(
   const contexts = buildContexts(inputs);
   const contextByAccount = new Map(contexts.map((c) => [c.account.id, c]));
 
-  // --- PLAN (deterministic scoring + ranking) ---
+  // --- PLAN (deterministic scoring + ranking + action authority) ---
   const candidates = prioritizeAccounts({ runId, contexts, createdAt: now });
   state = transition(state, "PLAN", { candidates });
 
-  // --- EXECUTE (attach drafts; never sends) ---
-  const withDrafts = candidates.map((rec) => {
-    const ctx = contextByAccount.get(rec.accountId);
-    return ctx ? attachActionDraft(rec, ctx) : rec;
-  });
+  // --- EXECUTE (bounded model drafting or deterministic template fallback) ---
+  const draftingPolicy = normalizeRuntimeDraftingPolicy(
+    opts.drafting?.policy ?? runtimeDraftingPolicyFromEnv(),
+  );
+  const runBudget = createRuntimeDraftRunBudget(draftingPolicy.maxRunTokens);
+  const callerBeforeModelInvoke = opts.drafting?.beforeModelInvoke;
+  const draftingOptions: HybridDraftOptions = {
+    policy: draftingPolicy,
+    modelClient: opts.drafting?.modelClient,
+    runBudget,
+    now,
+    beforeModelInvoke: async (invocation) => {
+      // The built-in provider path must never treat the deterministic in-memory
+      // audit store as durable. Explicit injected model clients are a test seam
+      // and still execute only behind the caller's pre-invocation dependency.
+      if (!opts.drafting?.modelClient && repo === inMemoryRepository) {
+        throw new Error("Runtime drafting requires a durable audit repository.");
+      }
+      await auditDraftInvocationStart(invocation, runId, now, repo);
+      if (callerBeforeModelInvoke) {
+        await callerBeforeModelInvoke(invocation);
+      }
+    },
+  };
+
+  const draftResults = await mapWithConcurrency(
+    candidates,
+    draftingPolicy.maxConcurrent,
+    async (rec) => {
+      const ctx = contextByAccount.get(rec.accountId);
+      const result = ctx
+        ? await attachHybridActionDraft(rec, ctx, draftingOptions)
+        : {
+            recommendation: rec,
+            outcome: {
+              source: "held" as const,
+              recommendationId: rec.id,
+              selectedSourceSignalIds: [],
+              claimCitations: [],
+              modelCandidateClaimCitations: [],
+              schemaValidation: "not_run" as const,
+              groundingValidation: "not_run" as const,
+              groundingFailedGates: [],
+              failureCode: "DRAFT_CONTEXT_MISSING",
+              ...hybridDraftContractMetadata(draftingPolicy),
+            },
+          };
+
+      // Persist the outcome in the same worker immediately after drafting. If
+      // durable audit storage fails here, the worker rejects and verification /
+      // publication never begins for the run.
+      await auditDraftOutcome(result.recommendation, result.outcome, runId, now, repo);
+      return result;
+    },
+  );
+
+  const withDrafts = draftResults.map((result) => result.recommendation);
   state = transition(state, "EXECUTE", { candidates: withDrafts });
 
-  // --- VERIFY (human approval + deterministic guardrails, fail-closed) ---
+  // --- VERIFY (deterministic verification + human approval, fail-closed) ---
   const published: Recommendation[] = [];
   const blocked: OrchestratorBlocked[] = [];
 
-  for (const candidate of withDrafts) {
+  for (const result of draftResults) {
+    const candidate = result.recommendation;
+
+    if (result.outcome.source === "held") {
+      const failedGates = [result.outcome.failureCode ?? "DRAFT_HELD"];
+      blocked.push({
+        recommendationId: candidate.id,
+        accountId: candidate.accountId,
+        failedGates,
+      });
+      await writeAuditLog(
+        {
+          runId,
+          accountId: candidate.accountId,
+          actorId: "orchestrator",
+          action: "block_recommendation",
+          decision: "blocked",
+          reason: `Failed gates: ${failedGates.join(", ")}`,
+          occurredAt: now,
+        },
+        repo,
+      );
+      continue;
+    }
+
     const withApproval = await applyApproval(candidate, opts, runId, now, repo);
     const { recommendation, allowed } = verifyRecommendation(withApproval, now);
 
@@ -212,7 +399,6 @@ export async function runDailyPrioritizationForOwner(
     }
   }
 
-  // --- ITERATE / PUBLISH ---
   state = transition(state, "VERIFY", { candidates: withDrafts });
   state = transition(state, "ITERATE", { published, blocked });
   state = transition(state, "PUBLISH", { published, blocked });
@@ -233,12 +419,16 @@ export async function runDailyPrioritizationForOwner(
       runId,
       userId: ownerId,
       occurredAt: now,
-      properties: { published: published.length, blocked: blocked.length },
+      properties: {
+        published: published.length,
+        blocked: blocked.length,
+        runtimeDraftTokensReserved: runBudget.reservedTokens,
+        runtimeDraftTokenBudget: runBudget.maxTokens,
+      },
     },
     repo,
   );
 
-  // Final fail-closed validation of terminal state.
   if (state.phase !== "DONE") {
     throw new Error(`Run ${runId} did not reach DONE (phase=${state.phase}).`);
   }

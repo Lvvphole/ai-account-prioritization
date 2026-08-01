@@ -1,6 +1,7 @@
 import type { ReasonCode } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../../config/runtime";
 import type { AccountContext, AccountFeatures } from "../prioritizer.policy";
+import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-observations";
 
 /**
  * generate-reason-codes — DETERMINISTIC mapping from facts to a CLOSED set of
@@ -16,7 +17,9 @@ export function generateReasonCodes(
   const codes = new Set<ReasonCode>();
 
   if (a.openPipelineUsd >= cfg.highPipelineThresholdUsd) codes.add("high_open_pipeline");
-  if (a.intentSignals.length > 0) codes.add("verified_intent_signal");
+  if (resolveVerifiedIntentObservations(a, ctx.activities).length > 0) {
+    codes.add("verified_intent_signal");
+  }
   if (
     a.daysSinceLastContact !== undefined &&
     a.daysSinceLastContact >= cfg.staleContactThresholdDays

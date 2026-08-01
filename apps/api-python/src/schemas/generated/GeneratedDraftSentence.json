@@ -1,0 +1,30 @@
+{
+  "$ref": "#/definitions/GeneratedDraftSentence",
+  "definitions": {
+    "GeneratedDraftSentence": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "sourceSignalIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "text",
+        "sourceSignalIds"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

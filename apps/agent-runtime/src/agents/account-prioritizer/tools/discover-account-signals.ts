@@ -1,6 +1,7 @@
 import type { SourceSignal } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../../config/runtime";
 import type { AccountContext } from "../prioritizer.policy";
+import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-observations";
 
 /**
  * discover-account-signals — builds the verified evidence set.
@@ -22,15 +23,12 @@ export function discoverAccountSignals(ctx: AccountContext): SourceSignal[] {
     });
   }
 
-  for (const sig of a.intentSignals) {
-    const evt = ctx.activities.find(
-      (x) => x.type === "intent_event" && x.verified,
-    );
+  for (const { signalCode, activity } of resolveVerifiedIntentObservations(a, ctx.activities)) {
     signals.push({
       kind: "intent",
-      refId: evt?.id ?? a.id,
-      description: `Verified intent signal: ${sig}.`,
-      verified: evt ? evt.verified : false,
+      refId: activity.id,
+      description: `Verified intent signal: ${signalCode}.`,
+      verified: true,
     });
   }
 

@@ -1,15 +1,51 @@
-import type { Recommendation } from "@repo/shared-schemas";
+import { Buffer } from "node:buffer";
+import {
+  GENERATED_DRAFT_SCHEMA_VERSION,
+  GeneratedDraftSchema,
+  type Recommendation,
+} from "@repo/shared-schemas";
 import type { AccountContext } from "../account-prioritizer/prioritizer.policy";
 import { generateCallObjective } from "./tools/generate-call-objective";
 import { generateEmailDraft } from "./tools/generate-email-draft";
 import { generateCrmNote } from "./tools/generate-crm-note";
+import {
+  buildVerifiedDraftContext,
+  type VerifiedDraftContext,
+} from "./build-draft-context";
+import {
+  buildRuntimeDraftUserPrompt,
+  RUNTIME_DRAFT_PROMPT_HASH,
+  RUNTIME_DRAFT_PROMPT_VERSION,
+  RUNTIME_DRAFT_SYSTEM_PROMPT,
+} from "./execution.prompt";
+import {
+  hashRuntimeDraftingPolicy,
+  normalizeRuntimeDraftingPolicy,
+  RUNTIME_DRAFT_POLICY_VERSION,
+  runtimeDraftingPolicyAuditSnapshot,
+  runtimeDraftingPolicyFromEnv,
+  type RuntimeDraftingPolicy,
+  type RuntimeDraftingPolicyAuditSnapshot,
+} from "./execution.policy";
+import {
+  anthropicRuntimeModelClient,
+  RuntimeModelError,
+  type RuntimeModelClient,
+  type RuntimeModelRequest,
+  type RuntimeModelTelemetry,
+} from "../../inference/runtime-model";
+import {
+  DRAFT_GROUNDING_RULES_VERSION,
+  renderGroundedDraft,
+  validateDraftGrounding,
+} from "./validate-draft-grounding";
+
+export const DETERMINISTIC_DRAFT_FALLBACK_VERSION = "deterministic-template-v1";
+const MODEL_PROTOCOL_TOKEN_OVERHEAD = 64;
 
 /**
- * Sales Execution agent.
- *
- * Attaches a deterministic draft to a recommendation's next-best-action based on
- * the action type. Drafts are generated from verified signals only; nothing here
- * sends anything — customer-facing/CRM actions remain approval-gated.
+ * Deterministic template drafter retained as the offline baseline and explicit
+ * fail-safe fallback. Nothing here sends or writes anything.
  */
 export function attachActionDraft(
   rec: Recommendation,
@@ -52,4 +88,448 @@ export function attachActionDraft(
   }
 
   return { ...rec, nextBestAction: { ...action, draft } };
+}
+
+export type DraftSource = "model" | "template" | "template_fallback" | "held";
+export type DraftValidationStatus = "not_run" | "passed" | "failed";
+
+export interface DraftClaimCitation {
+  text: string;
+  sourceSignalIds: string[];
+}
+
+export interface RuntimeDraftRunBudget {
+  maxTokens: number;
+  reservedTokens: number;
+}
+
+export function createRuntimeDraftRunBudget(maxTokens: number): RuntimeDraftRunBudget {
+  return { maxTokens, reservedTokens: 0 };
+}
+
+export interface HybridDraftOutcome {
+  source: DraftSource;
+  recommendationId: string;
+  selectedSourceSignalIds: string[];
+  /** Citations for the final draft that may be published (model or template). */
+  claimCitations: DraftClaimCitation[];
+  /** Candidate citations retained even when grounding rejection triggers fallback. */
+  modelCandidateClaimCitations: DraftClaimCitation[];
+  schemaValidation: DraftValidationStatus;
+  groundingValidation: DraftValidationStatus;
+  groundingFailedGates: string[];
+  failureCode?: string;
+  telemetry?: RuntimeModelTelemetry;
+  promptVersion: string;
+  promptHash: string;
+  schemaVersion: string;
+  policyVersion: string;
+  effectivePolicy: RuntimeDraftingPolicyAuditSnapshot;
+  effectivePolicyHash: string;
+  groundingVersion: string;
+  fallbackVersion: string;
+  inputTokenUpperBound?: number;
+  reservedRunTokens?: number;
+}
+
+export interface HybridDraftResult {
+  recommendation: Recommendation;
+  outcome: HybridDraftOutcome;
+}
+
+/** Non-secret evidence persisted before an external runtime-model invocation. */
+export interface HybridDraftInvocationStart {
+  recommendationId: string;
+  accountId: string;
+  selectedSourceSignalIds: string[];
+  provider: RuntimeDraftingPolicy["provider"];
+  model: string | null;
+  promptVersion: string;
+  promptHash: string;
+  schemaVersion: string;
+  policyVersion: string;
+  effectivePolicyHash: string;
+  groundingVersion: string;
+  inputTokenUpperBound: number;
+  reservedRunTokens: number;
+}
+
+export interface HybridDraftOptions {
+  policy?: RuntimeDraftingPolicy;
+  modelClient?: RuntimeModelClient;
+  runBudget?: RuntimeDraftRunBudget;
+  /** Injected deterministic clock used for source freshness. */
+  now?: string;
+  /**
+   * Durable pre-invocation audit hook. Enabled runtime drafting fails closed if
+   * this dependency is absent or rejects before the external provider call.
+   */
+  beforeModelInvoke?: (invocation: HybridDraftInvocationStart) => Promise<void>;
+}
+
+export function hybridDraftContractMetadata(
+  policy: RuntimeDraftingPolicy,
+): Pick<
+  HybridDraftOutcome,
+  | "promptVersion"
+  | "promptHash"
+  | "schemaVersion"
+  | "policyVersion"
+  | "effectivePolicy"
+  | "effectivePolicyHash"
+  | "groundingVersion"
+  | "fallbackVersion"
+> {
+  const effectivePolicy = runtimeDraftingPolicyAuditSnapshot(policy);
+  return {
+    promptVersion: RUNTIME_DRAFT_PROMPT_VERSION,
+    promptHash: RUNTIME_DRAFT_PROMPT_HASH,
+    schemaVersion: GENERATED_DRAFT_SCHEMA_VERSION,
+    policyVersion: RUNTIME_DRAFT_POLICY_VERSION,
+    effectivePolicy,
+    effectivePolicyHash: hashRuntimeDraftingPolicy(effectivePolicy),
+    groundingVersion: DRAFT_GROUNDING_RULES_VERSION,
+    fallbackVersion: DETERMINISTIC_DRAFT_FALLBACK_VERSION,
+  };
+}
+
+const modelDraftable = (type: Recommendation["nextBestAction"]["type"]): boolean =>
+  type === "call" ||
+  type === "schedule_meeting" ||
+  type === "send_email" ||
+  type === "log_research_note";
+
+/**
+ * Conservative provider-independent upper bound based on UTF-8 payload bytes,
+ * plus a fixed allowance for role/message framing. It intentionally overcounts
+ * normal text rather than making a second metered provider call just to count.
+ */
+export function estimateRuntimeModelInputTokensUpperBound(
+  request: RuntimeModelRequest,
+): number {
+  return (
+    Buffer.byteLength(request.system, "utf8") +
+    Buffer.byteLength(request.user, "utf8") +
+    MODEL_PROTOCOL_TOKEN_OVERHEAD
+  );
+}
+
+function buildBudgetedDraftRequest(
+  rec: Recommendation,
+  ctx: AccountContext,
+  policy: RuntimeDraftingPolicy,
+  now: string,
+): {
+  context: VerifiedDraftContext;
+  request: RuntimeModelRequest;
+  inputTokenUpperBound: number;
+} {
+  const prioritized = buildVerifiedDraftContext(rec, ctx, {
+    maxSignals: policy.maxSignals,
+    now,
+    maxEvidenceAgeDays: policy.maxEvidenceAgeDays,
+  });
+  const selected: VerifiedDraftContext["signals"] = [];
+  let selectedRequest: RuntimeModelRequest | undefined;
+  let selectedInputUpperBound: number | undefined;
+
+  for (const signal of prioritized.signals) {
+    const trialContext: VerifiedDraftContext = {
+      ...prioritized,
+      signals: [...selected, signal],
+    };
+    const trialRequest: RuntimeModelRequest = {
+      system: RUNTIME_DRAFT_SYSTEM_PROMPT,
+      user: buildRuntimeDraftUserPrompt(trialContext),
+    };
+    const trialUpperBound = estimateRuntimeModelInputTokensUpperBound(trialRequest);
+    if (trialUpperBound <= policy.maxInputTokens) {
+      selected.push(signal);
+      selectedRequest = trialRequest;
+      selectedInputUpperBound = trialUpperBound;
+    }
+  }
+
+  if (!selectedRequest || selectedInputUpperBound === undefined || selected.length === 0) {
+    throw new Error("DRAFT_INPUT_BUDGET_EXCEEDED");
+  }
+
+  return {
+    context: { ...prioritized, signals: selected },
+    request: selectedRequest,
+    inputTokenUpperBound: selectedInputUpperBound,
+  };
+}
+
+function reserveRunBudget(
+  budget: RuntimeDraftRunBudget | undefined,
+  requestedTokens: number,
+): boolean {
+  if (!budget) return true;
+  if (budget.reservedTokens + requestedTokens > budget.maxTokens) return false;
+  budget.reservedTokens += requestedTokens;
+  return true;
+}
+
+const uniqueIds = (ids: string[]): string[] => [...new Set(ids)];
+
+const TEMPLATE_INTERPOLATES_SIGNALS = new Set<Recommendation["nextBestAction"]["type"]>([
+  "call",
+  "schedule_meeting",
+  "log_research_note",
+]);
+
+/**
+ * Validate every authoritative source signal before any deterministic template
+ * can proceed, regardless of whether the rendered text interpolates evidence or
+ * of the model-visible maxSignals cap. This prevents stale, future-dated,
+ * unresolved, or unverified authority from reaching publication through direct
+ * template mode or fallback. Claim citations remain limited to templates that
+ * actually embed signal descriptions.
+ */
+function validatedTemplateProvenance(
+  rec: Recommendation,
+  ctx: AccountContext,
+  now: string,
+  policy: RuntimeDraftingPolicy,
+): {
+  selectedSourceSignalIds: string[];
+  claimCitations: DraftClaimCitation[];
+} {
+  const validated = buildVerifiedDraftContext(rec, ctx, {
+    maxSignals: rec.sourceSignals.length,
+    now,
+    maxEvidenceAgeDays: policy.maxEvidenceAgeDays,
+  });
+  const interpolatesSignals = TEMPLATE_INTERPOLATES_SIGNALS.has(rec.nextBestAction.type);
+
+  return {
+    selectedSourceSignalIds: uniqueIds(validated.signals.map((signal) => signal.id)),
+    claimCitations: interpolatesSignals
+      ? validated.signals.map((signal) => ({
+          text: signal.description,
+          sourceSignalIds: [signal.id],
+        }))
+      : [],
+  };
+}
+
+/** Evidence failures and unavailable pre-invocation audit storage are fail-closed. */
+const NON_FALLBACK_CONTEXT_FAILURES = new Set([
+  "DRAFT_CONTEXT_STALE_SIGNAL",
+  "DRAFT_CONTEXT_FUTURE_SIGNAL",
+  "DRAFT_CONTEXT_SOURCE_UNRESOLVED",
+  "DRAFT_CONTEXT_SOURCE_TIME_INVALID",
+  "DRAFT_AUDIT_START_REQUIRED",
+  "DRAFT_AUDIT_START_FAILED",
+]);
+
+const failureCodeFromError = (error: unknown): string =>
+  error instanceof RuntimeModelError
+    ? error.code
+    : error instanceof Error
+      ? error.message
+      : "DRAFT_MODEL_FAILURE";
+
+/**
+ * Bounded runtime-AI drafting path. The model receives only a verified,
+ * action-prioritized context that fits hard freshness/input/run budgets. The
+ * model can return candidate language only; strict schema parsing, grounding,
+ * durable pre-invocation evidence, and deterministic fallbacks remain outside
+ * the model.
+ */
+export async function attachHybridActionDraft(
+  rec: Recommendation,
+  ctx: AccountContext,
+  options: HybridDraftOptions = {},
+): Promise<HybridDraftResult> {
+  const policy = normalizeRuntimeDraftingPolicy(
+    options.policy ?? runtimeDraftingPolicyFromEnv(),
+  );
+  const template = (): Recommendation => attachActionDraft(rec, ctx);
+  const baseOutcome = hybridDraftContractMetadata(policy);
+  const now = options.now ?? rec.createdAt;
+  let modelTelemetry: RuntimeModelTelemetry | undefined;
+  let inputTokenUpperBound: number | undefined;
+  let reservedRunTokens: number | undefined;
+  let selectedSourceSignalIds: string[] = [];
+  let claimCitations: DraftClaimCitation[] = [];
+  let modelCandidateClaimCitations: DraftClaimCitation[] = [];
+  let schemaValidation: DraftValidationStatus = "not_run";
+  let groundingValidation: DraftValidationStatus = "not_run";
+  let groundingFailedGates: string[] = [];
+
+  const outcomeBase = () => ({
+    ...baseOutcome,
+    recommendationId: rec.id,
+    selectedSourceSignalIds,
+    claimCitations,
+    modelCandidateClaimCitations,
+    schemaValidation,
+    groundingValidation,
+    groundingFailedGates,
+  });
+
+  const renderValidatedTemplate = (): Recommendation => {
+    const provenance = validatedTemplateProvenance(rec, ctx, now, policy);
+    selectedSourceSignalIds = provenance.selectedSourceSignalIds;
+    claimCitations = provenance.claimCitations;
+    return template();
+  };
+
+  if (!policy.enabled || !modelDraftable(rec.nextBestAction.type)) {
+    try {
+      return {
+        recommendation: renderValidatedTemplate(),
+        outcome: { ...outcomeBase(), source: "template" },
+      };
+    } catch (error) {
+      return {
+        recommendation: rec,
+        outcome: {
+          ...outcomeBase(),
+          source: "held",
+          failureCode: failureCodeFromError(error),
+        },
+      };
+    }
+  }
+
+  try {
+    const prepared = buildBudgetedDraftRequest(rec, ctx, policy, now);
+    inputTokenUpperBound = prepared.inputTokenUpperBound;
+    selectedSourceSignalIds = uniqueIds(prepared.context.signals.map((signal) => signal.id));
+    const requestedRunTokens = inputTokenUpperBound + policy.maxTokens;
+
+    if (!reserveRunBudget(options.runBudget, requestedRunTokens)) {
+      throw new Error("DRAFT_RUN_BUDGET_EXCEEDED");
+    }
+    reservedRunTokens = requestedRunTokens;
+
+    if (!options.beforeModelInvoke) {
+      throw new Error("DRAFT_AUDIT_START_REQUIRED");
+    }
+
+    try {
+      await options.beforeModelInvoke({
+        recommendationId: rec.id,
+        accountId: rec.accountId,
+        selectedSourceSignalIds: [...selectedSourceSignalIds],
+        provider: policy.provider,
+        model: policy.model ?? null,
+        promptVersion: baseOutcome.promptVersion,
+        promptHash: baseOutcome.promptHash,
+        schemaVersion: baseOutcome.schemaVersion,
+        policyVersion: baseOutcome.policyVersion,
+        effectivePolicyHash: baseOutcome.effectivePolicyHash,
+        groundingVersion: baseOutcome.groundingVersion,
+        inputTokenUpperBound,
+        reservedRunTokens,
+      });
+    } catch {
+      throw new Error("DRAFT_AUDIT_START_FAILED");
+    }
+
+    const client = options.modelClient ?? anthropicRuntimeModelClient;
+    const modelResult = await client.generate(prepared.request, policy);
+    modelTelemetry = modelResult.telemetry;
+
+    const parsed = GeneratedDraftSchema.safeParse(modelResult.output);
+    if (!parsed.success) {
+      schemaValidation = "failed";
+      throw new Error("DRAFT_SCHEMA_INVALID");
+    }
+    schemaValidation = "passed";
+    modelCandidateClaimCitations = parsed.data.sentences.map((sentence) => ({
+      text: sentence.text,
+      sourceSignalIds: [...sentence.sourceSignalIds],
+    }));
+    claimCitations = modelCandidateClaimCitations.map((citation) => ({
+      text: citation.text,
+      sourceSignalIds: [...citation.sourceSignalIds],
+    }));
+
+    const grounding = validateDraftGrounding(parsed.data, prepared.context);
+    groundingFailedGates = [...grounding.failedGates];
+    groundingValidation = grounding.passed ? "passed" : "failed";
+    if (!grounding.passed) {
+      throw new Error(grounding.failedGates[0] ?? "DRAFT_GROUNDING_FAILED");
+    }
+
+    return {
+      recommendation: {
+        ...rec,
+        nextBestAction: {
+          ...rec.nextBestAction,
+          draft: renderGroundedDraft(parsed.data),
+        },
+      },
+      outcome: {
+        ...outcomeBase(),
+        source: "model",
+        telemetry: modelTelemetry,
+        inputTokenUpperBound,
+        reservedRunTokens,
+      },
+    };
+  } catch (error) {
+    if (error instanceof RuntimeModelError && error.telemetry) {
+      modelTelemetry = error.telemetry;
+    }
+    const failureCode = failureCodeFromError(error);
+
+    if (NON_FALLBACK_CONTEXT_FAILURES.has(failureCode)) {
+      return {
+        recommendation: rec,
+        outcome: {
+          ...outcomeBase(),
+          source: "held",
+          failureCode,
+          telemetry: modelTelemetry,
+          inputTokenUpperBound,
+          reservedRunTokens,
+        },
+      };
+    }
+
+    if (policy.fallback === "template") {
+      try {
+        return {
+          recommendation: renderValidatedTemplate(),
+          outcome: {
+            ...outcomeBase(),
+            source: "template_fallback",
+            failureCode,
+            telemetry: modelTelemetry,
+            inputTokenUpperBound,
+            reservedRunTokens,
+          },
+        };
+      } catch (fallbackError) {
+        return {
+          recommendation: rec,
+          outcome: {
+            ...outcomeBase(),
+            source: "held",
+            failureCode: failureCodeFromError(fallbackError),
+            telemetry: modelTelemetry,
+            inputTokenUpperBound,
+            reservedRunTokens,
+          },
+        };
+      }
+    }
+
+    return {
+      recommendation: rec,
+      outcome: {
+        ...outcomeBase(),
+        source: "held",
+        failureCode,
+        telemetry: modelTelemetry,
+        inputTokenUpperBound,
+        reservedRunTokens,
+      },
+    };
+  }
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { runDailyPrioritizationForOwner } from "./agents/orchestrator/orchestrator.agent";
 import {
+  buildDailyPrioritizationEntrypointOptions,
   dailyPrioritizationSchedule,
   runDailyPrioritizationForAllOwners,
 } from "./schedules/daily-prioritization.schedule";
@@ -10,7 +11,12 @@ import { ORCHESTRATOR_CONTRACT } from "./agents/orchestrator/orchestrator.prompt
 
 /** Public runtime API. */
 export { runDailyPrioritizationForOwner } from "./agents/orchestrator/orchestrator.agent";
-export { runDailyPrioritizationForAllOwners, dailyPrioritizationSchedule } from "./schedules/daily-prioritization.schedule";
+export {
+  buildDailyPrioritizationEntrypointOptions,
+  runDailyPrioritizationForAllOwners,
+  dailyPrioritizationSchedule,
+  DAILY_PRIORITIZATION_SERVICE_ACTOR_ID,
+} from "./schedules/daily-prioritization.schedule";
 export { verifyRecommendation } from "./agents/guardrails/guardrail.agent";
 export { runGuardrails } from "./agents/orchestrator/orchestrator.guardrails";
 export { prioritizeAccounts } from "./agents/account-prioritizer/prioritizer.agent";
@@ -20,6 +26,39 @@ export { mcpRegistry } from "./shared-tools/mcp/registry";
 export { createInProcessMcpClient } from "./shared-tools/mcp/client";
 export { ORCHESTRATOR_CONTRACT } from "./agents/orchestrator/orchestrator.prompt";
 export { resetStore, createSeedStore, type DataStore } from "./shared-tools/database/client";
+export {
+  attachActionDraft,
+  attachHybridActionDraft,
+  createRuntimeDraftRunBudget,
+  estimateRuntimeModelInputTokensUpperBound,
+  type HybridDraftOptions,
+  type HybridDraftOutcome,
+  type HybridDraftResult,
+  type RuntimeDraftRunBudget,
+} from "./agents/sales-execution/execution.agent";
+export { buildVerifiedDraftContext } from "./agents/sales-execution/build-draft-context";
+export {
+  DRAFT_GROUNDING_RULES_VERSION,
+  validateDraftGrounding,
+  renderGroundedDraft,
+} from "./agents/sales-execution/validate-draft-grounding";
+export {
+  RUNTIME_DRAFT_POLICY_VERSION,
+  runtimeDraftingPolicyFromEnv,
+  type RuntimeDraftingPolicy,
+} from "./agents/sales-execution/execution.policy";
+export {
+  RUNTIME_DRAFT_PROMPT_HASH,
+  RUNTIME_DRAFT_PROMPT_VERSION,
+} from "./agents/sales-execution/execution.prompt";
+export {
+  anthropicRuntimeModelClient,
+  RuntimeModelError,
+  type RuntimeModelClient,
+  type RuntimeModelRequest,
+  type RuntimeModelResult,
+  type RuntimeModelTelemetry,
+} from "./inference/runtime-model";
 
 // Supabase wiring (Sprint 4). The runtime stays on the in-memory store unless a
 // run supplies an RLS context AND Supabase is configured.
@@ -102,17 +141,16 @@ mcpRegistry.register({
   handler: ({ ownerId }) => readAccounts(ownerId),
 });
 
-/** Demo entrypoint: run the deterministic loop for all owners and summarize. */
+/** Container/CLI entrypoint for the daily prioritization worker. */
 async function main(): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(ORCHESTRATOR_CONTRACT);
   // eslint-disable-next-line no-console
   console.log(`\nSchedule: ${dailyPrioritizationSchedule.name} (${dailyPrioritizationSchedule.cron})\n`);
 
-  const runs = await runDailyPrioritizationForAllOwners({
-    now: new Date().toISOString(),
-    autoApprove: true,
-  });
+  const runs = await runDailyPrioritizationForAllOwners(
+    buildDailyPrioritizationEntrypointOptions(new Date().toISOString()),
+  );
 
   for (const run of runs) {
     // eslint-disable-next-line no-console

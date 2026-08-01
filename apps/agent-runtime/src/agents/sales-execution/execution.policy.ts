@@ -1,0 +1,196 @@
+import { createHash } from "node:crypto";
+import { DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS } from "./build-draft-context";
+
+export type DraftFallbackPolicy = "template" | "hold";
+
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v7";
+
+export interface RuntimeDraftingPolicy {
+  enabled: boolean;
+  provider: "anthropic";
+  apiKey?: string;
+  model?: string;
+  timeoutMs: number;
+  /** Maximum output tokens for one provider call. */
+  maxTokens: number;
+  /** Conservative upper bound for one request's model-visible input tokens. */
+  maxInputTokens: number;
+  /** Maximum verified evidence signals admitted to one model-visible context. */
+  maxSignals: number;
+  /** Maximum simultaneous provider calls in one prioritization run. */
+  maxConcurrent: number;
+  /** Conservative run-level input + output token reservation budget. */
+  maxRunTokens: number;
+  /** Maximum evidence age; omission is normalized to the fail-closed default. */
+  maxEvidenceAgeDays?: number;
+  maxAttempts: 1;
+  fallback: DraftFallbackPolicy;
+}
+
+/** Non-secret effective policy persisted with every draft outcome. */
+export interface RuntimeDraftingPolicyAuditSnapshot {
+  enabled: boolean;
+  provider: "anthropic";
+  model: string | null;
+  timeoutMs: number;
+  maxTokens: number;
+  maxInputTokens: number;
+  maxSignals: number;
+  maxConcurrent: number;
+  maxRunTokens: number;
+  maxEvidenceAgeDays: number;
+  maxAttempts: 1;
+  fallback: DraftFallbackPolicy;
+}
+
+const assertPolicyInteger = (
+  name: string,
+  value: unknown,
+  min: number,
+  max: number,
+): number => {
+  if (!Number.isSafeInteger(value) || (value as number) < min || (value as number) > max) {
+    throw new Error(`Invalid runtime drafting policy ${name}: ${String(value)}`);
+  }
+  return value as number;
+};
+
+/**
+ * Normalize and validate any policy regardless of origin. Environment parsing is
+ * not a trusted boundary because callers can inject RuntimeDraftingPolicy
+ * objects directly through the exported runtime APIs.
+ */
+export function normalizeRuntimeDraftingPolicy(
+  policy: RuntimeDraftingPolicy,
+): RuntimeDraftingPolicy {
+  if (typeof policy.enabled !== "boolean") {
+    throw new Error(`Invalid runtime drafting policy enabled: ${String(policy.enabled)}`);
+  }
+  if (policy.provider !== "anthropic") {
+    throw new Error(`Unsupported runtime drafting policy provider: ${String(policy.provider)}`);
+  }
+  if (policy.fallback !== "template" && policy.fallback !== "hold") {
+    throw new Error(`Unsupported runtime drafting policy fallback: ${String(policy.fallback)}`);
+  }
+  if (policy.maxAttempts !== 1) {
+    throw new Error(`Invalid runtime drafting policy maxAttempts: ${String(policy.maxAttempts)}`);
+  }
+
+  const normalized: RuntimeDraftingPolicy = {
+    ...policy,
+    timeoutMs: assertPolicyInteger("timeoutMs", policy.timeoutMs, 250, 30000),
+    maxTokens: assertPolicyInteger("maxTokens", policy.maxTokens, 64, 2000),
+    maxInputTokens: assertPolicyInteger("maxInputTokens", policy.maxInputTokens, 256, 32000),
+    maxSignals: assertPolicyInteger("maxSignals", policy.maxSignals, 1, 32),
+    maxConcurrent: assertPolicyInteger("maxConcurrent", policy.maxConcurrent, 1, 16),
+    maxRunTokens: assertPolicyInteger("maxRunTokens", policy.maxRunTokens, 256, 500000),
+    maxEvidenceAgeDays: assertPolicyInteger(
+      "maxEvidenceAgeDays",
+      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+      1,
+      3650,
+    ),
+    maxAttempts: 1,
+  };
+
+  if (normalized.enabled && (!normalized.apiKey || !normalized.model?.trim())) {
+    throw new Error(
+      "Runtime drafting enabled policy requires a non-empty apiKey and model identity.",
+    );
+  }
+
+  return normalized;
+}
+
+export function runtimeDraftingPolicyAuditSnapshot(
+  policy: RuntimeDraftingPolicy,
+): RuntimeDraftingPolicyAuditSnapshot {
+  const normalized = normalizeRuntimeDraftingPolicy(policy);
+  return {
+    enabled: normalized.enabled,
+    provider: normalized.provider,
+    model: normalized.model ?? null,
+    timeoutMs: normalized.timeoutMs,
+    maxTokens: normalized.maxTokens,
+    maxInputTokens: normalized.maxInputTokens,
+    maxSignals: normalized.maxSignals,
+    maxConcurrent: normalized.maxConcurrent,
+    maxRunTokens: normalized.maxRunTokens,
+    maxEvidenceAgeDays: normalized.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+    maxAttempts: normalized.maxAttempts,
+    fallback: normalized.fallback,
+  };
+}
+
+export function hashRuntimeDraftingPolicy(
+  snapshot: RuntimeDraftingPolicyAuditSnapshot,
+): string {
+  return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+}
+
+const intFromEnv = (
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number => {
+  if (!value) return fallback;
+  if (!/^(?:0|[1-9]\d*)$/.test(value)) {
+    throw new Error(`Invalid runtime drafting numeric configuration: ${value}`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`Invalid runtime drafting numeric configuration: ${value}`);
+  }
+  return parsed;
+};
+
+const boolFromEnv = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined || value === "") return fallback;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`Invalid runtime drafting boolean configuration: ${value}`);
+};
+
+export function runtimeDraftingPolicyFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): RuntimeDraftingPolicy {
+  const enabled = boolFromEnv(env.RUNTIME_DRAFTING_ENABLED, false);
+  const provider = env.RUNTIME_DRAFT_PROVIDER ?? "anthropic";
+  const fallback = env.RUNTIME_DRAFT_FALLBACK ?? "template";
+
+  if (provider !== "anthropic") {
+    throw new Error(`Unsupported RUNTIME_DRAFT_PROVIDER: ${provider}`);
+  }
+  if (fallback !== "template" && fallback !== "hold") {
+    throw new Error(`Unsupported RUNTIME_DRAFT_FALLBACK: ${fallback}`);
+  }
+
+  return normalizeRuntimeDraftingPolicy({
+    enabled,
+    provider,
+    apiKey: env.RUNTIME_DRAFT_API_KEY,
+    model: env.RUNTIME_DRAFT_MODEL,
+    timeoutMs: intFromEnv(env.RUNTIME_DRAFT_TIMEOUT_MS, 5000, 250, 30000),
+    maxTokens: intFromEnv(env.RUNTIME_DRAFT_MAX_TOKENS, 600, 64, 2000),
+    maxInputTokens: intFromEnv(env.RUNTIME_DRAFT_MAX_INPUT_TOKENS, 4000, 256, 32000),
+    maxSignals: intFromEnv(env.RUNTIME_DRAFT_MAX_SIGNALS, 6, 1, 32),
+    maxConcurrent: intFromEnv(env.RUNTIME_DRAFT_MAX_CONCURRENT, 4, 1, 16),
+    maxRunTokens: intFromEnv(env.RUNTIME_DRAFT_MAX_RUN_TOKENS, 20000, 256, 500000),
+    maxEvidenceAgeDays: intFromEnv(
+      env.RUNTIME_DRAFT_MAX_EVIDENCE_AGE_DAYS,
+      DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+      1,
+      3650,
+    ),
+    maxAttempts: 1,
+    fallback,
+  });
+}
+
+/**
+ * Parsed at module load so an enabled but incomplete runtime-drafting
+ * configuration fails fast during process startup rather than on the first
+ * recommendation.
+ */
+export const DEFAULT_RUNTIME_DRAFTING_POLICY = runtimeDraftingPolicyFromEnv();

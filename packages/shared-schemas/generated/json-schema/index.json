@@ -16,6 +16,8 @@
     "ExternalRecordLink",
     "Feedback",
     "FinalizeUploadRequest",
+    "GeneratedDraft",
+    "GeneratedDraftSentence",
     "ImportApproval",
     "ImportCommit",
     "ImportLimits",
