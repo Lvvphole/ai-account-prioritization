@@ -31,14 +31,14 @@ export default function HomePage() {
             Focus on the accounts <span className={styles.gradientText}>that matter most today.</span>
           </h1>
           <p className={styles.heroSub}>
-            AI turns verified CRM signals into a ranked daily plan, explains why each
-            account matters, and drafts the next best move so your team can spend less
-            time sorting data and more time selling.
+            Verified CRM signals are ranked by a deterministic scoring engine. AI then
+            explains why each account matters and drafts the next best move, so your team
+            can spend less time sorting data and more time selling.
           </p>
 
           <div className={styles.heroActions}>
             <a className={styles.primaryCta} href="/login">
-              Enter the Live Demo →
+              {demo ? "Enter the Live Demo →" : "Sign in to Workspace →"}
             </a>
             <a className={styles.secondaryCta} href="#how-it-works">
               See How It Works
