@@ -5,8 +5,11 @@ import {
   createSeedStore,
   resetStore,
   runDailyPrioritizationForOwner,
+  runtimeDraftingPolicyFromEnv,
   validateDraftGrounding,
   type RuntimeDraftingPolicy,
+  type RuntimeModelClient,
+  type RuntimeModelRequest,
 } from "agent-runtime";
 import {
   GeneratedDraftSchema,
@@ -74,6 +77,18 @@ const context = {
   activities: [],
 };
 
+const accountRecommendation = (description: string): Recommendation => ({
+  ...recommendation,
+  sourceSignals: [
+    {
+      kind: "account",
+      refId: account.id,
+      description,
+      verified: true,
+    },
+  ],
+});
+
 const policy = (overrides: Partial<RuntimeDraftingPolicy> = {}): RuntimeDraftingPolicy => ({
   enabled: false,
   provider: "anthropic",
@@ -89,6 +104,44 @@ const policy = (overrides: Partial<RuntimeDraftingPolicy> = {}): RuntimeDrafting
   fallback: "template",
   ...overrides,
 });
+
+const contextFromRequest = (request: RuntimeModelRequest) => {
+  const start = "SOURCE_DATA_START\n";
+  const end = "\nSOURCE_DATA_END";
+  const json = request.user.slice(
+    request.user.indexOf(start) + start.length,
+    request.user.lastIndexOf(end),
+  );
+  return JSON.parse(json) as {
+    actionType: Recommendation["nextBestAction"]["type"];
+    signals: Array<{ id: string; description: string }>;
+  };
+};
+
+const exactEvidenceClient: RuntimeModelClient = {
+  async generate(request) {
+    const visible = contextFromRequest(request);
+    return {
+      output: {
+        schemaVersion: "1.0",
+        actionType: visible.actionType,
+        sentences: [
+          {
+            text: visible.signals[0]?.description,
+            sourceSignalIds: [visible.signals[0]?.id],
+          },
+        ],
+      },
+      telemetry: {
+        provider: "anthropic",
+        model: "pinned-test-model",
+        latencyMs: 1,
+        inputTokens: 20,
+        outputTokens: 10,
+      },
+    };
+  },
+};
 
 describe("runtime drafting Codex review regressions", () => {
   it("rejects relationship rearrangement even when token membership and global polarity match", () => {
@@ -107,6 +160,81 @@ describe("runtime drafting Codex review regressions", () => {
     const result = validateDraftGrounding(draft, verified);
     expect(result.passed).toBe(false);
     expect(result.failedGates).toContain("DRAFT_RELATIONSHIP_MISMATCH");
+  });
+
+  it("rejects modality omissions and relational substitutions", () => {
+    const modality = accountRecommendation("Customer may commit to renewal.");
+    const modalityContext = buildVerifiedDraftContext(modality, context);
+    const modalityDraft = GeneratedDraftSchema.parse({
+      schemaVersion: "1.0",
+      actionType: "call",
+      sentences: [
+        {
+          text: "Customer commit to renewal.",
+          sourceSignalIds: [account.id],
+        },
+      ],
+    });
+    expect(validateDraftGrounding(modalityDraft, modalityContext).passed).toBe(false);
+
+    const relation = accountRecommendation("Alpha is preferred over Beta.");
+    const relationContext = buildVerifiedDraftContext(relation, context);
+    const relationDraft = GeneratedDraftSchema.parse({
+      schemaVersion: "1.0",
+      actionType: "call",
+      sentences: [
+        {
+          text: "Alpha is preferred by Beta.",
+          sourceSignalIds: [account.id],
+        },
+      ],
+    });
+    expect(validateDraftGrounding(relationDraft, relationContext).passed).toBe(false);
+  });
+
+  it("treats comma-formatted currency as one atomic value", () => {
+    const rec = accountRecommendation("Open pipeline of $50,000.");
+    const verified = buildVerifiedDraftContext(rec, context);
+    const draft = GeneratedDraftSchema.parse({
+      schemaVersion: "1.0",
+      actionType: "call",
+      sentences: [
+        {
+          text: "Open pipeline of $50.",
+          sourceSignalIds: [account.id],
+        },
+      ],
+    });
+
+    const result = validateDraftGrounding(draft, verified);
+    expect(result.passed).toBe(false);
+    expect(result.failedGates).toContain("DRAFT_UNSUPPORTED_NUMBER");
+  });
+
+  it("rejects stale resolved evidence before provider invocation", async () => {
+    const staleAccount: Account = {
+      ...account,
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    const staleContext = { ...context, account: staleAccount };
+    const rec = accountRecommendation("Open pipeline of $50,000.");
+    let calls = 0;
+    const client: RuntimeModelClient = {
+      async generate(request, selectedPolicy) {
+        calls += 1;
+        return exactEvidenceClient.generate(request, selectedPolicy);
+      },
+    };
+
+    const result = await attachHybridActionDraft(rec, staleContext, {
+      policy: policy({ enabled: true, maxEvidenceAgeDays: 30 }),
+      modelClient: client,
+      now: ISO,
+    });
+
+    expect(result.outcome.source).toBe("template_fallback");
+    expect(result.outcome.failureCode).toBe("DRAFT_CONTEXT_STALE_SIGNAL");
+    expect(calls).toBe(0);
   });
 
   it("records a non-secret effective policy snapshot and a value-sensitive hash on every outcome", async () => {
@@ -165,5 +293,56 @@ describe("runtime drafting Codex review regressions", () => {
         "apiKey" in (entry.evidence.effectivePolicy as Record<string, unknown>),
       ).toBe(false);
     }
+  });
+
+  it("persists accepted claim-to-source mappings and explicit verifier results", async () => {
+    const store = resetStore(createSeedStore());
+    await runDailyPrioritizationForOwner("rep_alex", {
+      now: ISO,
+      autoApprove: true,
+      drafting: {
+        policy: policy({
+          enabled: true,
+          maxEvidenceAgeDays: 180,
+          maxRunTokens: 100000,
+        }),
+        modelClient: exactEvidenceClient,
+      },
+    });
+
+    const modelAudit = store.auditLog.find(
+      (entry) =>
+        entry.action === "runtime_draft" && entry.evidence.draftSource === "model",
+    );
+    expect(modelAudit).toBeTruthy();
+    expect(modelAudit?.evidence.recommendationId).toEqual(expect.any(String));
+    expect(modelAudit?.evidence.selectedSourceSignalIds).toEqual(
+      expect.arrayContaining([expect.any(String)]),
+    );
+    expect(modelAudit?.evidence.claimCitations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.any(String),
+          sourceSignalIds: expect.arrayContaining([expect.any(String)]),
+        }),
+      ]),
+    );
+    expect(modelAudit?.evidence.schemaValidation).toBe("passed");
+    expect(modelAudit?.evidence.groundingValidation).toBe("passed");
+    expect(modelAudit?.evidence.groundingFailedGates).toEqual([]);
+  });
+
+  it("rejects unrecognized runtime-drafting boolean values", () => {
+    expect(() =>
+      runtimeDraftingPolicyFromEnv({
+        RUNTIME_DRAFTING_ENABLED: "TRUE",
+      } as NodeJS.ProcessEnv),
+    ).toThrow("Invalid runtime drafting boolean configuration: TRUE");
+
+    const disabled = runtimeDraftingPolicyFromEnv({
+      RUNTIME_DRAFTING_ENABLED: "false",
+    } as NodeJS.ProcessEnv);
+    expect(disabled.enabled).toBe(false);
+    expect(disabled.maxEvidenceAgeDays).toBe(90);
   });
 });
