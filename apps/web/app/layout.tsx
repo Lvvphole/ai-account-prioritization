@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { can } from "@repo/security";
 import { getSessionContext } from "./lib/auth";
+import { isSupabaseConfigured } from "./lib/supabase/config";
 import marketing from "./marketing.module.css";
 import "./globals.css";
+import "./public-shell.css";
 
 export const metadata: Metadata = {
   title: "AI Account Prioritization | Verified Sales Priorities",
@@ -13,6 +15,7 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const ctx = await getSessionContext();
+  const demo = !isSupabaseConfigured();
 
   if (!ctx) {
     return (
@@ -36,7 +39,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               <div className={marketing.navActions}>
                 <a href="/login">Sign in</a>
                 <a className={marketing.navCta} href="/login">
-                  Open Live Demo
+                  {demo ? "Open Live Demo" : "Sign in to Workspace"}
                 </a>
               </div>
             </nav>
