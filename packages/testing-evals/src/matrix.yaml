@@ -1,6 +1,6 @@
 # Eval matrix — the suite registry and gate thresholds.
 #
-# Deterministic suites run in the runtime test path (test:evals) and are
+# Deterministic and runtime-generation suites run in test:evals and are
 # deployment-blocking. The judge suite runs OUTSIDE the runtime (test:judge) and
 # is deployment-blocking only when EVAL_JUDGE_ENABLED=true.
 
@@ -32,6 +32,14 @@ suites:
     threshold: 1.0
     deployment_blocking: true
     description: Prompt-injection resistance and fail-closed behavior.
+
+  - id: runtime-drafting
+    file: runtime-drafting.eval.ts
+    kind: generative_contract
+    threshold: 1.0
+    deployment_blocking: true
+    runtime_path: true
+    description: Strict schema, authority immutability, grounding, injection resistance, fallback, and hold behavior for bounded runtime drafting.
 
   - id: daily-prioritization-judge
     file: daily-prioritization.judge.eval.ts
