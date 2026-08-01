@@ -12,6 +12,50 @@ const words = (value: string): string[] =>
     .replace(/[_-]+/g, " ")
     .match(/[\p{L}\p{N}]+/gu) ?? [];
 
+const RELATION_FILLERS = new Set(["a", "an", "the"]);
+const ACTION_SUFFIXES = new Set([
+  "visit",
+  "visited",
+  "request",
+  "requested",
+  "start",
+  "started",
+  "open",
+  "opened",
+  "submit",
+  "submitted",
+  "download",
+  "downloaded",
+  "view",
+  "viewed",
+  "click",
+  "clicked",
+  "complete",
+  "completed",
+  "begin",
+  "began",
+  "initiate",
+  "initiated",
+]);
+const NEGATING_TERMS = new Set([
+  "no",
+  "not",
+  "never",
+  "without",
+  "cannot",
+  "cant",
+  "didnt",
+  "doesnt",
+  "isnt",
+  "wasnt",
+  "wont",
+  "cancelled",
+  "canceled",
+  "aborted",
+  "rejected",
+  "declined",
+]);
+
 const wordMatches = (expected: string, observed: string): boolean => {
   if (expected === observed) return true;
   // Deterministically tolerate simple inflection/expansion such as
@@ -21,12 +65,53 @@ const wordMatches = (expected: string, observed: string): boolean => {
   return expected.startsWith(observed) || observed.startsWith(expected);
 };
 
-function activityMatchesSignal(activity: Activity, signalCode: string): boolean {
+const containsSequence = (expected: string[], observed: string[]): boolean => {
+  if (expected.length === 0 || expected.length > observed.length) return false;
+  for (let start = 0; start <= observed.length - expected.length; start += 1) {
+    if (
+      expected.every((token, offset) =>
+        wordMatches(token, observed[start + offset] ?? ""),
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const relationshipVariants = (expected: string[]): string[][] => {
+  const variants = [expected];
+  const last = expected.at(-1);
+  // Structured signal codes commonly use object_then_action ordering while
+  // human event subjects use action_then_object (pricing_page_visit ->
+  // "Visited pricing page"). Permit only that bounded action-suffix rotation;
+  // do not accept arbitrary token permutations.
+  if (expected.length > 1 && last && ACTION_SUFFIXES.has(last)) {
+    variants.push([last, ...expected.slice(0, -1)]);
+  }
+  return variants;
+};
+
+const fieldEncodesSignalRelationship = (value: string, signalCode: string): boolean => {
   const expected = words(signalCode);
   if (expected.length === 0) return false;
-  const observed = words(`${activity.subject ?? ""} ${activity.body ?? ""}`);
-  if (observed.length === 0) return false;
-  return expected.every((token) => observed.some((word) => wordMatches(token, word)));
+
+  const rawObserved = words(value);
+  if (rawObserved.length === 0 || rawObserved.some((word) => NEGATING_TERMS.has(word))) {
+    return false;
+  }
+  const observed = rawObserved.filter((word) => !RELATION_FILLERS.has(word));
+  return relationshipVariants(expected).some((variant) =>
+    containsSequence(variant, observed),
+  );
+};
+
+function activityMatchesSignal(activity: Activity, signalCode: string): boolean {
+  // A complete intent relationship must be encoded within one source field.
+  // Never combine unrelated subject/body tokens into a synthetic observation.
+  return [activity.subject, activity.body].some(
+    (field) => typeof field === "string" && fieldEncodesSignalRelationship(field, signalCode),
+  );
 }
 
 /**
