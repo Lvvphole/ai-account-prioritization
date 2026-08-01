@@ -12,6 +12,7 @@ import { prioritizeAccounts } from "../account-prioritizer/prioritizer.agent";
 import type { AccountContext } from "../account-prioritizer/prioritizer.policy";
 import {
   attachHybridActionDraft,
+  hybridDraftContractMetadata,
   type HybridDraftOptions,
   type HybridDraftOutcome,
 } from "../sales-execution/execution.agent";
@@ -131,6 +132,10 @@ async function auditDraftOutcome(
         model: outcome.telemetry?.model,
         promptVersion: outcome.promptVersion,
         promptHash: outcome.promptHash,
+        schemaVersion: outcome.schemaVersion,
+        policyVersion: outcome.policyVersion,
+        groundingVersion: outcome.groundingVersion,
+        fallbackVersion: outcome.fallbackVersion,
         latencyMs: outcome.telemetry?.latencyMs,
         inputTokens: outcome.telemetry?.inputTokens,
         outputTokens: outcome.telemetry?.outputTokens,
@@ -180,8 +185,7 @@ export async function runDailyPrioritizationForOwner(
           outcome: {
             source: "held" as const,
             failureCode: "DRAFT_CONTEXT_MISSING",
-            promptVersion: "n/a",
-            promptHash: "n/a",
+            ...hybridDraftContractMetadata(),
           },
         };
       }
