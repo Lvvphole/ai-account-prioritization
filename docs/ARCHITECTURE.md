@@ -5,20 +5,22 @@
 **Turborepo-based hybrid AI application** using a **co-located agent-module
 pattern**, supported by:
 
-- deterministic decision core
+- deterministic pre-draft decision authority
 - bounded runtime LLM drafting and signal synthesis
 - deterministic template fallback
-- synchronous fail-closed verification
+- synchronous fail-closed post-draft verification
 - human approval before customer-facing or CRM-write actions
 - asynchronous LLM evaluation outside the runtime path
 - shared-schema contract pattern
 - eval-gated CI/CD
 - MCP-compatible tool registry
 
-The architecture deliberately separates **decision authority** from **language
-generation**. TypeScript decides who is prioritized, why, what action is allowed,
-and whether a result may publish. The runtime LLM may only determine how a
-verified recommendation is expressed.
+The architecture deliberately separates **decision authority**, **language
+generation**, and **publication verification**. TypeScript decides who is
+prioritized, why, which action is allowed, and which permissions and approvals
+apply. The runtime LLM may only determine how a verified recommendation is
+expressed. A deterministic post-draft verifier decides whether the candidate may
+publish or must be held.
 
 ## Implementation status
 
@@ -31,7 +33,8 @@ This document defines the approved target architecture.
   signal synthesis between deterministic recommendation creation and
   deterministic verification.
 - **Not yet complete:** runtime model adapter, generated-draft schema, claim-level
-  grounding validator, model telemetry, and web-to-runtime production bridge.
+  grounding validator, model telemetry, runtime-generation evals, and
+  web-to-runtime production bridge.
 
 Until those components pass their gates, the deterministic template path remains
 the active runtime behavior.
@@ -45,16 +48,17 @@ apps/api-python          Isolated FastAPI support service
 packages/shared-schemas  TypeScript/Zod source of truth + JSON Schema generation
 packages/security        RBAC, approval, and security policy
 packages/observability   PII-safe events and measured runtime telemetry
-packages/testing-evals   Deterministic evals + generative evals + async judge
+packages/testing-evals   Deterministic evals + planned generative evals + async judge
 packages/config-*        Shared TypeScript / ESLint configuration
 supabase/                Postgres persistence, RLS, audit, and observability
 ```
 
-## Three boundaries
+## Four boundaries
 
-### 1. Deterministic decision boundary
+### 1. Pre-draft deterministic authority boundary
 
-The following values are authoritative and model-independent:
+The following values are authoritative, model-independent, and immutable before
+runtime generation begins:
 
 - extracted features
 - priority score
@@ -64,14 +68,12 @@ The following values are authoritative and model-independent:
 - verified source references
 - next-best-action type
 - permission and approval requirements
-- verification outcome
-- publish or hold decision
 
 No model call may create, replace, or mutate these values.
 
 ### 2. Runtime generation boundary
 
-The runtime model is permitted only after the deterministic decision envelope is
+The runtime model is permitted only after the pre-draft authority envelope is
 complete. It may:
 
 - synthesize verified signals into a concise account brief
@@ -89,7 +91,23 @@ It may not:
 - use side-effecting tools
 - approve, verify, publish, send, or write to the CRM
 
-### 3. Evaluation boundary
+### 3. Post-draft deterministic verification boundary
+
+The candidate model draft or deterministic fallback draft is untrusted input to
+a deterministic verifier. TypeScript computes:
+
+- generated-output schema result
+- claim-grounding result
+- guardrail result
+- permission and approval result
+- verification outcome
+- publish or hold decision
+- explicit failed-gate codes
+
+The model cannot set or override these values. Different candidate drafts may
+legitimately produce different deterministic gate results.
+
+### 4. Evaluation boundary
 
 The LLM-as-a-judge remains asynchronous and outside the customer-facing runtime.
 It assesses system outputs and can block deployment, but it cannot alter a live
@@ -110,14 +128,14 @@ orchestrator.agent.ts
         OR
       deterministic template fallback
   → GeneratedDraftSchema
-      strict parsing and authoritative-field reconciliation
+      strict parsing and pre-draft field reconciliation
   → sales-execution/validate-draft-grounding
       every factual claim mapped to verified source IDs
   → orchestrator.guardrails.ts
       schema, claims, source verification, confidence, permission
   → human approval gate
+  → deterministic verification outcome and publish-or-hold decision
   → audit log + analytics/observability
-  → publish or hold
 ```
 
 A failed model call does not bypass verification. Policy selects exactly one of
@@ -151,8 +169,8 @@ This current path remains valid as the deterministic fallback and baseline.
 ```text
 packages/testing-evals
   → deterministic evals
-      scoring, ranking, guardrails, security, golden decision envelope
-  → runtime-generation evals
+      scoring, ranking, guardrails, security, golden pre-draft authority envelope
+  → planned runtime-generation evals
       schema, grounding, field immutability, injection, fallback, budgets
   → historical and adversarial fixtures
   → LLM-as-a-judge when enabled and keyed
@@ -160,8 +178,9 @@ packages/testing-evals
   → CI/CD deployment gate
 ```
 
-The judge is runtime-nonblocking and becomes deployment-blocking when required by
-environment policy.
+The runtime-generation suites become deployment-blocking only after they are
+implemented and registered. The judge is runtime-nonblocking and becomes
+deployment-blocking when required by environment policy.
 
 ## Schema path
 
@@ -200,11 +219,21 @@ capabilities.
 
 ## Determinism guarantees
 
-### Decision determinism
+### Pre-draft authority determinism
 
 Given the same source snapshot, policy, configuration, schema, injected clock,
-and code revision, the decision envelope must be byte-identical. The golden eval
-covers this boundary.
+and code revision, the pre-draft authority envelope must be byte-identical. The
+golden eval covers this boundary.
+
+### Post-draft gate determinism
+
+Given the same pre-draft authority envelope, candidate draft or fallback draft,
+gate-policy versions, approval state, injected clock, and code revision, schema,
+grounding, guardrail, verification, and publish-or-hold outputs must be
+byte-identical.
+
+A different probabilistic candidate may legitimately produce a different gate
+result. The model still has no authority to set that result.
 
 ### Generation reliability
 
@@ -215,12 +244,12 @@ provider output.
 Accepted generated drafts must instead satisfy behavioral invariants:
 
 - valid strict schema
-- unchanged authoritative fields
+- unchanged pre-draft authoritative fields
 - no unsupported or fabricated claims
 - complete claim-to-source grounding
 - no prompt-injection authority change
 - enforced latency, token, retry, and cost budgets
-- deterministic publish or hold decision
+- deterministic post-draft gate evaluation
 
 ## Fail-closed behavior
 
