@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import { DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS } from "./build-draft-context";
 
 export type DraftFallbackPolicy = "template" | "hold";
 
-export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v3";
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v4";
 
 export interface RuntimeDraftingPolicy {
   enabled: boolean;
@@ -20,6 +21,8 @@ export interface RuntimeDraftingPolicy {
   maxConcurrent: number;
   /** Conservative run-level input + output token reservation budget. */
   maxRunTokens: number;
+  /** Maximum age for evidence admitted to the real-provider model context. */
+  maxEvidenceAgeDays?: number;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
 }
@@ -35,6 +38,7 @@ export interface RuntimeDraftingPolicyAuditSnapshot {
   maxSignals: number;
   maxConcurrent: number;
   maxRunTokens: number;
+  maxEvidenceAgeDays: number | null;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
 }
@@ -52,6 +56,7 @@ export function runtimeDraftingPolicyAuditSnapshot(
     maxSignals: policy.maxSignals,
     maxConcurrent: policy.maxConcurrent,
     maxRunTokens: policy.maxRunTokens,
+    maxEvidenceAgeDays: policy.maxEvidenceAgeDays ?? null,
     maxAttempts: policy.maxAttempts,
     fallback: policy.fallback,
   };
@@ -77,10 +82,17 @@ const intFromEnv = (
   return parsed;
 };
 
+const boolFromEnv = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined || value === "") return fallback;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`Invalid runtime drafting boolean configuration: ${value}`);
+};
+
 export function runtimeDraftingPolicyFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): RuntimeDraftingPolicy {
-  const enabled = env.RUNTIME_DRAFTING_ENABLED === "true";
+  const enabled = boolFromEnv(env.RUNTIME_DRAFTING_ENABLED, false);
   const provider = env.RUNTIME_DRAFT_PROVIDER ?? "anthropic";
   const fallback = env.RUNTIME_DRAFT_FALLBACK ?? "template";
 
@@ -102,6 +114,12 @@ export function runtimeDraftingPolicyFromEnv(
     maxSignals: intFromEnv(env.RUNTIME_DRAFT_MAX_SIGNALS, 6, 1, 32),
     maxConcurrent: intFromEnv(env.RUNTIME_DRAFT_MAX_CONCURRENT, 4, 1, 16),
     maxRunTokens: intFromEnv(env.RUNTIME_DRAFT_MAX_RUN_TOKENS, 20000, 256, 500000),
+    maxEvidenceAgeDays: intFromEnv(
+      env.RUNTIME_DRAFT_MAX_EVIDENCE_AGE_DAYS,
+      DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+      1,
+      3650,
+    ),
     maxAttempts: 1,
     fallback,
   };
