@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'action_required', 'startup_failure']);
+const INCOMPLETE_CONCLUSIONS = new Set(['cancelled', 'skipped', 'neutral', 'stale']);
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -120,7 +121,7 @@ export function analyzeRepairHistory({ commitOrder, findings, policy }) {
         if ((finding.priority === 'P0' || finding.priority === 'P1') && policy.repair.newValidP0P1AfterRepair === 0) {
           blockedReasons.push({ code: 'NEW_VALID_P0_P1_AFTER_REPAIR', findingId: finding.id, subsystem: finding.subsystem, priority: finding.priority });
         }
-        if (priorRound.subsystems.includes(finding.subsystem) && policy.repair.sameSubsystemRepeatDefectBudget === 0) {
+        if ((finding.priority === 'P0' || finding.priority === 'P1') && priorRound.subsystems.includes(finding.subsystem) && policy.repair.sameSubsystemRepeatDefectBudget === 0) {
           blockedReasons.push({ code: 'SAME_SUBSYSTEM_REPEAT_DEFECT', findingId: finding.id, subsystem: finding.subsystem, priority: finding.priority });
         }
         if (rounds.length >= policy.repair.maxRoundsPerPr) {
@@ -195,9 +196,24 @@ async function fetchPrCommits({ apiUrl, repository, prNumber, token }) {
   return fetchAllPages(`${apiUrl}/repos/${repository}/pulls/${prNumber}/commits`, token);
 }
 
+export function reviewBodyFinding(review, policy) {
+  const priority = extractPriority(review.body, policy);
+  if (!priority || !review.commit_id) return null;
+  return {
+    id: `review-body:${review.id}`,
+    priority,
+    subsystem: subsystemForPath(null, policy),
+    path: null,
+    reviewedCommitSha: review.commit_id,
+    createdAt: review.submitted_at,
+    url: review.html_url,
+  };
+}
+
 async function fetchReviewFindings({ apiUrl, repository, prNumber, token, policy }) {
   const comments = await fetchAllPages(`${apiUrl}/repos/${repository}/pulls/${prNumber}/comments`, token);
-  return comments
+  const reviews = await fetchAllPages(`${apiUrl}/repos/${repository}/pulls/${prNumber}/reviews`, token);
+  const inlineFindings = comments
     .filter((comment) => !comment.in_reply_to_id)
     .map((comment) => {
       const priority = extractPriority(comment.body, policy);
@@ -213,6 +229,8 @@ async function fetchReviewFindings({ apiUrl, repository, prNumber, token, policy
       };
     })
     .filter((finding) => finding?.reviewedCommitSha);
+  const reviewBodyFindings = reviews.map((review) => reviewBodyFinding(review, policy)).filter(Boolean);
+  return [...inlineFindings, ...reviewBodyFindings];
 }
 
 async function fetchRedesignAuthorizations({ apiUrl, repository, prNumber, token, policy }) {
@@ -229,6 +247,13 @@ async function fetchCheckRuns({ apiUrl, repository, sha, token }) {
   return new Map(data.check_runs.filter((check) => check.status === 'completed' && check.conclusion).map((check) => [check.name, check.conclusion]));
 }
 
+export function classifyCheckDelta(baselineConclusion, repairConclusion) {
+  if (baselineConclusion !== 'success') return null;
+  if (FAILURE_CONCLUSIONS.has(repairConclusion)) return 'NEW_REGRESSION';
+  if (INCOMPLETE_CONCLUSIONS.has(repairConclusion)) return 'VERIFICATION_INCOMPLETE';
+  return null;
+}
+
 async function detectNewRegressions({ apiUrl, repository, token, rounds }) {
   const cache = new Map();
   const checks = async (sha) => {
@@ -241,9 +266,8 @@ async function detectNewRegressions({ apiUrl, repository, token, rounds }) {
     for (const repairSha of round.repairCommitShas) {
       const repair = await checks(repairSha);
       for (const [name, conclusion] of repair) {
-        if (FAILURE_CONCLUSIONS.has(conclusion) && baseline.get(name) === 'success') {
-          regressions.push({ round: round.number, check: name, baselineSha: round.baselineSha, repairSha });
-        }
+        const code = classifyCheckDelta(baseline.get(name), conclusion);
+        if (code) regressions.push({ code, round: round.number, check: name, baselineSha: round.baselineSha, repairSha });
       }
     }
   }
@@ -305,6 +329,9 @@ export async function run(options = {}) {
     repair.historicalFindings = findings.length;
     repair.activeFindings = activeFindings.length;
     repair.newRegressions = await detectNewRegressions({ apiUrl, repository, token, rounds: repair.rounds });
+    for (const issue of repair.newRegressions.filter((item) => item.code === 'VERIFICATION_INCOMPLETE')) {
+      repair.blockedReasons.push(issue);
+    }
     if (repair.newRegressions.length > policy.repair.newRegressionBudget) {
       repair.blockedReasons.push({ code: 'NEW_REGRESSION_BUDGET_EXCEEDED', count: repair.newRegressions.length, budget: policy.repair.newRegressionBudget });
       repair.circuitBreakerState = 'BLOCKED';
