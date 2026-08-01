@@ -16,9 +16,12 @@ import {
   RUNTIME_DRAFT_SYSTEM_PROMPT,
 } from "./execution.prompt";
 import {
+  hashRuntimeDraftingPolicy,
   RUNTIME_DRAFT_POLICY_VERSION,
+  runtimeDraftingPolicyAuditSnapshot,
   runtimeDraftingPolicyFromEnv,
   type RuntimeDraftingPolicy,
+  type RuntimeDraftingPolicyAuditSnapshot,
 } from "./execution.policy";
 import {
   anthropicRuntimeModelClient,
@@ -102,6 +105,8 @@ export interface HybridDraftOutcome {
   promptHash: string;
   schemaVersion: string;
   policyVersion: string;
+  effectivePolicy: RuntimeDraftingPolicyAuditSnapshot;
+  effectivePolicyHash: string;
   groundingVersion: string;
   fallbackVersion: string;
   inputTokenUpperBound?: number;
@@ -119,20 +124,27 @@ export interface HybridDraftOptions {
   runBudget?: RuntimeDraftRunBudget;
 }
 
-export function hybridDraftContractMetadata(): Pick<
+export function hybridDraftContractMetadata(
+  policy: RuntimeDraftingPolicy,
+): Pick<
   HybridDraftOutcome,
   | "promptVersion"
   | "promptHash"
   | "schemaVersion"
   | "policyVersion"
+  | "effectivePolicy"
+  | "effectivePolicyHash"
   | "groundingVersion"
   | "fallbackVersion"
 > {
+  const effectivePolicy = runtimeDraftingPolicyAuditSnapshot(policy);
   return {
     promptVersion: RUNTIME_DRAFT_PROMPT_VERSION,
     promptHash: RUNTIME_DRAFT_PROMPT_HASH,
     schemaVersion: GENERATED_DRAFT_SCHEMA_VERSION,
     policyVersion: RUNTIME_DRAFT_POLICY_VERSION,
+    effectivePolicy,
+    effectivePolicyHash: hashRuntimeDraftingPolicy(effectivePolicy),
     groundingVersion: DRAFT_GROUNDING_RULES_VERSION,
     fallbackVersion: DETERMINISTIC_DRAFT_FALLBACK_VERSION,
   };
@@ -226,7 +238,7 @@ export async function attachHybridActionDraft(
 ): Promise<HybridDraftResult> {
   const policy = options.policy ?? runtimeDraftingPolicyFromEnv();
   const template = (): Recommendation => attachActionDraft(rec, ctx);
-  const baseOutcome = hybridDraftContractMetadata();
+  const baseOutcome = hybridDraftContractMetadata(policy);
   let modelTelemetry: RuntimeModelTelemetry | undefined;
   let inputTokenUpperBound: number | undefined;
   let reservedRunTokens: number | undefined;
