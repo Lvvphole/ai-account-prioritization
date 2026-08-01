@@ -1,7 +1,17 @@
 import { assertCommitAuthorized, type CommitAuthorization } from "@repo/security";
 import { isCommittable, isHardBlock } from "@repo/shared-schemas";
-import type { ChangeKind, DomainEventType, RecordDisposition } from "@repo/shared-schemas";
-import type { ChangeSetPreview, ChangeSetItemPreview } from "./change-set";
+import type {
+  CanonicalObjectType,
+  ChangeKind,
+  DomainEventType,
+  RecordDisposition,
+} from "@repo/shared-schemas";
+import { assessApproval } from "./change-set";
+import type {
+  ChangeSetPreview,
+  ChangeSetItemPreview,
+  OperationalSnapshot,
+} from "./change-set";
 import type { ValidatedRow } from "./validation";
 
 /**
@@ -20,6 +30,7 @@ import type { ValidatedRow } from "./validation";
 
 export interface CommitPlanEntry {
   sourceRowNumber: number;
+  objectType: CanonicalObjectType;
   externalId: string;
   changeKind: ChangeKind;
   targetRecordId: string | null;
@@ -46,20 +57,37 @@ export class CommitRefusedError extends Error {
   }
 }
 
+/**
+ * The event a write raises, per object type and change kind.
+ *
+ * Keyed by both because a contact create is not `account.created`. Emitting an
+ * account event for a contact write would point every trigger at the wrong
+ * object, and the mis-typed event is indistinguishable from a real one.
+ */
+const EVENT_BY_OBJECT: Record<
+  CanonicalObjectType,
+  Partial<Record<ChangeKind, DomainEventType>>
+> = {
+  account: {
+    create: "account.created",
+    update: "account.updated",
+    owner_change: "account.owner_changed",
+  },
+  contact: { create: "contact.created", update: "contact.updated" },
+  opportunity: { create: "opportunity.created", update: "opportunity.updated" },
+  activity: { create: "activity.created", update: "activity.created" },
+  intent_signal: { create: "intent.detected", update: "intent.detected" },
+  account_health: { create: "account_health.updated", update: "account_health.updated" },
+  contract: { create: "renewal.window_entered", update: "renewal.window_entered" },
+};
+
 /** An unchanged row raises no event, because nothing happened to it. */
-function eventFor(changeKind: ChangeKind): DomainEventType | null {
-  switch (changeKind) {
-    case "create":
-      return "account.created";
-    case "update":
-      return "account.updated";
-    case "owner_change":
-      return "account.owner_changed";
-    case "unchanged":
-      return null;
-    default:
-      return null;
-  }
+function eventFor(
+  objectType: CanonicalObjectType,
+  changeKind: ChangeKind,
+): DomainEventType | null {
+  if (changeKind === "unchanged") return null;
+  return EVENT_BY_OBJECT[objectType]?.[changeKind] ?? null;
 }
 
 /**
@@ -77,8 +105,40 @@ export function planCommit(input: {
   authorization: CommitAuthorization;
   preview: ChangeSetPreview;
   validated: readonly ValidatedRow[];
+  /** Needed to recompute the approval requirement from the change set. */
+  snapshot: OperationalSnapshot;
 }): CommitPlan {
   assertCommitAuthorized(input.authorization, input.workspaceId);
+
+  // The approval must be for this batch. Workspace equality alone would let a
+  // sign-off from one import authorize another, which is the same confusion the
+  // compound foreign keys removed in the database and which has to be refused
+  // here too.
+  if (input.authorization.batchId !== input.batchId) {
+    throw new CommitRefusedError(
+      `approval belongs to batch ${input.authorization.batchId}, not ${input.batchId}`,
+    );
+  }
+
+  // Whether a second approver is needed is derived from the change set, not
+  // read from the caller. `secondApprovalRequired` arrives on the authorization
+  // as a claim, and a claim of `false` must not be what decides a high-risk
+  // import can commit with one person.
+  const assessment = assessApproval(input.preview, input.validated, input.snapshot);
+  if (assessment.blockers.length > 0) {
+    throw new CommitRefusedError(`not approvable: ${assessment.blockers.join(", ")}`);
+  }
+  if (assessment.secondApprovalRequired) {
+    const second = input.authorization.secondApprovedBy;
+    if (!second) {
+      throw new CommitRefusedError(
+        `a second approver is required: ${assessment.reasons.join("; ")}`,
+      );
+    }
+    if (second === input.authorization.approvedBy) {
+      throw new CommitRefusedError("the second approver must be a different person");
+    }
+  }
 
   // A hard block refuses the whole batch, not just its row. Section 13.4: it is
   // never approvable, so no amount of sign-off makes the rest safe to apply.
@@ -104,9 +164,12 @@ export function planCommit(input: {
     disposition: e.disposition,
   }));
 
+  const rowByNumber = new Map(input.validated.map((v) => [v.row.sourceRowNumber, v.row]));
+
   for (const item of input.preview.items) {
+    const validatedRow = rowByNumber.get(item.sourceRowNumber);
     const disposition = dispositionByRow.get(item.sourceRowNumber);
-    if (disposition === undefined) {
+    if (disposition === undefined || !validatedRow) {
       // A preview row with no validation result is not something to guess at.
       throw new CommitRefusedError(
         `row ${item.sourceRowNumber} has no validation result`,
@@ -121,13 +184,37 @@ export function planCommit(input: {
       continue;
     }
 
-    const eventType = eventFor(item.changeKind);
+    // The preview is an input, not an authority. Its identity fields must
+    // match the validated row, or a stale or edited preview could carry values
+    // into a write that never passed validation.
+    if (item.externalId !== validatedRow.externalId) {
+      throw new CommitRefusedError(
+        `preview row ${item.sourceRowNumber} names a different external id than the validated row`,
+      );
+    }
+    if (item.objectType !== validatedRow.objectType) {
+      throw new CommitRefusedError(
+        `preview row ${item.sourceRowNumber} names a different object type than the validated row`,
+      );
+    }
+    for (const [field, value] of Object.entries(item.afterValues)) {
+      if (!(field in validatedRow.payload) || validatedRow.payload[field] !== value) {
+        throw new CommitRefusedError(
+          `preview row ${item.sourceRowNumber} changes '${field}' to a value the validated row does not hold`,
+        );
+      }
+    }
+
+    const eventType = eventFor(item.objectType, item.changeKind);
     if (!eventType) {
-      throw new CommitRefusedError(`no domain event defined for ${item.changeKind}`);
+      throw new CommitRefusedError(
+        `no domain event defined for ${item.objectType} ${item.changeKind}`,
+      );
     }
 
     entries.push({
       sourceRowNumber: item.sourceRowNumber,
+      objectType: item.objectType,
       externalId: item.externalId,
       changeKind: item.changeKind,
       targetRecordId: item.targetRecordId,

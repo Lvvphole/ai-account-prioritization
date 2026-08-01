@@ -74,15 +74,20 @@ const auth: CommitAuthorization = {
   secondApprovedBy: null,
 };
 
-function commit(validated: ValidatedRow[], snap = snapshot()): CommitPlan {
+function commit(
+  validated: ValidatedRow[],
+  snap = snapshot(),
+  authorization = auth,
+): CommitPlan {
   const preview = buildChangeSet(validated, snap);
   return planCommit({
     batchId: "batch-1",
     workspaceId: WS,
     changeSetId: "cs-1",
-    authorization: auth,
+    authorization,
     preview,
     validated,
+    snapshot: snap,
   });
 }
 
@@ -98,7 +103,7 @@ describe("change set preview", () => {
   it("reports a signed pipeline delta when an import reduces it", () => {
     const snap = snapshot({
       existingByExternalId: new Map([
-        ["EXT-1", { internalRecordId: "rec-1", ownerId: "user-1", openPipelineUsd: 5000 }],
+        ["EXT-1", { internalRecordId: "rec-1", values: { ownerId: "user-1", openPipelineUsd: 5000 } }],
       ]),
     });
     const validated = validateBatch([row({ payload: { openPipelineUsd: 1000 } })], ctx());
@@ -112,7 +117,7 @@ describe("change set preview", () => {
   it("separates an owner change from an ordinary update", () => {
     const snap = snapshot({
       existingByExternalId: new Map([
-        ["EXT-1", { internalRecordId: "rec-1", ownerId: "user-1", openPipelineUsd: 1000 }],
+        ["EXT-1", { internalRecordId: "rec-1", values: { ownerId: "user-1", openPipelineUsd: 1000 } }],
       ]),
     });
     const validated = validateBatch(
@@ -133,7 +138,7 @@ describe("change set preview", () => {
   it("recognises an unchanged row", () => {
     const snap = snapshot({
       existingByExternalId: new Map([
-        ["EXT-1", { internalRecordId: "rec-1", ownerId: "user-1", openPipelineUsd: 1000 }],
+        ["EXT-1", { internalRecordId: "rec-1", values: { ownerId: "user-1", openPipelineUsd: 1000 } }],
       ]),
     });
     const validated = validateBatch([row({ payload: { openPipelineUsd: 1000 } })], ctx());
@@ -161,7 +166,7 @@ describe("change set preview", () => {
   it("previews rank impact without publishing anything", () => {
     const snap = snapshot({
       existingByExternalId: new Map([
-        ["OLD-1", { internalRecordId: "r1", ownerId: "user-1", openPipelineUsd: 100 }],
+        ["OLD-1", { internalRecordId: "r1", values: { ownerId: "user-1", openPipelineUsd: 100 } }],
       ]),
       currentTopN: ["OLD-1"],
     });
@@ -170,9 +175,10 @@ describe("change set preview", () => {
       ctx(),
     );
     const preview = buildChangeSet(validated.rows, snap, 1);
-    expect(preview.accountsEnteringTopN).toBe(1);
-    expect(preview.accountsLeavingTopN).toBe(1);
-    // The snapshot passed in is untouched: the projection is scratch.
+    // No scoring context was supplied, so rank impact is reported as
+    // unavailable rather than computed from a different ranking.
+    expect(preview.rankImpact).toBeNull();
+    expect(preview.rankImpactUnavailableReason).toMatch(/different ranking/);
     expect(snap.currentTopN).toEqual(["OLD-1"]);
   });
 });
@@ -247,6 +253,7 @@ describe("commit authorization", () => {
         authorization: { ...auth, approvalId: "" },
         preview: buildChangeSet(validated.rows, snapshot()),
         validated: validated.rows,
+        snapshot: snapshot(),
       }),
     ).toThrow(CommitNotAuthorizedError);
   });
@@ -261,6 +268,7 @@ describe("commit authorization", () => {
         authorization: auth,
         preview: buildChangeSet(validated.rows, snapshot()),
         validated: validated.rows,
+        snapshot: snapshot(),
       }),
     ).toThrow(CommitNotAuthorizedError);
   });
@@ -334,6 +342,7 @@ describe("exit gate: no rejected or quarantined row reaches an operational write
       entries: [
         {
           sourceRowNumber: 2,
+          objectType: "account",
           externalId: "EXT-1",
           changeKind: "create",
           targetRecordId: null,
@@ -356,6 +365,7 @@ describe("exit gate: no rejected or quarantined row reaches an operational write
       entries: [
         {
           sourceRowNumber: 99,
+          objectType: "account",
           externalId: "GHOST",
           changeKind: "create",
           targetRecordId: null,
@@ -390,7 +400,7 @@ describe("exit gate: no rejected or quarantined row reaches an operational write
   it("raises no event for an unchanged row and does not write it", () => {
     const snap = snapshot({
       existingByExternalId: new Map([
-        ["EXT-1", { internalRecordId: "rec-1", ownerId: "user-1", openPipelineUsd: 1000 }],
+        ["EXT-1", { internalRecordId: "rec-1", values: { ownerId: "user-1", openPipelineUsd: 1000 } }],
       ]),
     });
     const validated = validateBatch([row({ payload: { openPipelineUsd: 1000 } })], ctx());
@@ -404,6 +414,7 @@ describe("rollback compensates rather than deletes", () => {
   const committedAt = new Date("2026-07-31T00:00:00.000Z");
   const item = {
     sourceRowNumber: 2,
+    objectType: "account" as const,
     externalId: "EXT-1",
     changeKind: "update" as const,
     targetRecordId: "rec-1",
@@ -471,5 +482,204 @@ describe("rollback compensates rather than deletes", () => {
       current: new Map([["EXT-1", { openPipelineUsd: 1000 }]]),
     });
     expect(plan.outsideWindow).toBe(false);
+  });
+});
+
+describe("review findings on PR #29", () => {
+  it("emits an object-specific event, not an account event for everything", () => {
+    const validated = validateBatch(
+      [row({ objectType: "contact", externalId: "CON-1", payload: { name: "Ada" } })],
+      ctx(),
+    );
+    const plan = commit(validated.rows);
+    // A contact create is not `account.created`. A mis-typed event points every
+    // trigger at the wrong object and is indistinguishable from a real one.
+    expect(plan.entries[0]?.eventType).toBe("contact.created");
+    expect(plan.entries[0]?.objectType).toBe("contact");
+  });
+
+  it("refuses an approval issued for a different batch", () => {
+    const validated = validateBatch([row()], ctx());
+    expect(() =>
+      commit(validated.rows, snapshot(), { ...auth, batchId: "some-other-batch" }),
+    ).toThrow(CommitRefusedError);
+  });
+
+  it("recomputes the second-approval requirement instead of trusting the flag", () => {
+    // 20 new accounts against 100 crosses the workspace-account fraction. The
+    // authorization claims no second approver is needed; the claim must lose.
+    const rows = Array.from({ length: 20 }, (_, i) =>
+      row({ sourceRowNumber: i + 2, externalId: `NEW-${i}` }),
+    );
+    const validated = validateBatch(rows, ctx());
+    expect(() =>
+      commit(validated.rows, snapshot({ totalAccounts: 100 }), {
+        ...auth,
+        secondApprovalRequired: false,
+        secondApprovedBy: null,
+      }),
+    ).toThrow(CommitRefusedError);
+
+    // With a genuine, distinct second approver it commits.
+    const plan = commit(validated.rows, snapshot({ totalAccounts: 100 }), {
+      ...auth,
+      secondApprovedBy: "user-2",
+    });
+    expect(plan.entries).toHaveLength(20);
+  });
+
+  it("refuses a second approver who is the first approver", () => {
+    const rows = Array.from({ length: 20 }, (_, i) =>
+      row({ sourceRowNumber: i + 2, externalId: `NEW-${i}` }),
+    );
+    const validated = validateBatch(rows, ctx());
+    // Caught by `assertCommitAuthorized`, which runs first and checks this
+    // unconditionally. The duplicate guard in planCommit stays as defence in
+    // depth for a caller that reaches it another way.
+    expect(() =>
+      commit(validated.rows, snapshot({ totalAccounts: 100 }), {
+        ...auth,
+        secondApprovedBy: auth.approvedBy,
+      }),
+    ).toThrow(CommitNotAuthorizedError);
+  });
+
+  it("refuses a preview whose values the validated row does not hold", () => {
+    const validated = validateBatch([row()], ctx());
+    const preview = buildChangeSet(validated.rows, snapshot());
+    // A stale or edited preview carrying a field that never passed validation.
+    preview.items[0]!.afterValues = { ...preview.items[0]!.afterValues, injected: "evil" };
+    expect(() =>
+      planCommit({
+        batchId: "batch-1",
+        workspaceId: WS,
+        changeSetId: "cs-1",
+        authorization: auth,
+        preview,
+        validated: validated.rows,
+        snapshot: snapshot(),
+      }),
+    ).toThrow(CommitRefusedError);
+  });
+
+  it("refuses a preview naming a different external id than the validated row", () => {
+    const validated = validateBatch([row()], ctx());
+    const preview = buildChangeSet(validated.rows, snapshot());
+    preview.items[0]!.externalId = "SOMETHING-ELSE";
+    expect(() =>
+      planCommit({
+        batchId: "batch-1",
+        workspaceId: WS,
+        changeSetId: "cs-1",
+        authorization: auth,
+        preview,
+        validated: validated.rows,
+        snapshot: snapshot(),
+      }),
+    ).toThrow(CommitRefusedError);
+  });
+
+  it("snapshots before-values only for fields the import changes", () => {
+    const snap = snapshot({
+      existingByExternalId: new Map([
+        [
+          "EXT-1",
+          {
+            internalRecordId: "rec-1",
+            values: { ownerId: "user-1", openPipelineUsd: 500, tier: "enterprise" },
+          },
+        ],
+      ]),
+    });
+    const validated = validateBatch([row({ payload: { openPipelineUsd: 1000 } })], ctx());
+    const item = buildChangeSet(validated.rows, snap).items[0]!;
+    // Only pipeline changed, so only pipeline is captured. Carrying the owner
+    // along would let rollback write a stale owner back over a later edit.
+    expect(item.afterValues).toEqual({ openPipelineUsd: 1000 });
+    expect(item.beforeValues).toEqual({ openPipelineUsd: 500 });
+    expect(item.beforeValues).not.toHaveProperty("ownerId");
+    expect(item.beforeValues).not.toHaveProperty("tier");
+  });
+
+  it("restores a field outside owner and pipeline", () => {
+    const snap = snapshot({
+      existingByExternalId: new Map([
+        ["EXT-1", { internalRecordId: "rec-1", values: { tier: "smb" } }],
+      ]),
+    });
+    const validated = validateBatch([row({ payload: { tier: "enterprise" } })], ctx());
+    const item = buildChangeSet(validated.rows, snap).items[0]!;
+    expect(item.beforeValues).toEqual({ tier: "smb" });
+
+    const plan = planRollback({
+      originalCommitId: "commit-1",
+      workspaceId: WS,
+      committedAt: new Date("2026-07-31T00:00:00.000Z"),
+      now: NOW,
+      items: [{ ...item, targetRecordId: "rec-1" }],
+      current: new Map([["EXT-1", { tier: "enterprise" }]]),
+    });
+    expect(plan.entries[0]?.values).toEqual({ tier: "smb" });
+  });
+
+  it("counts clearing an owner as an ownership change", () => {
+    const snap = snapshot({
+      existingByExternalId: new Map([
+        ["EXT-1", { internalRecordId: "rec-1", values: { ownerId: "user-1" } }],
+      ]),
+    });
+    const validated = validateBatch([row({ payload: { ownerId: null } })], ctx());
+    const preview = buildChangeSet(validated.rows, snap);
+    // A bulk unassignment is an ownership change, not an ordinary update, and
+    // must count toward the second-approval threshold.
+    expect(preview.ownerChanges).toBe(1);
+    expect(preview.items[0]?.changeKind).toBe("owner_change");
+    expect(preview.items[0]?.beforeValues).toEqual({ ownerId: "user-1" });
+  });
+
+  it("computes rank impact through the canonical scorer when context is supplied", () => {
+    const account = (id: string, pipeline: number, health: number) => ({
+      account: {
+        id,
+        name: id,
+        ownerId: "user-1",
+        tier: "enterprise" as const,
+        lifecycleStage: "customer" as const,
+        openPipelineUsd: pipeline,
+        healthScore: health,
+        intentSignals: [],
+        dataQualityFlags: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      contacts: [],
+      opportunities: [],
+      activities: [],
+    });
+
+    const snap = snapshot({
+      existingByExternalId: new Map([
+        ["A", { internalRecordId: "A", values: { openPipelineUsd: 100 } }],
+        ["B", { internalRecordId: "B", values: { openPipelineUsd: 100 } }],
+      ]),
+      contextByExternalId: new Map([
+        // Equal pipeline, but B is far less healthy, so health risk decides.
+        ["A", account("A", 100, 95)],
+        ["B", account("B", 100, 5)],
+      ]),
+      currentTopN: ["A"],
+    });
+
+    const validated = validateBatch(
+      [row({ externalId: "A", payload: { openPipelineUsd: 200 } })],
+      ctx(),
+    );
+    const preview = buildChangeSet(validated.rows, snap, 1);
+
+    expect(preview.rankImpact).not.toBeNull();
+    expect(preview.rankImpactUnavailableReason).toBeNull();
+    // Ranking by pipeline alone would keep A on top. The real scorer weights
+    // health risk, so the preview reflects what the product would actually do.
+    expect(preview.rankImpact!.topN).toBe(1);
   });
 });
