@@ -117,6 +117,10 @@ describe("runtime drafting contract", () => {
     expect(result.recommendation.nextBestAction.type).toBe("call");
     expect(result.recommendation.nextBestAction.draft).toContain("50000");
     expect(result.outcome.telemetry?.inputTokens).toBe(40);
+    expect(result.outcome.schemaVersion).toBe("1.0");
+    expect(result.outcome.policyVersion).toBeTruthy();
+    expect(result.outcome.groundingVersion).toBeTruthy();
+    expect(result.outcome.fallbackVersion).toBeTruthy();
   });
 
   it("rejects model attempts to mutate the deterministic action", () => {
@@ -153,6 +157,56 @@ describe("runtime drafting contract", () => {
     expect(grounding.failedGates).toContain("DRAFT_UNKNOWN_SOURCE_REFERENCE");
   });
 
+  it("rejects a short fabricated claim appended to otherwise supported evidence", () => {
+    const verified = buildVerifiedDraftContext(recommendation, context);
+    const parsed = GeneratedDraftSchema.parse({
+      schemaVersion: "1.0",
+      actionType: "call",
+      sentences: [
+        {
+          text: "Acme Manufacturing has 50000 in open pipeline. Customer committed",
+          sourceSignalIds: ["sig_pipeline"],
+        },
+      ],
+    });
+    const grounding = validateDraftGrounding(parsed, verified);
+    expect(grounding.passed).toBe(false);
+    expect(grounding.failedGates).toContain("DRAFT_CLAIM_NOT_GROUNDED");
+  });
+
+  it("preserves all verified signals that share one source record id", () => {
+    const sharedSourceRecommendation: Recommendation = {
+      ...recommendation,
+      sourceSignals: [
+        {
+          kind: "account",
+          refId: "shared_account",
+          description: "Acme Manufacturing health risk elevated",
+          verified: true,
+        },
+        {
+          kind: "account",
+          refId: "shared_account",
+          description: "Acme Manufacturing has 50000 in open pipeline",
+          verified: true,
+        },
+      ],
+    };
+    const verified = buildVerifiedDraftContext(sharedSourceRecommendation, context);
+    const parsed = GeneratedDraftSchema.parse({
+      schemaVersion: "1.0",
+      actionType: "call",
+      sentences: [
+        {
+          text: "Acme Manufacturing health risk elevated",
+          sourceSignalIds: ["shared_account"],
+        },
+      ],
+    });
+    const grounding = validateDraftGrounding(parsed, verified);
+    expect(grounding.passed).toBe(true);
+  });
+
   it("treats prompt-like CRM text as data and does not allow it to change authority", () => {
     const poisoned: Recommendation = {
       ...recommendation,
@@ -180,7 +234,7 @@ describe("runtime drafting contract", () => {
     expect(grounding.failedGates).toContain("DRAFT_ACTION_MUTATION");
   });
 
-  it("uses the deterministic template fallback on invalid model output", async () => {
+  it("uses the deterministic template fallback and retains model telemetry on invalid output", async () => {
     const result = await attachHybridActionDraft(recommendation, context, {
       policy: basePolicy,
       modelClient: clientReturning({ invalid: true }),
@@ -188,6 +242,32 @@ describe("runtime drafting contract", () => {
     expect(result.outcome.source).toBe("template_fallback");
     expect(result.outcome.failureCode).toBe("DRAFT_SCHEMA_INVALID");
     expect(result.recommendation.nextBestAction.draft).toBeTruthy();
+    expect(result.outcome.telemetry).toMatchObject({
+      provider: "anthropic",
+      model: "pinned-test-model",
+      latencyMs: 12,
+      inputTokens: 40,
+      outputTokens: 20,
+    });
+  });
+
+  it("retains model telemetry when grounding failure triggers fallback", async () => {
+    const result = await attachHybridActionDraft(recommendation, context, {
+      policy: basePolicy,
+      modelClient: clientReturning({
+        schemaVersion: "1.0",
+        actionType: "call",
+        sentences: [
+          {
+            text: "Acme Manufacturing has 50000 in open pipeline. Customer committed",
+            sourceSignalIds: ["sig_pipeline"],
+          },
+        ],
+      }),
+    });
+    expect(result.outcome.source).toBe("template_fallback");
+    expect(result.outcome.failureCode).toBe("DRAFT_CLAIM_NOT_GROUNDED");
+    expect(result.outcome.telemetry?.inputTokens).toBe(40);
   });
 
   it("returns an explicit held state when policy forbids fallback", async () => {
@@ -198,5 +278,6 @@ describe("runtime drafting contract", () => {
     expect(result.outcome.source).toBe("held");
     expect(result.outcome.failureCode).toBe("DRAFT_SCHEMA_INVALID");
     expect(result.recommendation.nextBestAction.draft).toBeUndefined();
+    expect(result.outcome.telemetry?.model).toBe("pinned-test-model");
   });
 });
