@@ -534,6 +534,12 @@ tr:last-child td {
   color: var(--accent);
   text-decoration: none;
 }
+/* The landing preview renders account names as static text, so it should not
+   signal clickability the way the real dashboard rows do. */
+.preview .plan-name:hover {
+  color: var(--text);
+  cursor: default;
+}
 .plan-meta {
   margin: 1px 0 0;
   font-size: 12.5px;
