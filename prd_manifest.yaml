@@ -2,9 +2,10 @@ product:
   name: AI Account Prioritization Agent for B2B Sales Teams
   summary: >-
     Turns messy B2B CRM/account data into a verified daily sales action plan.
-    A deterministic decision core decides account priority and action authority;
-    a constrained runtime LLM may synthesize verified evidence and draft action
-    content; deterministic verification and human approval decide publication.
+    A deterministic pre-draft authority layer decides account priority and action
+    authority; a constrained runtime LLM may synthesize verified evidence and
+    draft action content; deterministic post-draft verification and human
+    approval decide publication.
   planning: Agile Scrum
   philosophy: Strategic Programming (strict)
   architecture_state: hybrid_runtime_contract_approved
@@ -12,12 +13,14 @@ product:
     deterministic_core: shipped
     runtime_llm_drafting: planned
     deterministic_template_fallback: shipped
+    runtime_generation_evals: planned
     web_runtime_bridge: planned
 
 execution_rules:
   - llm_must_not_rank_accounts
   - deterministic_scoring_decides_rank
-  - model_must_not_mutate_authoritative_recommendation_fields
+  - model_must_not_mutate_pre_draft_authoritative_fields
+  - model_candidate_may_be_rejected_but_cannot_set_gate_outcome
   - runtime_llm_allowed_only_for_bounded_synthesis_and_drafting
   - runtime_model_output_is_untrusted_candidate_content
   - runtime_model_has_no_side_effecting_tools
@@ -43,7 +46,7 @@ architecture:
   pattern: Turborepo-based hybrid AI application architecture
   design_pattern: co-located agent-module pattern
   authority_split:
-    deterministic:
+    pre_draft_deterministic:
       - feature_extraction
       - score
       - rank
@@ -53,14 +56,20 @@ architecture:
       - next_best_action_type
       - permissions
       - approval_requirement
-      - verification_outcome
-      - publish_or_hold
     probabilistic:
       - verified_signal_synthesis
       - grounded_action_drafting
+    post_draft_deterministic:
+      - generated_output_schema_result
+      - claim_grounding_result
+      - guardrail_result
+      - permission_and_approval_result
+      - verification_outcome
+      - publish_or_hold
+      - failed_gate_codes
   supports:
     - bounded self-checking human-in-the-loop workflow
-    - deterministic decision core plus guarded runtime LLM generation
+    - deterministic authority plus guarded runtime LLM generation
     - explicit deterministic template fallback
     - claim-level grounding verification
     - eval-gated CI/CD
@@ -131,12 +140,12 @@ runtime_generation_contract:
     - fixed_token_cap
     - bounded_attempts
     - claim_to_source_grounding
-    - authoritative_field_reconciliation
+    - pre_draft_authoritative_field_reconciliation
     - measured_latency_and_token_telemetry
     - explicit_audited_fallback_or_hold
 
 reliability_contract:
-  byte_identical_decision_envelope:
+  byte_identical_pre_draft_authority_envelope:
     - extracted_features
     - score
     - rank
@@ -144,12 +153,19 @@ reliability_contract:
     - reason_codes
     - source_signal_references
     - next_best_action_type
+    - permissions
     - approval_requirement
+  deterministic_post_draft_gate_given_candidate:
+    - generated_output_schema_result
+    - claim_grounding_result
+    - guardrail_result
+    - permission_and_approval_result
     - verification_outcome
     - publish_or_hold
+    - failed_gate_codes
   behavioral_generation_invariants:
     - schema_valid
-    - authoritative_fields_unchanged
+    - pre_draft_authoritative_fields_unchanged
     - no_unsupported_claims
     - every_factual_claim_grounded
     - prompt_injection_cannot_change_authority
@@ -194,14 +210,19 @@ eval_gates:
   - id: security
     deployment_blocking: true
   - id: runtime-drafting-schema
+    status: planned
     deployment_blocking_when: runtime_llm_drafting_implemented
   - id: runtime-drafting-grounding
+    status: planned
     deployment_blocking_when: runtime_llm_drafting_implemented
   - id: runtime-drafting-authority
+    status: planned
     deployment_blocking_when: runtime_llm_drafting_implemented
   - id: runtime-drafting-injection
+    status: planned
     deployment_blocking_when: runtime_llm_drafting_implemented
   - id: runtime-drafting-fallback
+    status: planned
     deployment_blocking_when: runtime_llm_drafting_implemented
   - id: daily-prioritization-judge
     deployment_blocking_when: EVAL_JUDGE_ENABLED=true
