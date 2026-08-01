@@ -16,10 +16,9 @@
     ],
     "excludeBasenames": ["pnpm-lock.yaml", "package-lock.json", "yarn.lock"]
   },
-  "ledger": {
+  "authorization": {
     "marker": "<!-- agent-contract-ledger:v1 -->",
-    "trustedActors": ["Lvvphole"],
-    "writerActors": ["github-actions[bot]", "Lvvphole"]
+    "trustedActors": ["Lvvphole"]
   },
   "repair": {
     "maxRoundsPerPr": 2,
