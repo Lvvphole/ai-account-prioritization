@@ -244,6 +244,44 @@ function reserveRunBudget(
 
 const uniqueIds = (ids: string[]): string[] => [...new Set(ids)];
 
+const TEMPLATE_SIGNAL_ACTIONS = new Set<Recommendation["nextBestAction"]["type"]>([
+  "call",
+  "schedule_meeting",
+  "log_research_note",
+]);
+
+/**
+ * Source-signal provenance for deterministic templates that embed verified
+ * recommendation evidence directly in their rendered draft.
+ */
+function templateSignalProvenance(rec: Recommendation): {
+  selectedSourceSignalIds: string[];
+  claimCitations: DraftClaimCitation[];
+} {
+  if (!TEMPLATE_SIGNAL_ACTIONS.has(rec.nextBestAction.type)) {
+    return { selectedSourceSignalIds: [], claimCitations: [] };
+  }
+
+  const verifiedSignals = rec.sourceSignals.filter((signal) => signal.verified);
+  return {
+    selectedSourceSignalIds: uniqueIds(verifiedSignals.map((signal) => signal.refId)),
+    claimCitations: verifiedSignals.map((signal) => ({
+      text: signal.description,
+      sourceSignalIds: [signal.refId],
+    })),
+  };
+}
+
+/**
+ * Freshness/source-resolution failures invalidate the evidence itself. They may
+ * not fall back to a template that would re-render the same rejected evidence.
+ */
+const NON_FALLBACK_CONTEXT_FAILURES = new Set([
+  "DRAFT_CONTEXT_STALE_SIGNAL",
+  "DRAFT_CONTEXT_SOURCE_UNRESOLVED",
+  "DRAFT_CONTEXT_SOURCE_TIME_INVALID",
+]);
+
 /**
  * Bounded runtime-AI drafting path. The model receives only a verified,
  * action-prioritized context that fits hard freshness/input/run budgets. The
@@ -279,6 +317,9 @@ export async function attachHybridActionDraft(
   });
 
   if (!policy.enabled || !modelDraftable(rec.nextBestAction.type)) {
+    const provenance = templateSignalProvenance(rec);
+    selectedSourceSignalIds = provenance.selectedSourceSignalIds;
+    claimCitations = provenance.claimCitations;
     return {
       recommendation: template(),
       outcome: { ...outcomeBase(), source: "template" },
@@ -345,7 +386,24 @@ export async function attachHybridActionDraft(
           ? error.message
           : "DRAFT_MODEL_FAILURE";
 
+    if (NON_FALLBACK_CONTEXT_FAILURES.has(failureCode)) {
+      return {
+        recommendation: rec,
+        outcome: {
+          ...outcomeBase(),
+          source: "held",
+          failureCode,
+          telemetry: modelTelemetry,
+          inputTokenUpperBound,
+          reservedRunTokens,
+        },
+      };
+    }
+
     if (policy.fallback === "template") {
+      const provenance = templateSignalProvenance(rec);
+      selectedSourceSignalIds = provenance.selectedSourceSignalIds;
+      claimCitations = provenance.claimCitations;
       return {
         recommendation: template(),
         outcome: {
