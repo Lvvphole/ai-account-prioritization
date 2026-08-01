@@ -211,7 +211,28 @@ describe("runtime drafting Codex review regressions", () => {
     expect(result.failedGates).toContain("DRAFT_UNSUPPORTED_NUMBER");
   });
 
-  it("rejects stale resolved evidence before provider invocation", async () => {
+  it("preserves non-ASCII entity tokens during grounding", () => {
+    const rec = accountRecommendation(
+      'Open opportunity "東京" in Discovery stage worth $50,000.',
+    );
+    const verified = buildVerifiedDraftContext(rec, context);
+    const draft = GeneratedDraftSchema.parse({
+      schemaVersion: "1.0",
+      actionType: "call",
+      sentences: [
+        {
+          text: 'Open opportunity "北京" in Discovery stage worth $50,000.',
+          sourceSignalIds: [account.id],
+        },
+      ],
+    });
+
+    const result = validateDraftGrounding(draft, verified);
+    expect(result.passed).toBe(false);
+    expect(result.failedGates).toContain("DRAFT_CLAIM_NOT_GROUNDED");
+  });
+
+  it("holds stale resolved evidence instead of rendering it through template fallback", async () => {
     const staleAccount: Account = {
       ...account,
       updatedAt: "2026-01-01T00:00:00Z",
@@ -227,14 +248,32 @@ describe("runtime drafting Codex review regressions", () => {
     };
 
     const result = await attachHybridActionDraft(rec, staleContext, {
-      policy: policy({ enabled: true, maxEvidenceAgeDays: 30 }),
+      policy: policy({ enabled: true, maxEvidenceAgeDays: 30, fallback: "template" }),
       modelClient: client,
       now: ISO,
     });
 
-    expect(result.outcome.source).toBe("template_fallback");
+    expect(result.outcome.source).toBe("held");
     expect(result.outcome.failureCode).toBe("DRAFT_CONTEXT_STALE_SIGNAL");
+    expect(result.recommendation.nextBestAction.draft).toBeUndefined();
     expect(calls).toBe(0);
+  });
+
+  it("records source-signal provenance for direct deterministic templates", async () => {
+    const rec = accountRecommendation("Open pipeline of $50,000.");
+    const result = await attachHybridActionDraft(rec, context, {
+      policy: policy({ enabled: false }),
+    });
+
+    expect(result.outcome.source).toBe("template");
+    expect(result.outcome.selectedSourceSignalIds).toEqual([account.id]);
+    expect(result.outcome.claimCitations).toEqual([
+      {
+        text: "Open pipeline of $50,000.",
+        sourceSignalIds: [account.id],
+      },
+    ]);
+    expect(result.recommendation.nextBestAction.draft).toContain("Open pipeline of $50,000.");
   });
 
   it("records a non-secret effective policy snapshot and a value-sensitive hash on every outcome", async () => {
@@ -293,6 +332,16 @@ describe("runtime drafting Codex review regressions", () => {
         "apiKey" in (entry.evidence.effectivePolicy as Record<string, unknown>),
       ).toBe(false);
     }
+
+    expect(
+      draftAudits.some(
+        (entry) =>
+          Array.isArray(entry.evidence.selectedSourceSignalIds) &&
+          entry.evidence.selectedSourceSignalIds.length > 0 &&
+          Array.isArray(entry.evidence.claimCitations) &&
+          entry.evidence.claimCitations.length > 0,
+      ),
+    ).toBe(true);
   });
 
   it("persists accepted claim-to-source mappings and explicit verifier results", async () => {
