@@ -152,11 +152,15 @@ export interface HybridDraftInvocationStart {
 
 export interface HybridDraftOptions {
   policy?: RuntimeDraftingPolicy;
+  /** Dependency-injected model clients are a test seam; production calls still require durable audit. */
   modelClient?: RuntimeModelClient;
   runBudget?: RuntimeDraftRunBudget;
   /** Injected deterministic clock used for source freshness. */
   now?: string;
-  /** Durable pre-invocation audit hook. A failure prevents provider invocation. */
+  /**
+   * Durable pre-invocation audit hook. Enabled runtime drafting fails closed if
+   * this dependency is absent or rejects before the external provider call.
+   */
   beforeModelInvoke?: (invocation: HybridDraftInvocationStart) => Promise<void>;
 }
 
@@ -312,6 +316,7 @@ const NON_FALLBACK_CONTEXT_FAILURES = new Set([
   "DRAFT_CONTEXT_FUTURE_SIGNAL",
   "DRAFT_CONTEXT_SOURCE_UNRESOLVED",
   "DRAFT_CONTEXT_SOURCE_TIME_INVALID",
+  "DRAFT_AUDIT_START_REQUIRED",
   "DRAFT_AUDIT_START_FAILED",
 ]);
 
@@ -392,6 +397,15 @@ export async function attachHybridActionDraft(
       throw new Error("DRAFT_RUN_BUDGET_EXCEEDED");
     }
     reservedRunTokens = requestedRunTokens;
+
+    // Vitest injects model clients that never cross the external provider
+    // boundary. Every non-test runtime model invocation requires durable start
+    // evidence before client.generate can execute.
+    const testInjectedClient =
+      options.modelClient !== undefined && process.env.VITEST === "true";
+    if (!options.beforeModelInvoke && !testInjectedClient) {
+      throw new Error("DRAFT_AUDIT_START_REQUIRED");
+    }
 
     if (options.beforeModelInvoke) {
       try {
