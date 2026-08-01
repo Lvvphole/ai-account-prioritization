@@ -2,11 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   analyzeRepairHistory,
+  applyFindingControls,
   applyRedesignCutovers,
   classifyCheckDelta,
+  classifyFindingAttribution,
   countNumstat,
   extractPriority,
   isSourcePath,
+  parseChangedRightLines,
+  parseFindingControlRecord,
   parseRedesignAuthorization,
   parseScopedFixForwardAuthorization,
   reviewBodyFinding,
@@ -39,8 +43,9 @@ const policy = {
   },
 };
 
-const finding = (id, reviewedCommitSha, priority, subsystem = 'agent-harness', createdAt = '2026-08-01T10:00:00Z') => ({
-  id, reviewedCommitSha, priority, subsystem, path: 'scripts/verify-agent-contract.mjs', createdAt,
+const finding = (id, reviewedCommitSha, priority, subsystem = 'agent-harness', createdAt = '2026-08-01T10:00:00Z', attribution = 'NEWLY_INTRODUCED') => ({
+  id, reviewedCommitSha, priority, reportedPriority: priority, validationState: 'VALID', resolved: false,
+  attribution, subsystem, path: 'scripts/verify-agent-contract.mjs', line: 10, startLine: 10, createdAt,
 });
 
 test('source budget aggregates the whole PR patch', () => {
@@ -69,6 +74,8 @@ test('review-body P1 is normalized into repair findings', () => {
     priority: 'P1',
     subsystem: 'unknown',
     path: null,
+    line: null,
+    startLine: null,
     reviewedCommitSha: 'c2',
     createdAt: '2026-08-01T10:00:00Z',
     url: 'https://example.test/review/42',
@@ -85,7 +92,7 @@ test('repair round includes every commit through the next reviewed commit', () =
   assert.equal(result.rounds[0].baselineSha, 'c1');
 });
 
-test('post-repair P1 remains blocking regardless of thread resolution state', () => {
+test('post-repair newly introduced P1 remains systemically blocking', () => {
   const result = analyzeRepairHistory({
     policy,
     commitOrder: ['c1', 'c2'],
@@ -98,7 +105,7 @@ test('post-repair P1 remains blocking regardless of thread resolution state', ()
   assert.ok(result.blockedReasons.some((reason) => reason.code === 'SAME_SUBSYSTEM_REPEAT_DEFECT'));
 });
 
-test('same-subsystem repeat breaker ignores P2 but still blocks P1', () => {
+test('same-subsystem repeat breaker ignores P2 but still blocks newly introduced P1', () => {
   const p2 = analyzeRepairHistory({
     policy,
     commitOrder: ['c1', 'c2'],
@@ -149,4 +156,68 @@ test('scoped fix-forward authorization parser is marker and type bound', () => {
   const body = `${policy.authorization.marker}\n\`\`\`json\n{"type":"SCOPED_FIX_FORWARD_AUTHORIZED","finding_ids":["f1"]}\n\`\`\``;
   assert.equal(parseScopedFixForwardAuthorization(body, policy.authorization.marker).finding_ids[0], 'f1');
   assert.equal(parseScopedFixForwardAuthorization('plain comment', policy.authorization.marker), null);
+});
+
+test('reported priority is not validated priority', () => {
+  const raw = [{ ...finding('review-comment:1', 'c1', 'P1'), priority: 'P1' }];
+  const controlled = applyFindingControls(raw, []);
+  assert.equal(controlled[0].reportedPriority, 'P1');
+  assert.equal(controlled[0].validationState, 'PENDING');
+  assert.equal(controlled[0].priority, null);
+});
+
+test('rebutted or unvalidated findings cannot latch the systemic breaker', () => {
+  const marker = policy.authorization.marker;
+  const rebuttal = parseFindingControlRecord(`${marker}\n\`\`\`json\n{"type":"FINDING_REBUTTED","finding_id":"github:review_comment:2:0"}\n\`\`\``, marker);
+  const raw = [
+    { ...finding('review-comment:1', 'c1', 'P1'), priority: 'P1' },
+    { ...finding('review-comment:2', 'c2', 'P1'), priority: 'P1' },
+  ];
+  const controlled = applyFindingControls(raw, [{ ...rebuttal, createdAt: '2026-08-01T10:10:00Z', commentId: 1 }]);
+  const valid = controlled.filter((item) => item.validationState === 'VALID');
+  const result = analyzeRepairHistory({ policy, commitOrder: ['c1', 'c2'], findings: valid });
+  assert.equal(result.blockedReasons.some((reason) => reason.code === 'NEW_VALID_P0_P1_AFTER_REPAIR'), false);
+});
+
+test('missing queued and absent baseline-required checks are incomplete', () => {
+  assert.equal(classifyCheckDelta('success', undefined), 'VERIFICATION_INCOMPLETE');
+  assert.equal(classifyCheckDelta('success', 'queued'), 'VERIFICATION_INCOMPLETE');
+  assert.equal(classifyCheckDelta('success', 'in_progress'), 'VERIFICATION_INCOMPLETE');
+});
+
+test('pre-existing validated P1 surfaced after repair does not latch', () => {
+  const result = analyzeRepairHistory({
+    policy,
+    commitOrder: ['c1', 'c2'],
+    findings: [
+      finding('f1', 'c1', 'P1'),
+      finding('f2', 'c2', 'P1', 'agent-harness', '2026-08-01T10:05:00Z', 'PRE_EXISTING'),
+    ],
+  });
+  assert.equal(result.blockedReasons.some((reason) => reason.code === 'NEW_VALID_P0_P1_AFTER_REPAIR'), false);
+  assert.equal(result.blockedReasons.some((reason) => reason.code === 'SAME_SUBSYSTEM_REPEAT_DEFECT'), false);
+});
+
+test('newly introduced validated P1 still latches', () => {
+  const result = analyzeRepairHistory({
+    policy,
+    commitOrder: ['c1', 'c2'],
+    findings: [finding('f1', 'c1', 'P1'), finding('f2', 'c2', 'P1')],
+  });
+  assert.equal(result.blockedReasons.some((reason) => reason.code === 'NEW_VALID_P0_P1_AFTER_REPAIR'), true);
+});
+
+test('owner attribution overrides diff heuristic in either direction', () => {
+  const changed = parseChangedRightLines([
+    'diff --git a/scripts/verify-agent-contract.mjs b/scripts/verify-agent-contract.mjs',
+    '--- a/scripts/verify-agent-contract.mjs',
+    '+++ b/scripts/verify-agent-contract.mjs',
+    '@@ -9,0 +10,1 @@',
+    '+const added = true;',
+  ].join('\n'));
+  const anchored = { path: 'scripts/verify-agent-contract.mjs', line: 10, startLine: 10 };
+  assert.equal(classifyFindingAttribution(anchored, changed), 'NEWLY_INTRODUCED');
+  assert.equal(classifyFindingAttribution(anchored, changed, 'PRE_EXISTING'), 'PRE_EXISTING');
+  const untouched = { path: 'scripts/verify-agent-contract.mjs', line: 20, startLine: 20 };
+  assert.equal(classifyFindingAttribution(untouched, changed, 'NEWLY_INTRODUCED'), 'NEWLY_INTRODUCED');
 });
