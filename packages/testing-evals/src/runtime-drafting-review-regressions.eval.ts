@@ -245,7 +245,7 @@ describe("runtime drafting Codex review regressions", () => {
         'Open opportunity "🔥" in Discovery stage worth $50,000.',
         'Open opportunity "⭐" in Discovery stage worth $50,000.',
       ],
-    ]) {
+    ] as const) {
       const rec = accountRecommendation(evidence);
       const verified = buildVerifiedDraftContext(rec, context);
       const draft = GeneratedDraftSchema.parse({
