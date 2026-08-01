@@ -218,8 +218,17 @@ contract → baseline → plan → execute → verify → evaluate → iterate �
 - Fix only the evidenced failure.
 - Do not rerun an identical failed command without a relevant change or new
   diagnostic evidence.
-- Maximum repair attempts for the same gate: **3**.
-- Repeated identical failure after attempted repair becomes `BLOCKED`.
+
+```text
+MAX_REPAIR_ROUNDS_PER_PR = 2
+NEW_REGRESSION_BUDGET = 0
+NEW_VALID_P0_P1_AFTER_REPAIR = 0
+SAME_SUBSYSTEM_REPEAT_DEFECT_BUDGET = 0
+```
+
+These invariants govern all autonomous defect remediation and cannot be reset or
+weakened by treating a related failure as a different gate, file, test, commit,
+or reviewer finding.
 
 ### Review handling: identify → validate → fix_or_rebut → verify → respond → resolve
 
@@ -607,10 +616,8 @@ metrics. Use measured telemetry or report `n/a`.
 ## 15. Code Change Budget and Defect Containment
 
 This section is a higher-order execution constraint for coding-agent changes and
-repair work. For defect remediation, it **supersedes** the Section 6 local rule
-that allows up to three repair attempts for the same gate. A coding agent may not
-use that local retry allowance to continue a bug loop after any circuit-breaker
-condition below has fired.
+repair work. Its repair invariants govern all defect remediation and cannot be
+weakened by local retry logic elsewhere in this contract.
 
 ### 15.1 Code Change Budget
 
