@@ -14,6 +14,8 @@ import {
 import {
   GeneratedDraftSchema,
   type Account,
+  type Activity,
+  type Opportunity,
   type Recommendation,
 } from "@repo/shared-schemas";
 
@@ -44,8 +46,8 @@ const recommendation: Recommendation = {
   reasonNarrative: "Acme Manufacturing is a current priority.",
   sourceSignals: [
     {
-      kind: "intent",
-      refId: "sig_preferences",
+      kind: "account",
+      refId: account.id,
       description: "Alpha is not preferred; Beta is preferred.",
       verified: true,
     },
@@ -100,6 +102,7 @@ const policy = (overrides: Partial<RuntimeDraftingPolicy> = {}): RuntimeDrafting
   maxSignals: 5,
   maxConcurrent: 2,
   maxRunTokens: 10000,
+  maxEvidenceAgeDays: 90,
   maxAttempts: 1,
   fallback: "template",
   ...overrides,
@@ -152,7 +155,7 @@ describe("runtime drafting Codex review regressions", () => {
       sentences: [
         {
           text: "Beta is not preferred; Alpha is preferred.",
-          sourceSignalIds: ["sig_preferences"],
+          sourceSignalIds: [account.id],
         },
       ],
     });
@@ -232,6 +235,36 @@ describe("runtime drafting Codex review regressions", () => {
     expect(result.failedGates).toContain("DRAFT_CLAIM_NOT_GROUNDED");
   });
 
+  it("preserves symbol-bearing and emoji entity values during grounding", () => {
+    for (const [evidence, fabricated] of [
+      [
+        'Open opportunity "C++" in Discovery stage worth $50,000.',
+        'Open opportunity "C#" in Discovery stage worth $50,000.',
+      ],
+      [
+        'Open opportunity "🔥" in Discovery stage worth $50,000.',
+        'Open opportunity "⭐" in Discovery stage worth $50,000.',
+      ],
+    ]) {
+      const rec = accountRecommendation(evidence);
+      const verified = buildVerifiedDraftContext(rec, context);
+      const draft = GeneratedDraftSchema.parse({
+        schemaVersion: "1.0",
+        actionType: "call",
+        sentences: [
+          {
+            text: fabricated,
+            sourceSignalIds: [account.id],
+          },
+        ],
+      });
+
+      const result = validateDraftGrounding(draft, verified);
+      expect(result.passed).toBe(false);
+      expect(result.failedGates).toContain("DRAFT_CLAIM_NOT_GROUNDED");
+    }
+  });
+
   it("holds stale resolved evidence instead of rendering it through template fallback", async () => {
     const staleAccount: Account = {
       ...account,
@@ -259,10 +292,118 @@ describe("runtime drafting Codex review regressions", () => {
     expect(calls).toBe(0);
   });
 
+  it("revalidates every signal consumed by template fallback beyond maxSignals", async () => {
+    const opportunity: Opportunity = {
+      id: "opp_fresh_review",
+      accountId: account.id,
+      name: "Fresh expansion",
+      stage: "discovery",
+      amountUsd: 50_000,
+      probability: 0.5,
+      isClosed: false,
+      isWon: false,
+      createdAt: ISO,
+      updatedAt: ISO,
+    };
+    const rec: Recommendation = {
+      ...recommendation,
+      sourceSignals: [
+        {
+          kind: "opportunity",
+          refId: opportunity.id,
+          description: 'Open opportunity "Fresh expansion" in Discovery stage worth $50,000.',
+          verified: true,
+        },
+        {
+          kind: "contact",
+          refId: "missing_contact",
+          description: "Primary contact is Missing Person.",
+          verified: true,
+        },
+      ],
+    };
+    let calls = 0;
+    const invalidSchemaClient: RuntimeModelClient = {
+      async generate() {
+        calls += 1;
+        return {
+          output: {},
+          telemetry: {
+            provider: "anthropic",
+            model: "pinned-test-model",
+            latencyMs: 1,
+            inputTokens: 20,
+            outputTokens: 1,
+          },
+        };
+      },
+    };
+
+    const result = await attachHybridActionDraft(
+      rec,
+      { ...context, opportunities: [opportunity] },
+      {
+        policy: policy({ enabled: true, maxSignals: 1, fallback: "template" }),
+        modelClient: invalidSchemaClient,
+        now: ISO,
+      },
+    );
+
+    expect(calls).toBe(1);
+    expect(result.outcome.source).toBe("held");
+    expect(result.outcome.failureCode).toBe("DRAFT_CONTEXT_SOURCE_UNRESOLVED");
+    expect(result.recommendation.nextBestAction.draft).toBeUndefined();
+  });
+
+  it("rejects future-dated evidence before provider invocation", async () => {
+    const futureActivity: Activity = {
+      id: "act_future_review",
+      accountId: account.id,
+      type: "intent_event",
+      subject: "Future intent",
+      occurredAt: "2026-08-02T06:45:00Z",
+      createdById: "system",
+      verified: true,
+    };
+    const rec: Recommendation = {
+      ...recommendation,
+      sourceSignals: [
+        {
+          kind: "intent",
+          refId: futureActivity.id,
+          description: "Customer showed future intent.",
+          verified: true,
+        },
+      ],
+    };
+    let calls = 0;
+    const client: RuntimeModelClient = {
+      async generate(request, selectedPolicy) {
+        calls += 1;
+        return exactEvidenceClient.generate(request, selectedPolicy);
+      },
+    };
+
+    const result = await attachHybridActionDraft(
+      rec,
+      { ...context, activities: [futureActivity] },
+      {
+        policy: policy({ enabled: true }),
+        modelClient: client,
+        now: ISO,
+      },
+    );
+
+    expect(result.outcome.source).toBe("held");
+    expect(result.outcome.failureCode).toBe("DRAFT_CONTEXT_FUTURE_SIGNAL");
+    expect(calls).toBe(0);
+  });
+
   it("records source-signal provenance for direct deterministic templates", async () => {
     const rec = accountRecommendation("Open pipeline of $50,000.");
     const result = await attachHybridActionDraft(rec, context, {
       policy: policy({ enabled: false }),
+      now: ISO,
     });
 
     expect(result.outcome.source).toBe("template");
@@ -276,12 +417,59 @@ describe("runtime drafting Codex review regressions", () => {
     expect(result.recommendation.nextBestAction.draft).toContain("Open pipeline of $50,000.");
   });
 
+  it("persists pre-invocation evidence before calling the model and fails closed when it cannot", async () => {
+    const rec = accountRecommendation("Open pipeline of $50,000.");
+    let startPersisted = false;
+    let calls = 0;
+    const client: RuntimeModelClient = {
+      async generate(request, selectedPolicy) {
+        expect(startPersisted).toBe(true);
+        calls += 1;
+        return exactEvidenceClient.generate(request, selectedPolicy);
+      },
+    };
+
+    const accepted = await attachHybridActionDraft(rec, context, {
+      policy: policy({ enabled: true }),
+      modelClient: client,
+      now: ISO,
+      beforeModelInvoke: async (invocation) => {
+        expect(invocation.recommendationId).toBe(rec.id);
+        expect(invocation.accountId).toBe(account.id);
+        expect(invocation.selectedSourceSignalIds).toEqual([account.id]);
+        startPersisted = true;
+      },
+    });
+    expect(accepted.outcome.source).toBe("model");
+    expect(calls).toBe(1);
+
+    let blockedCalls = 0;
+    const blocked = await attachHybridActionDraft(rec, context, {
+      policy: policy({ enabled: true, fallback: "template" }),
+      modelClient: {
+        async generate(request, selectedPolicy) {
+          blockedCalls += 1;
+          return exactEvidenceClient.generate(request, selectedPolicy);
+        },
+      },
+      now: ISO,
+      beforeModelInvoke: async () => {
+        throw new Error("audit unavailable");
+      },
+    });
+    expect(blocked.outcome.source).toBe("held");
+    expect(blocked.outcome.failureCode).toBe("DRAFT_AUDIT_START_FAILED");
+    expect(blockedCalls).toBe(0);
+  });
+
   it("records a non-secret effective policy snapshot and a value-sensitive hash on every outcome", async () => {
     const first = await attachHybridActionDraft(recommendation, context, {
       policy: policy(),
+      now: ISO,
     });
     const second = await attachHybridActionDraft(recommendation, context, {
       policy: policy({ timeoutMs: 4321 }),
+      now: ISO,
     });
 
     expect(first.outcome.source).toBe("template");
@@ -295,6 +483,7 @@ describe("runtime drafting Codex review regressions", () => {
       maxSignals: 5,
       maxConcurrent: 2,
       maxRunTokens: 10000,
+      maxEvidenceAgeDays: 90,
       maxAttempts: 1,
       fallback: "template",
     });
@@ -326,6 +515,7 @@ describe("runtime drafting Codex review regressions", () => {
         maxSignals: 5,
         maxConcurrent: 2,
         maxRunTokens: 10000,
+        maxEvidenceAgeDays: 90,
         fallback: "template",
       });
       expect(
@@ -352,7 +542,7 @@ describe("runtime drafting Codex review regressions", () => {
       drafting: {
         policy: policy({
           enabled: true,
-          maxEvidenceAgeDays: 180,
+          maxEvidenceAgeDays: 3650,
           maxRunTokens: 100000,
         }),
         modelClient: exactEvidenceClient,
@@ -381,6 +571,38 @@ describe("runtime drafting Codex review regressions", () => {
     expect(modelAudit?.evidence.groundingFailedGates).toEqual([]);
   });
 
+  it("persists invocation-start audit evidence before each model outcome", async () => {
+    const store = resetStore(createSeedStore());
+    await runDailyPrioritizationForOwner("rep_alex", {
+      now: ISO,
+      autoApprove: true,
+      drafting: {
+        policy: policy({
+          enabled: true,
+          maxEvidenceAgeDays: 3650,
+          maxRunTokens: 100000,
+        }),
+        modelClient: exactEvidenceClient,
+      },
+    });
+
+    const starts = store.auditLog.filter(
+      (entry) => entry.action === "runtime_draft_invocation_start",
+    );
+    expect(starts.length).toBeGreaterThan(0);
+
+    for (const start of starts) {
+      const startIndex = store.auditLog.indexOf(start);
+      const outcomeIndex = store.auditLog.findIndex(
+        (entry, index) =>
+          index > startIndex &&
+          entry.action === "runtime_draft" &&
+          entry.evidence.recommendationId === start.evidence.recommendationId,
+      );
+      expect(outcomeIndex).toBeGreaterThan(startIndex);
+    }
+  });
+
   it("rejects unrecognized runtime-drafting boolean values", () => {
     expect(() =>
       runtimeDraftingPolicyFromEnv({
@@ -393,5 +615,19 @@ describe("runtime drafting Codex review regressions", () => {
     } as NodeJS.ProcessEnv);
     expect(disabled.enabled).toBe(false);
     expect(disabled.maxEvidenceAgeDays).toBe(90);
+  });
+
+  it("rejects partially parsed runtime-drafting numeric values", () => {
+    expect(() =>
+      runtimeDraftingPolicyFromEnv({
+        RUNTIME_DRAFT_TIMEOUT_MS: "5000ms",
+      } as NodeJS.ProcessEnv),
+    ).toThrow("Invalid runtime drafting numeric configuration: 5000ms");
+
+    expect(() =>
+      runtimeDraftingPolicyFromEnv({
+        RUNTIME_DRAFT_MAX_TOKENS: "600.5",
+      } as NodeJS.ProcessEnv),
+    ).toThrow("Invalid runtime drafting numeric configuration: 600.5");
   });
 });
