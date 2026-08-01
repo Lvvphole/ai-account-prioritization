@@ -1,5 +1,7 @@
 import type { GeneratedDraft } from "@repo/shared-schemas";
-import type { VerifiedDraftContext } from "./build-draft-context";
+import type { VerifiedDraftContext, VerifiedDraftSignal } from "./build-draft-context";
+
+export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v2";
 
 export interface DraftGroundingResult {
   passed: boolean;
@@ -46,11 +48,25 @@ const significantTokens = (value: string): string[] =>
 const numericTokens = (value: string): string[] =>
   value.match(/\b\d+(?:\.\d+)?%?\b/g) ?? [];
 
+const groupSignalsById = (
+  signals: VerifiedDraftSignal[],
+): Map<string, VerifiedDraftSignal[]> => {
+  const grouped = new Map<string, VerifiedDraftSignal[]>();
+  for (const signal of signals) {
+    const existing = grouped.get(signal.id);
+    if (existing) existing.push(signal);
+    else grouped.set(signal.id, [signal]);
+  }
+  return grouped;
+};
+
 /**
  * Conservative deterministic grounding check. A sentence must cite only source
- * ids supplied to the model, preserve action authority, keep every number inside
- * cited evidence, and have high lexical support from that evidence. This may
- * reject useful paraphrases; safety takes precedence over recall.
+ * ids supplied to the model, preserve action authority, and receive full lexical
+ * and numeric support from every cited source id. Multiple verified signals may
+ * share one source-record id; all descriptions for that id are preserved. This
+ * intentionally rejects paraphrases containing unsupported factual tokens rather
+ * than allowing unsupported content to be diluted by a support ratio.
  */
 export function validateDraftGrounding(
   draft: GeneratedDraft,
@@ -62,32 +78,38 @@ export function validateDraftGrounding(
     failures.add("DRAFT_ACTION_MUTATION");
   }
 
-  const signalById = new Map(context.signals.map((signal) => [signal.id, signal]));
+  const signalsById = groupSignalsById(context.signals);
 
   for (const sentence of draft.sentences) {
-    const cited = sentence.sourceSignalIds
-      .map((id) => signalById.get(id))
-      .filter((value): value is NonNullable<typeof value> => value !== undefined);
+    const citedIds = [...new Set(sentence.sourceSignalIds)];
+    const citedGroups = citedIds.map((id) => signalsById.get(id));
 
-    if (cited.length !== sentence.sourceSignalIds.length || cited.length === 0) {
+    if (citedGroups.some((group) => group === undefined) || citedGroups.length === 0) {
       failures.add("DRAFT_UNKNOWN_SOURCE_REFERENCE");
       continue;
     }
 
-    const evidenceText = cited.map((item) => item.description).join(" ");
-    const evidenceTokens = new Set(significantTokens(evidenceText));
     const claimTokens = significantTokens(sentence.text);
-    const unsupported = claimTokens.filter((token) => !evidenceTokens.has(token));
-    const supportRatio =
-      claimTokens.length === 0 ? 0 : (claimTokens.length - unsupported.length) / claimTokens.length;
-
-    if (supportRatio < 0.8) {
+    if (claimTokens.length === 0) {
       failures.add("DRAFT_CLAIM_NOT_GROUNDED");
+      continue;
     }
 
-    const evidenceNumbers = new Set(numericTokens(evidenceText));
-    if (numericTokens(sentence.text).some((token) => !evidenceNumbers.has(token))) {
-      failures.add("DRAFT_UNSUPPORTED_NUMBER");
+    const claimNumbers = numericTokens(sentence.text);
+
+    for (const group of citedGroups) {
+      if (!group) continue;
+      const evidenceText = group.map((item) => item.description).join(" ");
+      const evidenceTokens = new Set(significantTokens(evidenceText));
+
+      if (claimTokens.some((token) => !evidenceTokens.has(token))) {
+        failures.add("DRAFT_CLAIM_NOT_GROUNDED");
+      }
+
+      const evidenceNumbers = new Set(numericTokens(evidenceText));
+      if (claimNumbers.some((token) => !evidenceNumbers.has(token))) {
+        failures.add("DRAFT_UNSUPPORTED_NUMBER");
+      }
     }
   }
 
