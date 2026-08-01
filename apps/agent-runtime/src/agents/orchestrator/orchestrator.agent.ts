@@ -151,7 +151,13 @@ async function auditDraftOutcome(
               ? `Runtime model draft failed; deterministic template fallback used (${outcome.failureCode ?? "unknown"}).`
               : `Runtime draft held (${outcome.failureCode ?? "unknown"}).`,
       evidence: {
+        recommendationId: outcome.recommendationId,
         draftSource: outcome.source,
+        selectedSourceSignalIds: outcome.selectedSourceSignalIds,
+        claimCitations: outcome.claimCitations,
+        schemaValidation: outcome.schemaValidation,
+        groundingValidation: outcome.groundingValidation,
+        groundingFailedGates: outcome.groundingFailedGates,
         provider: outcome.telemetry?.provider,
         model: outcome.telemetry?.model,
         promptVersion: outcome.promptVersion,
@@ -210,6 +216,7 @@ export async function runDailyPrioritizationForOwner(
     policy: draftingPolicy,
     modelClient: opts.drafting?.modelClient,
     runBudget,
+    now,
   };
 
   const draftResults = await mapWithConcurrency(
@@ -222,6 +229,12 @@ export async function runDailyPrioritizationForOwner(
           recommendation: rec,
           outcome: {
             source: "held" as const,
+            recommendationId: rec.id,
+            selectedSourceSignalIds: [],
+            claimCitations: [],
+            schemaValidation: "not_run" as const,
+            groundingValidation: "not_run" as const,
+            groundingFailedGates: [],
             failureCode: "DRAFT_CONTEXT_MISSING",
             ...hybridDraftContractMetadata(draftingPolicy),
           },
