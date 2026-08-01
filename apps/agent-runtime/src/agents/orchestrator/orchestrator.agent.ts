@@ -135,8 +135,6 @@ async function auditDraftOutcome(
   now: string,
   repo: RuntimeRepository,
 ): Promise<void> {
-  if (outcome.source === "template") return;
-
   await writeAuditLog(
     {
       runId,
@@ -147,9 +145,11 @@ async function auditDraftOutcome(
       reason:
         outcome.source === "model"
           ? "Bounded runtime model draft passed schema and grounding validation."
-          : outcome.source === "template_fallback"
-            ? `Runtime model draft failed; deterministic template fallback used (${outcome.failureCode ?? "unknown"}).`
-            : `Runtime draft held (${outcome.failureCode ?? "unknown"}).`,
+          : outcome.source === "template"
+            ? "Deterministic template draft used; runtime model was not invoked."
+            : outcome.source === "template_fallback"
+              ? `Runtime model draft failed; deterministic template fallback used (${outcome.failureCode ?? "unknown"}).`
+              : `Runtime draft held (${outcome.failureCode ?? "unknown"}).`,
       evidence: {
         draftSource: outcome.source,
         provider: outcome.telemetry?.provider,
@@ -158,6 +158,8 @@ async function auditDraftOutcome(
         promptHash: outcome.promptHash,
         schemaVersion: outcome.schemaVersion,
         policyVersion: outcome.policyVersion,
+        effectivePolicyHash: outcome.effectivePolicyHash,
+        effectivePolicy: outcome.effectivePolicy,
         groundingVersion: outcome.groundingVersion,
         fallbackVersion: outcome.fallbackVersion,
         latencyMs: outcome.telemetry?.latencyMs,
@@ -221,7 +223,7 @@ export async function runDailyPrioritizationForOwner(
           outcome: {
             source: "held" as const,
             failureCode: "DRAFT_CONTEXT_MISSING",
-            ...hybridDraftContractMetadata(),
+            ...hybridDraftContractMetadata(draftingPolicy),
           },
         };
       }
