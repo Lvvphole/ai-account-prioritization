@@ -1,5 +1,7 @@
 export type DraftFallbackPolicy = "template" | "hold";
 
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v1";
+
 export interface RuntimeDraftingPolicy {
   enabled: boolean;
   provider: "anthropic";
