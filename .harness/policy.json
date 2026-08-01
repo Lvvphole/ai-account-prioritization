@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "changeBudget": {
+    "executionBoundary": "pull_request",
     "maxChangedSourceLinesPerExecution": 1000,
     "sourceExtensions": [
       ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".sql",
@@ -14,6 +15,11 @@
       "packages/shared-schemas/generated/", "apps/api-python/src/schemas/generated/"
     ],
     "excludeBasenames": ["pnpm-lock.yaml", "package-lock.json", "yarn.lock"]
+  },
+  "ledger": {
+    "marker": "<!-- agent-contract-ledger:v1 -->",
+    "trustedActors": ["Lvvphole"],
+    "writerActors": ["github-actions[bot]", "Lvvphole"]
   },
   "repair": {
     "maxRoundsPerPr": 2,
