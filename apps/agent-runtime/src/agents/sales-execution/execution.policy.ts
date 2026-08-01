@@ -21,7 +21,7 @@ export interface RuntimeDraftingPolicy {
   maxConcurrent: number;
   /** Conservative run-level input + output token reservation budget. */
   maxRunTokens: number;
-  /** Maximum age for evidence admitted to the real-provider model context. */
+  /** Maximum age for evidence admitted to runtime drafting and signal-bearing fallbacks. */
   maxEvidenceAgeDays?: number;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
@@ -38,7 +38,7 @@ export interface RuntimeDraftingPolicyAuditSnapshot {
   maxSignals: number;
   maxConcurrent: number;
   maxRunTokens: number;
-  maxEvidenceAgeDays: number | null;
+  maxEvidenceAgeDays: number;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
 }
@@ -56,7 +56,8 @@ export function runtimeDraftingPolicyAuditSnapshot(
     maxSignals: policy.maxSignals,
     maxConcurrent: policy.maxConcurrent,
     maxRunTokens: policy.maxRunTokens,
-    maxEvidenceAgeDays: policy.maxEvidenceAgeDays ?? null,
+    maxEvidenceAgeDays:
+      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
     maxAttempts: policy.maxAttempts,
     fallback: policy.fallback,
   };
