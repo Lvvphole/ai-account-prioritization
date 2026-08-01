@@ -18,7 +18,10 @@ import {
   type HybridDraftOptions,
   type HybridDraftOutcome,
 } from "../sales-execution/execution.agent";
-import { runtimeDraftingPolicyFromEnv } from "../sales-execution/execution.policy";
+import {
+  normalizeRuntimeDraftingPolicy,
+  runtimeDraftingPolicyFromEnv,
+} from "../sales-execution/execution.policy";
 import { verifyRecommendation } from "../guardrails/guardrail.agent";
 import { readAccounts } from "../../shared-tools/crm/read-accounts";
 import { readContacts } from "../../shared-tools/crm/read-contacts";
@@ -27,6 +30,7 @@ import { readActivities } from "../../shared-tools/crm/read-activities";
 import { writeAuditLog } from "../../shared-tools/audit/write-audit-log";
 import { trackEvent } from "../../shared-tools/analytics/track-event";
 import {
+  inMemoryRepository,
   resolveRepository,
   type RuntimeRepository,
 } from "../../shared-tools/runtime-repository";
@@ -190,6 +194,7 @@ async function auditDraftOutcome(
         draftSource: outcome.source,
         selectedSourceSignalIds: outcome.selectedSourceSignalIds,
         claimCitations: outcome.claimCitations,
+        modelCandidateClaimCitations: outcome.modelCandidateClaimCitations,
         schemaValidation: outcome.schemaValidation,
         groundingValidation: outcome.groundingValidation,
         groundingFailedGates: outcome.groundingFailedGates,
@@ -245,7 +250,9 @@ export async function runDailyPrioritizationForOwner(
   state = transition(state, "PLAN", { candidates });
 
   // --- EXECUTE (bounded model drafting or deterministic template fallback) ---
-  const draftingPolicy = opts.drafting?.policy ?? runtimeDraftingPolicyFromEnv();
+  const draftingPolicy = normalizeRuntimeDraftingPolicy(
+    opts.drafting?.policy ?? runtimeDraftingPolicyFromEnv(),
+  );
   const runBudget = createRuntimeDraftRunBudget(draftingPolicy.maxRunTokens);
   const callerBeforeModelInvoke = opts.drafting?.beforeModelInvoke;
   const draftingOptions: HybridDraftOptions = {
@@ -254,6 +261,12 @@ export async function runDailyPrioritizationForOwner(
     runBudget,
     now,
     beforeModelInvoke: async (invocation) => {
+      // The built-in provider path must never treat the deterministic in-memory
+      // audit store as durable. Explicit injected model clients are a test seam
+      // and still execute only behind the caller's pre-invocation dependency.
+      if (!opts.drafting?.modelClient && repo === inMemoryRepository) {
+        throw new Error("Runtime drafting requires a durable audit repository.");
+      }
       await auditDraftInvocationStart(invocation, runId, now, repo);
       if (callerBeforeModelInvoke) {
         await callerBeforeModelInvoke(invocation);
@@ -275,6 +288,7 @@ export async function runDailyPrioritizationForOwner(
               recommendationId: rec.id,
               selectedSourceSignalIds: [],
               claimCitations: [],
+              modelCandidateClaimCitations: [],
               schemaValidation: "not_run" as const,
               groundingValidation: "not_run" as const,
               groundingFailedGates: [],
