@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
+
 export type DraftFallbackPolicy = "template" | "hold";
 
-export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v2";
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v3";
 
 export interface RuntimeDraftingPolicy {
   enabled: boolean;
@@ -20,6 +22,45 @@ export interface RuntimeDraftingPolicy {
   maxRunTokens: number;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
+}
+
+/** Non-secret effective policy persisted with every draft outcome. */
+export interface RuntimeDraftingPolicyAuditSnapshot {
+  enabled: boolean;
+  provider: "anthropic";
+  model: string | null;
+  timeoutMs: number;
+  maxTokens: number;
+  maxInputTokens: number;
+  maxSignals: number;
+  maxConcurrent: number;
+  maxRunTokens: number;
+  maxAttempts: 1;
+  fallback: DraftFallbackPolicy;
+}
+
+export function runtimeDraftingPolicyAuditSnapshot(
+  policy: RuntimeDraftingPolicy,
+): RuntimeDraftingPolicyAuditSnapshot {
+  return {
+    enabled: policy.enabled,
+    provider: policy.provider,
+    model: policy.model ?? null,
+    timeoutMs: policy.timeoutMs,
+    maxTokens: policy.maxTokens,
+    maxInputTokens: policy.maxInputTokens,
+    maxSignals: policy.maxSignals,
+    maxConcurrent: policy.maxConcurrent,
+    maxRunTokens: policy.maxRunTokens,
+    maxAttempts: policy.maxAttempts,
+    fallback: policy.fallback,
+  };
+}
+
+export function hashRuntimeDraftingPolicy(
+  snapshot: RuntimeDraftingPolicyAuditSnapshot,
+): string {
+  return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
 }
 
 const intFromEnv = (
