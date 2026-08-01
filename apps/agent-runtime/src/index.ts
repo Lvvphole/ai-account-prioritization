@@ -70,6 +70,24 @@ export {
   type RowFinding,
   type AnomalyThresholds,
 } from "./ingestion/validation";
+export {
+  buildChangeSet,
+  assessApproval,
+  type ChangeSetPreview,
+  type ChangeSetItemPreview,
+  type OperationalSnapshot,
+  type ApprovalRequirement,
+} from "./ingestion/change-set";
+export {
+  planCommit,
+  assertCommitPlanSafe,
+  planRollback,
+  CommitRefusedError,
+  DEFAULT_ROLLBACK_WINDOW,
+  type CommitPlan,
+  type CommitPlanEntry,
+  type RollbackPlan,
+} from "./ingestion/commit";
 
 /**
  * Register read-only runtime tools on the MCP registry. Side-effecting tools
