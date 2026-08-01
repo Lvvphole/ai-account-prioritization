@@ -1,7 +1,7 @@
 import type { GeneratedDraft } from "@repo/shared-schemas";
 import type { VerifiedDraftContext, VerifiedDraftSignal } from "./build-draft-context";
 
-export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v2";
+export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v3";
 
 export interface DraftGroundingResult {
   passed: boolean;
@@ -38,15 +38,49 @@ const STOP_WORDS = new Set([
   "your",
 ]);
 
-const significantTokens = (value: string): string[] =>
+const NEGATION_TOKENS = new Set([
+  "no",
+  "not",
+  "never",
+  "none",
+  "neither",
+  "nor",
+  "without",
+  "cannot",
+  "cant",
+  "isnt",
+  "wasnt",
+  "werent",
+  "hasnt",
+  "havent",
+  "hadnt",
+  "doesnt",
+  "dont",
+  "didnt",
+  "wont",
+  "wouldnt",
+  "couldnt",
+  "shouldnt",
+]);
+
+const normalizedTokens = (value: string): string[] =>
   value
     .toLowerCase()
+    .replace(/[’']/g, "")
     .replace(/[^a-z0-9$%.-]+/g, " ")
     .split(/\s+/)
-    .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+    .filter((token) => token.length > 0);
+
+const significantTokens = (value: string): string[] =>
+  normalizedTokens(value).filter(
+    (token) => token.length > 1 && !STOP_WORDS.has(token),
+  );
 
 const numericTokens = (value: string): string[] =>
   value.match(/\b\d+(?:\.\d+)?%?\b/g) ?? [];
+
+const hasNegation = (value: string): boolean =>
+  normalizedTokens(value).some((token) => NEGATION_TOKENS.has(token));
 
 const groupSignalsById = (
   signals: VerifiedDraftSignal[],
@@ -62,11 +96,11 @@ const groupSignalsById = (
 
 /**
  * Conservative deterministic grounding check. A sentence must cite only source
- * ids supplied to the model, preserve action authority, and receive full lexical
- * and numeric support from every cited source id. Multiple verified signals may
- * share one source-record id; all descriptions for that id are preserved. This
- * intentionally rejects paraphrases containing unsupported factual tokens rather
- * than allowing unsupported content to be diluted by a support ratio.
+ * ids supplied to the model, preserve action authority, and be fully supported
+ * by at least one complete verified description under every cited source id.
+ * Negation polarity must also match; deleting "no"/"not" or adding negation to
+ * positive evidence therefore fails closed instead of reversing the source fact.
+ * Multiple verified signals may share one source-record id and are all retained.
  */
 export function validateDraftGrounding(
   draft: GeneratedDraft,
@@ -95,20 +129,47 @@ export function validateDraftGrounding(
       continue;
     }
 
+    const claimContentTokens = claimTokens.filter(
+      (token) => !NEGATION_TOKENS.has(token),
+    );
     const claimNumbers = numericTokens(sentence.text);
+    const claimIsNegated = hasNegation(sentence.text);
 
     for (const group of citedGroups) {
       if (!group) continue;
-      const evidenceText = group.map((item) => item.description).join(" ");
-      const evidenceTokens = new Set(significantTokens(evidenceText));
 
-      if (claimTokens.some((token) => !evidenceTokens.has(token))) {
-        failures.add("DRAFT_CLAIM_NOT_GROUNDED");
+      let fullySupported = false;
+      let contentSupportedWithOppositePolarity = false;
+      let numericSupported = false;
+
+      for (const signal of group) {
+        const evidenceTokens = new Set(significantTokens(signal.description));
+        const evidenceNumbers = new Set(numericTokens(signal.description));
+        const numbersMatch = claimNumbers.every((token) => evidenceNumbers.has(token));
+        const contentMatches = claimContentTokens.every((token) =>
+          evidenceTokens.has(token),
+        );
+        const allTokensMatch = claimTokens.every((token) => evidenceTokens.has(token));
+        const polarityMatches = claimIsNegated === hasNegation(signal.description);
+
+        numericSupported ||= numbersMatch;
+        if (contentMatches && numbersMatch && !polarityMatches) {
+          contentSupportedWithOppositePolarity = true;
+        }
+        if (allTokensMatch && numbersMatch && polarityMatches) {
+          fullySupported = true;
+          break;
+        }
       }
 
-      const evidenceNumbers = new Set(numericTokens(evidenceText));
-      if (claimNumbers.some((token) => !evidenceNumbers.has(token))) {
+      if (fullySupported) continue;
+      if (!numericSupported && claimNumbers.length > 0) {
         failures.add("DRAFT_UNSUPPORTED_NUMBER");
+      }
+      if (contentSupportedWithOppositePolarity) {
+        failures.add("DRAFT_POLARITY_MISMATCH");
+      } else {
+        failures.add("DRAFT_CLAIM_NOT_GROUNDED");
       }
     }
   }
