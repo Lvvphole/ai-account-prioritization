@@ -12,10 +12,12 @@ import { prioritizeAccounts } from "../account-prioritizer/prioritizer.agent";
 import type { AccountContext } from "../account-prioritizer/prioritizer.policy";
 import {
   attachHybridActionDraft,
+  createRuntimeDraftRunBudget,
   hybridDraftContractMetadata,
   type HybridDraftOptions,
   type HybridDraftOutcome,
 } from "../sales-execution/execution.agent";
+import { runtimeDraftingPolicyFromEnv } from "../sales-execution/execution.policy";
 import { verifyRecommendation } from "../guardrails/guardrail.agent";
 import { readAccounts } from "../../shared-tools/crm/read-accounts";
 import { readContacts } from "../../shared-tools/crm/read-contacts";
@@ -49,6 +51,28 @@ function buildContexts(inputs: OrchestratorInputs): AccountContext[] {
     opportunities: inputs.opportunities.filter((o) => o.accountId === account.id),
     activities: inputs.activities.filter((a) => a.accountId === account.id),
   }));
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const runWorker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index] as T, index);
+    }
+  };
+
+  const workerCount = Math.min(Math.max(1, limit), Math.max(1, items.length));
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
 }
 
 async function applyApproval(
@@ -139,6 +163,8 @@ async function auditDraftOutcome(
         latencyMs: outcome.telemetry?.latencyMs,
         inputTokens: outcome.telemetry?.inputTokens,
         outputTokens: outcome.telemetry?.outputTokens,
+        inputTokenUpperBound: outcome.inputTokenUpperBound,
+        reservedRunTokens: outcome.reservedRunTokens,
         failureCode: outcome.failureCode,
       },
       occurredAt: now,
@@ -176,8 +202,18 @@ export async function runDailyPrioritizationForOwner(
   state = transition(state, "PLAN", { candidates });
 
   // --- EXECUTE (bounded model drafting or deterministic template fallback) ---
-  const draftResults = await Promise.all(
-    candidates.map(async (rec) => {
+  const draftingPolicy = opts.drafting?.policy ?? runtimeDraftingPolicyFromEnv();
+  const runBudget = createRuntimeDraftRunBudget(draftingPolicy.maxRunTokens);
+  const draftingOptions: HybridDraftOptions = {
+    policy: draftingPolicy,
+    modelClient: opts.drafting?.modelClient,
+    runBudget,
+  };
+
+  const draftResults = await mapWithConcurrency(
+    candidates,
+    draftingPolicy.maxConcurrent,
+    async (rec) => {
       const ctx = contextByAccount.get(rec.accountId);
       if (!ctx) {
         return {
@@ -189,8 +225,8 @@ export async function runDailyPrioritizationForOwner(
           },
         };
       }
-      return attachHybridActionDraft(rec, ctx, opts.drafting);
-    }),
+      return attachHybridActionDraft(rec, ctx, draftingOptions);
+    },
   );
 
   for (const result of draftResults) {
@@ -311,7 +347,12 @@ export async function runDailyPrioritizationForOwner(
       runId,
       userId: ownerId,
       occurredAt: now,
-      properties: { published: published.length, blocked: blocked.length },
+      properties: {
+        published: published.length,
+        blocked: blocked.length,
+        runtimeDraftTokensReserved: runBudget.reservedTokens,
+        runtimeDraftTokenBudget: runBudget.maxTokens,
+      },
     },
     repo,
   );
