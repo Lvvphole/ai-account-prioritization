@@ -603,3 +603,532 @@ The executor reports:
 
 Never invent token counts, cost, determinism drift, coverage, or performance
 metrics. Use measured telemetry or report `n/a`.
+
+## 15. Code Change Budget and Defect Containment
+
+This section is a higher-order execution constraint for coding-agent changes and
+repair work. For defect remediation, it **supersedes** the Section 6 local rule
+that allows up to three repair attempts for the same gate. A coding agent may not
+use that local retry allowance to continue a bug loop after any circuit-breaker
+condition below has fired.
+
+### 15.1 Code Change Budget
+
+An agent MUST NOT produce, modify, or apply a patch containing more than **1,000
+new or modified source-code lines in a single execution**.
+
+This is a **hard execution limit**, not a recommendation, preference, or soft
+budget.
+
+#### Hard Line Rule
+
+```text
+MAX_CODE_CHANGE_LINES = 1000
+```
+
+The limit applies to the total number of new or modified source-code lines in the
+proposed patch. Generated files, lockfiles, vendored dependencies, build
+artifacts, snapshots, and deleted lines do not reduce or evade the source-code
+budget.
+
+The agent MUST evaluate projected patch size before implementation and MUST
+continuously respect this limit during execution.
+
+If the agent determines that the requested implementation will exceed, is likely
+to exceed, or has reached the 1,000-line limit, the agent MUST NOT continue
+implementation.
+
+#### Mandatory Exit Rule
+
+If the required implementation exceeds or would cause the execution to exceed
+1,000 new or modified source-code lines, the agent MUST:
+
+1. Stop implementation immediately.
+2. Make no additional source-code changes.
+3. Do not bypass, disable, modify, reinterpret, or raise the limit.
+4. Preserve only changes that remain within the permitted line budget.
+5. Decompose the remaining work into independently verifiable changes.
+6. Identify the smallest dependency-complete next change.
+7. Run lint, type checks, and tests against the current permitted patch when
+   applicable.
+8. Report the completed scope, remaining scope, and the reason for termination.
+9. Exit the current execution.
+10. Require a new execution before implementing any remaining work.
+
+#### Hard Failure Condition
+
+The repository or execution harness MUST reject any patch for which:
+
+```text
+new_or_modified_source_lines > 1000
+```
+
+Required behavior:
+
+```text
+if new_or_modified_source_lines > 1000:
+    reject_patch()
+    report_limit_violation()
+    exit(1)
+```
+
+A line-budget failure is a terminal condition for the current agent execution.
+The agent MUST NOT automatically continue with the next decomposed change after
+the failure or limit boundary is reached.
+
+#### Decomposition Rule
+
+When the complete requested change requires more than 1,000 new or modified
+source-code lines, the work MUST be divided into multiple executions.
+
+Each execution MUST:
+
+1. Contain no more than 1,000 new or modified source-code lines.
+2. Represent the smallest practical dependency-complete change.
+3. Leave the repository in a valid, reviewable state.
+4. Pass required lint, type checks, tests, and repository validation gates.
+5. Terminate before the next change begins.
+
+#### Code-Budget Anti-Circumvention
+
+The agent MUST NOT:
+
+- bypass, disable, or modify the line-budget validator;
+- alter the configured maximum;
+- split a single execution into hidden or nested executions to evade the limit;
+- exclude eligible source files from counting;
+- continue coding after the hard line has been reached;
+- treat the limit as advisory.
+
+Any attempt to circumvent this rule MUST fail the execution.
+
+The governing invariant is:
+
+```text
+PER_EXECUTION_CODE_CHANGE <= 1000 LINES
+```
+
+If this invariant cannot be maintained:
+
+```text
+STOP -> VALIDATE -> REPORT -> EXIT
+```
+
+No further implementation may occur until a new agent execution begins.
+
+### 15.2 Defect Containment and Repair Circuit Breaker
+
+A coding agent MUST NOT enter an open-ended sequence of:
+
+```text
+review -> patch -> review -> patch -> review -> patch
+```
+
+A passing build, typecheck, lint run, test suite, security scan, or CI workflow
+does **not** authorize continued repair when new defects continue to appear after
+remediation.
+
+The goal of remediation is not to make the current reviewer example pass. The
+goal is to eliminate the violated **defect class** without creating a new defect
+class.
+
+#### Governing Repair Invariants
+
+```text
+MAX_REPAIR_ROUNDS_PER_PR = 2
+NEW_REGRESSION_BUDGET = 0
+NEW_VALID_P0_P1_AFTER_REPAIR = 0
+SAME_SUBSYSTEM_REPEAT_DEFECT_BUDGET = 0
+```
+
+A **repair round** is one complete cycle:
+
+```text
+collect findings
+-> validate findings
+-> identify root cause
+-> define invariant
+-> add failing regression/property tests
+-> apply one coherent repair
+-> run narrow verification
+-> run full affected verification
+-> independent review
+```
+
+Multiple micro-patches to individual reviewer comments do not create additional
+permitted rounds. They are prohibited once the round has begun.
+
+#### Mandatory Root-Cause Gate
+
+Before modifying production code for a defect, the agent MUST produce all of the
+following:
+
+1. A reproducible failing case.
+2. The exact violated invariant.
+3. The root cause at the lowest responsible abstraction.
+4. The defect class, not only the reported example.
+5. The adjacent boundary cases that could fail for the same reason.
+6. A failing automated test that reproduces the defect.
+7. A class-level test, property test, table-driven test, or boundary matrix that
+   covers the generalized failure mode.
+
+If the agent cannot state the violated invariant and defect class, it MUST NOT
+patch production code.
+
+Required state:
+
+```text
+BUG_REPORT
+    ->
+REPRODUCED
+    ->
+ROOT_CAUSE_IDENTIFIED
+    ->
+INVARIANT_DEFINED
+    ->
+FAILING_TEST_ADDED
+    ->
+CLASS_COVERAGE_ADDED
+    ->
+IMPLEMENTATION_ALLOWED
+```
+
+Skipping a state is a hard failure.
+
+#### No Symptom-Patching Rule
+
+The agent MUST NOT implement a fix whose correctness is justified only by the
+literal reviewer example.
+
+The agent MUST NOT:
+
+- special-case the reported input merely to satisfy the test;
+- add one-off string, token, prefix, suffix, date, ID, or status exceptions
+  without a governing domain rule;
+- add allowlists or denylists that encode reviewer examples instead of the domain
+  contract;
+- loosen one validator to make another validator pass;
+- move a failure to fallback, hold, retry, or another layer merely to hide it;
+- update expected values solely because production behavior changed
+  unexpectedly;
+- delete, skip, weaken, or narrow an existing regression test to obtain green CI;
+- change unrelated production behavior while repairing a defect;
+- broaden scope to repair adjacent code without first proving it shares the same
+  root cause.
+
+The repair MUST be expressed at the abstraction where the invariant belongs.
+
+#### Regression Test Monotonicity
+
+Every confirmed defect MUST become permanent executable evidence.
+
+Once added, a defect regression test MUST NOT be removed, skipped, weakened,
+converted into a snapshot-only assertion, or rewritten to accept the defective
+behavior unless a human explicitly approves a contract change.
+
+The regression suite is monotonic:
+
+```text
+known_defect_coverage(t + 1) >= known_defect_coverage(t)
+```
+
+A repair is invalid if it causes any previously passing invariant or regression
+test to fail.
+
+#### Zero New Regression Rule
+
+If a repair causes any previously passing test, invariant, contract check, or
+production behavior within the affected scope to regress:
+
+```text
+STOP
+-> DO NOT FIX FORWARD
+-> MARK REPAIR AS FAILED
+-> REPORT REGRESSION
+-> EXIT
+```
+
+The agent MUST NOT immediately patch the newly created regression.
+
+A regression introduced by the repair is evidence that the repair was not
+dependency-complete or the root cause was not understood. The current repair
+attempt is terminal.
+
+#### Same-Subsystem Circuit Breaker
+
+If an independent review performed after a remediation commit discovers a new
+valid P0 or P1 defect in the **same subsystem, invariant, boundary, or execution
+path** that was just repaired:
+
+```text
+SYSTEMIC_DEFECT = true
+```
+
+Required behavior:
+
+```text
+STOP
+-> FREEZE FURTHER LOCAL PATCHING
+-> MARK BLOCKED_SYSTEMIC_DEFECT
+-> REPORT THE SHARED ROOT-CAUSE SURFACE
+-> REQUIRE REDESIGN OR CONTRACT REVISION
+-> EXIT
+```
+
+The agent MUST NOT address the new P0/P1 with another local patch in the same
+execution or automatically begin another patch-review cycle.
+
+#### Repeated-Defect-Class Rule
+
+If two consecutive review rounds expose valid defects that share a common
+abstraction, such as:
+
+- grounding or semantic equivalence;
+- source provenance;
+- freshness/time semantics;
+- authorization/approval state;
+- persistence/durability;
+- configuration parsing;
+- concurrency/budget enforcement;
+- lifecycle/state transitions;
+- schema authority;
+
+the subsystem is presumed structurally incorrect until proven otherwise.
+
+The agent MUST stop patching examples and redesign the abstraction around an
+explicit contract.
+
+Required transition:
+
+```text
+LOCAL_DEFECT
+    ->
+REPEATED_DEFECT_CLASS
+    ->
+ARCHITECTURAL_FAILURE
+    ->
+BLOCKED_REDESIGN
+```
+
+#### Maximum Repair Rounds
+
+A pull request may have at most **two autonomous repair rounds**.
+
+After the second independent review, if any new valid defect remains in the
+changed subsystem:
+
+```text
+repair_rounds >= 2 and new_valid_defect == true
+    ->
+BLOCKED_REDESIGN
+    ->
+exit(1)
+```
+
+This limit applies across the entire pull request, not separately to each test,
+gate, file, reviewer comment, or defect.
+
+The agent MUST NOT reset the repair counter by:
+
+- renaming a gate;
+- creating a new test file;
+- moving the defect to another module;
+- creating a new commit;
+- closing and reopening a review thread;
+- changing the error code;
+- classifying a related defect as a new task.
+
+#### Batch Findings Before Repair
+
+The agent MUST collect and validate all currently unresolved review findings
+before modifying production code.
+
+Do not repair comments one at a time while new review findings are still being
+discovered. The repair plan MUST group valid findings by shared root cause and
+invariant.
+
+Preferred workflow:
+
+```text
+COLLECT ALL
+-> CLASSIFY
+-> GROUP BY ROOT CAUSE
+-> DESIGN ONE COHERENT FIX
+-> VERIFY THE DEFECT CLASS
+-> REQUEST ONE INDEPENDENT REVIEW
+```
+
+Prohibited workflow:
+
+```text
+FIX COMMENT 1
+-> REVIEW
+-> FIX COMMENT 2
+-> REVIEW
+-> FIX COMMENT 3
+-> REVIEW
+-> ...
+```
+
+#### Independent Verification Gate
+
+The executor MUST NOT self-certify that a repair eliminated the defect class.
+
+Before another repair round may begin, an independent verifier must evaluate:
+
+1. the original failure;
+2. the governing invariant;
+3. adjacent boundary cases;
+4. unchanged behavior outside the repair scope;
+5. all permanent regression tests;
+6. the complete affected execution path;
+7. whether the fix moved the defect rather than removed it.
+
+If independent verification discovers a new valid P0/P1 defect in the same
+subsystem, the circuit breaker trips immediately.
+
+#### Green CI Is Necessary but Not Sufficient
+
+A green CI run proves only that the encoded checks passed. It does not prove that
+the implementation is correct.
+
+When an independent review discovers a valid defect after all existing gates
+pass, the event MUST be classified as:
+
+```text
+VERIFICATION_COVERAGE_GAP
+```
+
+The agent MUST first strengthen the executable verifier for the **defect class**
+before performing another production-code repair.
+
+The agent MUST NOT continue accumulating literal regression examples while
+leaving the governing property untested.
+
+#### Mandatory Stop Conditions
+
+The coding agent MUST immediately stop implementation and exit when any of the
+following is true:
+
+1. The 1,000-line execution budget is reached or would be exceeded.
+2. A repair introduces a new regression.
+3. A second repair attempt is needed for the same defect class.
+4. A post-repair review discovers a new valid P0/P1 in the same subsystem.
+5. Two consecutive review rounds identify defects in the same abstraction.
+6. Two repair rounds have completed and any new valid defect remains.
+7. The root cause cannot be stated with confidence.
+8. The governing invariant cannot be expressed as an executable test or contract.
+9. The proposed repair requires weakening an existing invariant or regression
+   test.
+10. The proposed repair expands beyond the dependency-complete repair boundary.
+11. The verifier and executor disagree about whether the repair is complete.
+12. Further changes would be speculative rather than evidence-driven.
+
+Required behavior:
+
+```text
+STOP
+-> PRESERVE EVIDENCE
+-> REPORT
+-> MARK BLOCKED
+-> EXIT
+```
+
+No automatic fix-forward is permitted after a mandatory stop condition.
+
+#### Blocked Report
+
+When the circuit breaker trips, report:
+
+- the triggering condition;
+- current repair round;
+- original defect;
+- newly discovered defect or regression;
+- shared subsystem and invariant;
+- root-cause evidence;
+- files changed;
+- tests added;
+- tests and gates run;
+- exact pass/fail results;
+- why another local patch is unsafe;
+- whether redesign, contract clarification, or human decision is required.
+
+Do not claim completion.
+
+#### Mechanical Enforcement Requirement
+
+These rules MUST NOT exist only as natural-language instructions in `AGENTS.md`.
+
+The repository or coding-agent harness MUST mechanically enforce the measurable
+portions of this contract.
+
+At minimum, the harness MUST track:
+
+```text
+code_change_lines
+repair_round
+baseline_test_state
+post_repair_test_state
+new_regressions
+unresolved_review_findings
+new_valid_findings_after_repair
+affected_subsystems
+defect_class
+circuit_breaker_state
+```
+
+The execution state machine MUST be:
+
+```text
+CONTRACT
+  ->
+BASELINE
+  ->
+COLLECT_FINDINGS
+  ->
+ROOT_CAUSE
+  ->
+RED_TEST
+  ->
+CLASS_TESTS
+  ->
+REPAIR
+  ->
+VERIFY
+  ->
+INDEPENDENT_REVIEW
+  ->
+PASS
+```
+
+Any prohibited transition MUST terminate:
+
+```text
+REPAIR -> NEW_REGRESSION
+    = BLOCKED -> EXIT
+
+INDEPENDENT_REVIEW -> NEW_P0_P1_SAME_SUBSYSTEM
+    = BLOCKED_SYSTEMIC_DEFECT -> EXIT
+
+REPAIR_ROUND_2 -> NEW_VALID_DEFECT
+    = BLOCKED_REDESIGN -> EXIT
+
+CODE_LINES > 1000
+    = REJECT_PATCH -> EXIT
+```
+
+#### Governing Principle
+
+The coding agent is authorized to make a repair only while evidence shows that
+the system is becoming **monotonically more correct**.
+
+The moment a repair creates a new regression or repeated review shows that the
+same abstraction continues producing new valid defects, autonomous patching must
+stop.
+
+```text
+NO FIX FORWARD.
+NO INFINITE REPAIR LOOP.
+NO GREEN-CI SELF-CERTIFICATION.
+ROOT CAUSE OR EXIT.
+```
