@@ -10,7 +10,11 @@ import {
 } from "./orchestrator.state";
 import { prioritizeAccounts } from "../account-prioritizer/prioritizer.agent";
 import type { AccountContext } from "../account-prioritizer/prioritizer.policy";
-import { attachActionDraft } from "../sales-execution/execution.agent";
+import {
+  attachHybridActionDraft,
+  type HybridDraftOptions,
+  type HybridDraftOutcome,
+} from "../sales-execution/execution.agent";
 import { verifyRecommendation } from "../guardrails/guardrail.agent";
 import { readAccounts } from "../../shared-tools/crm/read-accounts";
 import { readContacts } from "../../shared-tools/crm/read-contacts";
@@ -24,12 +28,6 @@ import {
 } from "../../shared-tools/runtime-repository";
 import type { RlsContext } from "../../shared-tools/supabase/rls-context";
 
-/**
- * Orchestrator — the synchronous, deterministic runtime loop.
- *
- * DISCOVER -> PLAN -> EXECUTE -> VERIFY -> ITERATE -> PUBLISH. No LLM ranking,
- * no async judge, fail-closed at the guardrail gate, full audit trail.
- */
 export interface RunOptions {
   /** Injected clock for deterministic runs/evals. Defaults to now. */
   now?: string;
@@ -37,11 +35,9 @@ export interface RunOptions {
   approvals?: Record<string, boolean>;
   /** Approve all approval-gated actions (demo/eval convenience). */
   autoApprove?: boolean;
-  /**
-   * Optional RLS context. When supplied AND Supabase is configured, the run
-   * reads source signals from Supabase and writes audit evidence to
-   * `audit_evidence`. Absent => deterministic, offline in-memory store.
-   */
+  /** Optional bounded runtime-drafting policy/client overrides for tests. */
+  drafting?: HybridDraftOptions;
+  /** Optional RLS context for durable Supabase-backed runs. */
   rlsContext?: RlsContext;
 }
 
@@ -107,15 +103,51 @@ async function applyApproval(
   return { ...rec, approvalStatus: "approved" };
 }
 
+async function auditDraftOutcome(
+  rec: Recommendation,
+  outcome: HybridDraftOutcome,
+  runId: string,
+  now: string,
+  repo: RuntimeRepository,
+): Promise<void> {
+  if (outcome.source === "template") return;
+
+  await writeAuditLog(
+    {
+      runId,
+      accountId: rec.accountId,
+      actorId: "runtime_drafter",
+      action: "runtime_draft",
+      decision: outcome.source === "held" ? "blocked" : "allowed",
+      reason:
+        outcome.source === "model"
+          ? "Bounded runtime model draft passed schema and grounding validation."
+          : outcome.source === "template_fallback"
+            ? `Runtime model draft failed; deterministic template fallback used (${outcome.failureCode ?? "unknown"}).`
+            : `Runtime draft held (${outcome.failureCode ?? "unknown"}).`,
+      evidence: {
+        draftSource: outcome.source,
+        provider: outcome.telemetry?.provider,
+        model: outcome.telemetry?.model,
+        promptVersion: outcome.promptVersion,
+        promptHash: outcome.promptHash,
+        latencyMs: outcome.telemetry?.latencyMs,
+        inputTokens: outcome.telemetry?.inputTokens,
+        outputTokens: outcome.telemetry?.outputTokens,
+        failureCode: outcome.failureCode,
+      },
+      occurredAt: now,
+    },
+    repo,
+  );
+}
+
 export async function runDailyPrioritizationForOwner(
   ownerId: string,
   opts: RunOptions = {},
 ): Promise<PrioritizationRun> {
   const now = opts.now ?? new Date().toISOString();
   const runId = `run_${ownerId}_${now}`;
-
-  // Resolve the run's data port once: Supabase when an RLS context is supplied
-  // and configured, else the deterministic in-memory store.
   const repo = resolveRepository(opts.rlsContext, now);
 
   await trackEvent({ name: "run_started", runId, userId: ownerId, occurredAt: now }, repo);
@@ -134,22 +166,65 @@ export async function runDailyPrioritizationForOwner(
   const contexts = buildContexts(inputs);
   const contextByAccount = new Map(contexts.map((c) => [c.account.id, c]));
 
-  // --- PLAN (deterministic scoring + ranking) ---
+  // --- PLAN (deterministic scoring + ranking + action authority) ---
   const candidates = prioritizeAccounts({ runId, contexts, createdAt: now });
   state = transition(state, "PLAN", { candidates });
 
-  // --- EXECUTE (attach drafts; never sends) ---
-  const withDrafts = candidates.map((rec) => {
-    const ctx = contextByAccount.get(rec.accountId);
-    return ctx ? attachActionDraft(rec, ctx) : rec;
-  });
+  // --- EXECUTE (bounded model drafting or deterministic template fallback) ---
+  const draftResults = await Promise.all(
+    candidates.map(async (rec) => {
+      const ctx = contextByAccount.get(rec.accountId);
+      if (!ctx) {
+        return {
+          recommendation: rec,
+          outcome: {
+            source: "held" as const,
+            failureCode: "DRAFT_CONTEXT_MISSING",
+            promptVersion: "n/a",
+            promptHash: "n/a",
+          },
+        };
+      }
+      return attachHybridActionDraft(rec, ctx, opts.drafting);
+    }),
+  );
+
+  for (const result of draftResults) {
+    await auditDraftOutcome(result.recommendation, result.outcome, runId, now, repo);
+  }
+
+  const withDrafts = draftResults.map((result) => result.recommendation);
   state = transition(state, "EXECUTE", { candidates: withDrafts });
 
-  // --- VERIFY (human approval + deterministic guardrails, fail-closed) ---
+  // --- VERIFY (deterministic verification + human approval, fail-closed) ---
   const published: Recommendation[] = [];
   const blocked: OrchestratorBlocked[] = [];
 
-  for (const candidate of withDrafts) {
+  for (const result of draftResults) {
+    const candidate = result.recommendation;
+
+    if (result.outcome.source === "held") {
+      const failedGates = [result.outcome.failureCode ?? "DRAFT_HELD"];
+      blocked.push({
+        recommendationId: candidate.id,
+        accountId: candidate.accountId,
+        failedGates,
+      });
+      await writeAuditLog(
+        {
+          runId,
+          accountId: candidate.accountId,
+          actorId: "orchestrator",
+          action: "block_recommendation",
+          decision: "blocked",
+          reason: `Failed gates: ${failedGates.join(", ")}`,
+          occurredAt: now,
+        },
+        repo,
+      );
+      continue;
+    }
+
     const withApproval = await applyApproval(candidate, opts, runId, now, repo);
     const { recommendation, allowed } = verifyRecommendation(withApproval, now);
 
@@ -212,7 +287,6 @@ export async function runDailyPrioritizationForOwner(
     }
   }
 
-  // --- ITERATE / PUBLISH ---
   state = transition(state, "VERIFY", { candidates: withDrafts });
   state = transition(state, "ITERATE", { published, blocked });
   state = transition(state, "PUBLISH", { published, blocked });
@@ -238,7 +312,6 @@ export async function runDailyPrioritizationForOwner(
     repo,
   );
 
-  // Final fail-closed validation of terminal state.
   if (state.phase !== "DONE") {
     throw new Error(`Run ${runId} did not reach DONE (phase=${state.phase}).`);
   }
