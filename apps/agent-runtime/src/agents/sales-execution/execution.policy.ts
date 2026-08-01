@@ -3,7 +3,7 @@ import { DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS } from "./build-draft-context";
 
 export type DraftFallbackPolicy = "template" | "hold";
 
-export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v4";
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v5";
 
 export interface RuntimeDraftingPolicy {
   enabled: boolean;
@@ -75,8 +75,11 @@ const intFromEnv = (
   max: number,
 ): number => {
   if (!value) return fallback;
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+  if (!/^(?:0|[1-9]\d*)$/.test(value)) {
+    throw new Error(`Invalid runtime drafting numeric configuration: ${value}`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
     throw new Error(`Invalid runtime drafting numeric configuration: ${value}`);
   }
   return parsed;
