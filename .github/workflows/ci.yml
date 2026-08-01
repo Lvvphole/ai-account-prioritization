@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: ["**"]
 
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -16,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -25,6 +32,16 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+
+      # Gate 0: fail-closed coding-agent change budget and PR repair circuit breaker.
+      # Runs before dependency installation so violations fail early and cheaply.
+      - name: Verify coding-agent contract
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/verify-agent-contract.mjs
+
+      - name: Test coding-agent contract
+        run: node --test scripts/verify-agent-contract.test.mjs
 
       - name: Setup Python
         uses: actions/setup-python@v5
