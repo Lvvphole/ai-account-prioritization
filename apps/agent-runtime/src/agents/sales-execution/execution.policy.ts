@@ -3,7 +3,7 @@ import { DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS } from "./build-draft-context";
 
 export type DraftFallbackPolicy = "template" | "hold";
 
-export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v5";
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v6";
 
 export interface RuntimeDraftingPolicy {
   enabled: boolean;
@@ -21,7 +21,7 @@ export interface RuntimeDraftingPolicy {
   maxConcurrent: number;
   /** Conservative run-level input + output token reservation budget. */
   maxRunTokens: number;
-  /** Maximum age for evidence admitted to runtime drafting and signal-bearing fallbacks. */
+  /** Maximum evidence age; omission is normalized to the fail-closed default. */
   maxEvidenceAgeDays?: number;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
@@ -38,7 +38,7 @@ export interface RuntimeDraftingPolicyAuditSnapshot {
   maxSignals: number;
   maxConcurrent: number;
   maxRunTokens: number;
-  maxEvidenceAgeDays: number | null;
+  maxEvidenceAgeDays: number;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
 }
@@ -56,7 +56,8 @@ export function runtimeDraftingPolicyAuditSnapshot(
     maxSignals: policy.maxSignals,
     maxConcurrent: policy.maxConcurrent,
     maxRunTokens: policy.maxRunTokens,
-    maxEvidenceAgeDays: policy.maxEvidenceAgeDays ?? null,
+    maxEvidenceAgeDays:
+      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
     maxAttempts: policy.maxAttempts,
     fallback: policy.fallback,
   };
