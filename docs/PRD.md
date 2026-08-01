@@ -9,10 +9,11 @@ act without sufficient guardrails, so reps do not trust them.
 ## Product
 
 A daily hybrid AI agent that turns messy CRM/account data into a **verified daily
-action plan**. A deterministic decision core decides account priority and action
-authority. A constrained runtime LLM may synthesize verified evidence and draft
-personalized action content. Deterministic verification and human approval retain
-final publication authority.
+action plan**. A deterministic pre-draft authority layer decides account priority,
+action type, permissions, and approval requirements. A constrained runtime LLM
+may synthesize verified evidence and draft personalized action content. A
+separate deterministic post-draft verifier and human approval retain final
+publication authority.
 
 For each account a rep should act on, the product answers:
 
@@ -23,8 +24,8 @@ For each account a rep should act on, the product answers:
 4. **How** to express that action through a grounded AI-assisted draft or
    deterministic template fallback.
 5. **What evidence** supports every factual claim.
-6. **Whether** the recommendation passed schema, grounding, guardrail,
-   permission, approval, and evaluation gates.
+6. **Whether** the candidate passed schema, grounding, guardrail, permission,
+   approval, and evaluation gates.
 
 ## Users
 
@@ -37,9 +38,9 @@ For each account a rep should act on, the product answers:
 
 ## Product boundary
 
-### Deterministic authority
+### Pre-draft deterministic authority
 
-TypeScript owns:
+TypeScript owns and freezes before generation:
 
 - feature extraction
 - score and rank
@@ -48,8 +49,6 @@ TypeScript owns:
 - verified source references
 - next-best-action type
 - permissions and approval requirements
-- verification outcome
-- publish or hold decision
 
 ### Runtime AI capability
 
@@ -63,10 +62,26 @@ The runtime LLM may only:
 The runtime LLM may not score, rank, select tools, change the action, approve,
 verify, publish, send, or write to the CRM.
 
+### Post-draft deterministic verification
+
+TypeScript receives the candidate model draft or deterministic fallback as
+untrusted input and computes:
+
+- generated-output schema result
+- claim-grounding result
+- guardrail result
+- permission and approval result
+- verification outcome
+- publish or hold decision
+- explicit failed-gate codes
+
+The model cannot set or override these values. Different candidate drafts may
+legitimately produce different deterministic gate results.
+
 ## Hard product invariants
 
 - The **LLM never ranks**; deterministic scoring decides priority.
-- No model output changes an authoritative recommendation field.
+- No model output changes a pre-draft authoritative recommendation field.
 - Every recommendation carries **score, rank, confidence, reason codes, source
   signals, and next best action**.
 - Every generated factual claim maps to verified source evidence.
@@ -92,12 +107,14 @@ DISCOVER → PLAN → EXECUTE → VERIFY → ITERATE → PUBLISH | HOLD
 Where:
 
 - **DISCOVER** reads and verifies CRM signals.
-- **PLAN** deterministically scores, ranks, explains, and selects the action type.
+- **PLAN** deterministically scores, ranks, explains, selects the action type,
+  and freezes the pre-draft authority envelope.
 - **EXECUTE** creates a grounded model draft or deterministic template fallback.
 - **VERIFY** enforces schema, claim grounding, guardrails, source validity,
-  permission, and approval.
+  permission, and approval and computes the post-draft gate result.
 - **ITERATE** performs only bounded, policy-authorized repair or fallback.
-- **PUBLISH | HOLD** is a deterministic terminal decision.
+- **PUBLISH | HOLD** is a deterministic terminal decision for the candidate that
+  was verified.
 
 ## Functional requirements for hybrid drafting
 
@@ -107,7 +124,8 @@ Where:
 3. Require strict structured output.
 4. Require every factual claim to include supporting source-signal IDs.
 5. Reject unknown, unverified, stale-beyond-policy, or non-supporting references.
-6. Reconcile generated output without allowing authoritative-field mutation.
+6. Reconcile generated output without allowing pre-draft authoritative-field
+   mutation.
 7. Preserve the deterministic template generator as an explicit fallback.
 8. Record whether the accepted draft came from the model or fallback.
 9. Hold rather than publish when neither path passes verification.
@@ -117,8 +135,13 @@ Where:
 
 The hybrid runtime is ready for production only when:
 
-- identical inputs still produce identical scores, ranks, reason codes, action
-  types, verification outcomes, and publish/hold decisions;
+- identical source inputs and policy versions produce identical pre-draft scores,
+  ranks, confidence, reason codes, source references, action types, permissions,
+  and approval requirements;
+- given the same pre-draft envelope, candidate or fallback draft, gate policies,
+  approval state, clock, and code revision, the verifier produces identical
+  schema, grounding, guardrail, verification, failed-gate, and publish/hold
+  results;
 - generated drafts always parse through the canonical schema;
 - all accepted factual claims resolve to verified supporting evidence;
 - prompt injection in CRM text cannot alter instructions, authority, or control
@@ -128,8 +151,8 @@ The hybrid runtime is ready for production only when:
   fallback or held state;
 - customer-facing and CRM-write actions still require human approval;
 - measured latency, token, and cost budgets are enforced;
-- deterministic evals, generative evals, security tests, and deployment judge
-  gates pass.
+- deterministic evals, implemented generative evals, security tests, and
+  deployment judge gates pass.
 
 ## Success metrics
 
@@ -163,7 +186,7 @@ Do not claim these values until production telemetry exists.
 - **Shipped baseline:** deterministic ranking, reason codes, template drafting,
   guardrails, approval, audit, and asynchronous judge evaluation.
 - **Approved architecture:** bounded runtime LLM drafting with deterministic
-  verification and fallback.
+  post-draft verification and fallback.
 - **Next production work:** connect runtime persistence to the web application,
   then implement the model adapter, generated-draft schema, grounding validator,
-  telemetry, and rollout gates.
+  telemetry, runtime-generation evals, and rollout gates.
