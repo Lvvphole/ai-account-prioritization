@@ -1,7 +1,7 @@
 import type { GeneratedDraft } from "@repo/shared-schemas";
 import type { VerifiedDraftContext, VerifiedDraftSignal } from "./build-draft-context";
 
-export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v5";
+export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v6";
 
 export interface DraftGroundingResult {
   passed: boolean;
@@ -34,8 +34,8 @@ const NEGATION_TOKENS = new Set([
 ]);
 
 const TOKEN_PATTERN =
-  /\$?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?|\$?\d+(?:\.\d+)?%?|[a-z0-9]+(?:['’][a-z0-9]+)?/gi;
-const NUMERIC_TOKEN_PATTERN = /^\$?\d+(?:\.\d+)?%?$/;
+  /\p{Sc}?\p{N}{1,3}(?:,\p{N}{3})+(?:\.\p{N}+)?%?|\p{Sc}?\p{N}+(?:\.\p{N}+)?%?|[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)?/giu;
+const NUMERIC_TOKEN_PATTERN = /^\p{Sc}?\p{N}+(?:\.\p{N}+)?%?$/u;
 
 const canonicalToken = (token: string): string => {
   const lowered = token.toLowerCase().replace(/[’']/g, "");
@@ -49,7 +49,9 @@ const canonicalToken = (token: string): string => {
  * Canonical lexical sequence used for fail-closed semantic grounding.
  * Function words are deliberately retained because modality and relationship
  * words such as "may", "over", and "by" can change the meaning of a claim.
- * Grouped numeric values are tokenized atomically (`$50,000` -> `$50000`).
+ * Unicode letters/numbers are retained so non-ASCII entity names remain part of
+ * the verified evidence contract. Grouped numeric values are tokenized atomically
+ * (`$50,000` -> `$50000`).
  */
 const canonicalTokens = (value: string): string[] =>
   (value.match(TOKEN_PATTERN) ?? []).map(canonicalToken);
@@ -91,8 +93,9 @@ const groupSignalsById = (
  * source id. The model may select and order verified facts, but it may not omit,
  * substitute, reorder, or paraphrase factual tokens. This intentionally trades
  * linguistic freedom for deterministic semantic safety: modality, negation,
- * entity relationships, function words, and numeric values remain coupled to
- * the source statement instead of being validated as an unordered token bag.
+ * entity relationships, Unicode entity names, function words, and numeric values
+ * remain coupled to the source statement instead of being validated as an
+ * unordered token bag.
  */
 export function validateDraftGrounding(
   draft: GeneratedDraft,
