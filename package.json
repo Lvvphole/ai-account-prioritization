@@ -18,6 +18,7 @@
     "build:api-python": "pnpm --filter api-python build",
     "supabase:types": "bash scripts/generate-supabase-types.sh",
     "db:lint": "supabase db lint",
+    "verify:migrations": "bash scripts/verify-migrations.sh",
     "check:no-prisma": "bash scripts/check-no-prisma.sh",
     "verify:security": "bash scripts/verify-security.sh",
     "verify:observability": "bash scripts/verify-observability.sh",

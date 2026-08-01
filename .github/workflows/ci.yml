@@ -61,10 +61,17 @@ jobs:
       - name: Check no Prisma
         run: pnpm check:no-prisma
 
-      # Gate 5: containerization — validate Compose (config needs no daemon)
+      # Gate 5: the schema enforces its invariants, not just its shape. Applies
+      # every migration to an empty database and asserts the behaviour: a batch
+      # cannot skip approval, an unauthenticated connection cannot record one,
+      # a hard block cannot be resolved, RLS holds per role.
+      - name: Verify migrations
+        run: pnpm verify:migrations
+
+      # Gate 6: containerization — validate Compose (config needs no daemon)
       - name: Validate Docker Compose
         run: docker compose -f infra/compose.yaml config
 
-      # Gate 6: build all images (daemon available on GitHub runners)
+      # Gate 7: build all images (daemon available on GitHub runners)
       - name: Build Docker images
         run: docker compose -f infra/compose.yaml build
