@@ -20,6 +20,7 @@ import {
 } from "./execution.prompt";
 import {
   hashRuntimeDraftingPolicy,
+  normalizeRuntimeDraftingPolicy,
   RUNTIME_DRAFT_POLICY_VERSION,
   runtimeDraftingPolicyAuditSnapshot,
   runtimeDraftingPolicyFromEnv,
@@ -110,7 +111,10 @@ export interface HybridDraftOutcome {
   source: DraftSource;
   recommendationId: string;
   selectedSourceSignalIds: string[];
+  /** Citations for the final draft that may be published (model or template). */
   claimCitations: DraftClaimCitation[];
+  /** Candidate citations retained even when grounding rejection triggers fallback. */
+  modelCandidateClaimCitations: DraftClaimCitation[];
   schemaValidation: DraftValidationStatus;
   groundingValidation: DraftValidationStatus;
   groundingFailedGates: string[];
@@ -338,7 +342,9 @@ export async function attachHybridActionDraft(
   ctx: AccountContext,
   options: HybridDraftOptions = {},
 ): Promise<HybridDraftResult> {
-  const policy = options.policy ?? runtimeDraftingPolicyFromEnv();
+  const policy = normalizeRuntimeDraftingPolicy(
+    options.policy ?? runtimeDraftingPolicyFromEnv(),
+  );
   const template = (): Recommendation => attachActionDraft(rec, ctx);
   const baseOutcome = hybridDraftContractMetadata(policy);
   const now = options.now ?? rec.createdAt;
@@ -347,6 +353,7 @@ export async function attachHybridActionDraft(
   let reservedRunTokens: number | undefined;
   let selectedSourceSignalIds: string[] = [];
   let claimCitations: DraftClaimCitation[] = [];
+  let modelCandidateClaimCitations: DraftClaimCitation[] = [];
   let schemaValidation: DraftValidationStatus = "not_run";
   let groundingValidation: DraftValidationStatus = "not_run";
   let groundingFailedGates: string[] = [];
@@ -356,6 +363,7 @@ export async function attachHybridActionDraft(
     recommendationId: rec.id,
     selectedSourceSignalIds,
     claimCitations,
+    modelCandidateClaimCitations,
     schemaValidation,
     groundingValidation,
     groundingFailedGates,
@@ -431,9 +439,13 @@ export async function attachHybridActionDraft(
       throw new Error("DRAFT_SCHEMA_INVALID");
     }
     schemaValidation = "passed";
-    claimCitations = parsed.data.sentences.map((sentence) => ({
+    modelCandidateClaimCitations = parsed.data.sentences.map((sentence) => ({
       text: sentence.text,
       sourceSignalIds: [...sentence.sourceSignalIds],
+    }));
+    claimCitations = modelCandidateClaimCitations.map((citation) => ({
+      text: citation.text,
+      sourceSignalIds: [...citation.sourceSignalIds],
     }));
 
     const grounding = validateDraftGrounding(parsed.data, prepared.context);
