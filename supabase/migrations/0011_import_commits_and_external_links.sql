@@ -51,6 +51,13 @@ alter table public.change_sets
 alter table public.change_sets
   add constraint change_sets_id_workspace_key unique (id, workspace_id);
 
+-- Lets a commit demand that its change set and its approval describe the same
+-- batch it claims to be committing.
+alter table public.change_sets
+  drop constraint if exists change_sets_id_batch_workspace_key;
+alter table public.change_sets
+  add constraint change_sets_id_batch_workspace_key unique (id, batch_id, workspace_id);
+
 -- ------------------------------------------------------- change_set_items --
 
 create table if not exists public.change_set_items (
@@ -76,6 +83,13 @@ create table if not exists public.change_set_items (
     check ((change_kind = 'create') = (target_record_id is null))
 );
 
+-- Lets a commit item name the exact previewed change it applied.
+alter table public.change_set_items
+  drop constraint if exists change_set_items_id_set_workspace_key;
+alter table public.change_set_items
+  add constraint change_set_items_id_set_workspace_key
+  unique (id, change_set_id, workspace_id);
+
 create index if not exists change_set_items_set_idx
   on public.change_set_items (change_set_id);
 
@@ -92,8 +106,12 @@ create table if not exists public.import_approvals (
   approved_at timestamptz not null default now(),
   foreign key (batch_id, workspace_id)
     references public.ingestion_batches (id, workspace_id) on delete cascade,
-  constraint import_approvals_second_approver_present
-    check (not second_approval_required or second_approved_by is not null),
+  -- No constraint requires the second signature to be present here. The row
+  -- records who has approved so far, and the second approver has not acted yet
+  -- when the first one does. Completeness is demanded at commit time instead,
+  -- by `enforce_commit_approval_complete` below, which is the moment it
+  -- actually matters.
+  --
   -- Two approvals from one person is one approval. Section 7.2 step 9.
   constraint import_approvals_second_approver_distinct
     check (second_approved_by is null or second_approved_by <> approved_by)
@@ -104,8 +122,89 @@ alter table public.import_approvals
 alter table public.import_approvals
   add constraint import_approvals_id_workspace_key unique (id, workspace_id);
 
+alter table public.import_approvals
+  drop constraint if exists import_approvals_id_batch_workspace_key;
+alter table public.import_approvals
+  add constraint import_approvals_id_batch_workspace_key
+  unique (id, batch_id, workspace_id);
+
 create index if not exists import_approvals_batch_idx
   on public.import_approvals (batch_id);
+
+-- ------------------------------------------- approvals name real approvers --
+--
+-- `approved_by` referencing `profiles` only proves the id belongs to some user
+-- somewhere. Two problems follow: the named person need not be an admin of
+-- this workspace, and one admin can satisfy a two-person requirement by typing
+-- two ids without either person acting.
+--
+-- Both are closed here. An approver must hold admin in the batch's workspace,
+-- and in a browser session the approver must be the person making the request.
+-- The service role has no `auth.uid()` and remains a trusted server context, as
+-- it is everywhere else in this schema.
+
+create or replace function public.is_workspace_admin_user(ws uuid, uid uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+      from public.workspace_memberships m
+     where m.workspace_id = ws
+       and m.user_id = uid
+       and m.role = 'admin'
+  );
+$$;
+
+create or replace function public.enforce_approval_identity()
+returns trigger
+language plpgsql
+as $$
+begin
+  if not public.is_workspace_admin_user(new.workspace_id, new.approved_by) then
+    raise exception 'approver % does not hold admin in workspace %',
+      new.approved_by, new.workspace_id
+      using errcode = 'check_violation';
+  end if;
+
+  if new.second_approved_by is not null
+     and not public.is_workspace_admin_user(new.workspace_id, new.second_approved_by) then
+    raise exception 'second approver % does not hold admin in workspace %',
+      new.second_approved_by, new.workspace_id
+      using errcode = 'check_violation';
+  end if;
+
+  if tg_op = 'INSERT' and auth.uid() is not null then
+    if new.approved_by <> auth.uid() then
+      raise exception 'an approval records the person giving it, not another user'
+        using errcode = 'check_violation';
+    end if;
+    -- A second approval is a second person acting. It is recorded when they
+    -- act, never claimed on their behalf at insert time.
+    if new.second_approved_by is not null then
+      raise exception 'a second approval must be recorded by the second approver'
+        using errcode = 'check_violation';
+    end if;
+  end if;
+
+  if tg_op = 'UPDATE' and auth.uid() is not null
+     and new.second_approved_by is distinct from old.second_approved_by
+     and new.second_approved_by <> auth.uid() then
+    raise exception 'a second approval records the person giving it'
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_import_approvals_identity on public.import_approvals;
+create trigger trg_import_approvals_identity
+  before insert or update on public.import_approvals
+  for each row execute function public.enforce_approval_identity();
 
 -- --------------------------------------------------------- import_commits --
 
@@ -123,16 +222,26 @@ create table if not exists public.import_commits (
   rolled_back_by_commit_id uuid,
   foreign key (batch_id, workspace_id)
     references public.ingestion_batches (id, workspace_id) on delete restrict,
-  foreign key (change_set_id, workspace_id)
-    references public.change_sets (id, workspace_id) on delete restrict,
-  foreign key (approval_id, workspace_id)
-    references public.import_approvals (id, workspace_id) on delete restrict
+  -- All three inputs must name the same batch. Checking only the workspace
+  -- would let one approved batch's sign-off authorize a different batch's
+  -- changes, which is the whole gate defeated by a single mismatched id.
+  foreign key (change_set_id, batch_id, workspace_id)
+    references public.change_sets (id, batch_id, workspace_id) on delete restrict,
+  foreign key (approval_id, batch_id, workspace_id)
+    references public.import_approvals (id, batch_id, workspace_id) on delete restrict
 );
 
 alter table public.import_commits
   drop constraint if exists import_commits_id_workspace_key;
 alter table public.import_commits
   add constraint import_commits_id_workspace_key unique (id, workspace_id);
+
+-- Lets a commit item prove it belongs to the change set this commit applied.
+alter table public.import_commits
+  drop constraint if exists import_commits_id_change_set_workspace_key;
+alter table public.import_commits
+  add constraint import_commits_id_change_set_workspace_key
+  unique (id, change_set_id, workspace_id);
 
 alter table public.import_commits
   drop constraint if exists import_commits_rollback_fk;
@@ -144,6 +253,35 @@ alter table public.import_commits
 create index if not exists import_commits_batch_idx
   on public.import_commits (batch_id);
 
+-- The gate that a two-person requirement actually rests on. An approval row is
+-- allowed to sit incomplete while the second admin has not yet acted; a commit
+-- against it is not.
+create or replace function public.enforce_commit_approval_complete()
+returns trigger
+language plpgsql
+as $$
+declare
+  needs_second boolean;
+  second_signer uuid;
+begin
+  select second_approval_required, second_approved_by
+    into needs_second, second_signer
+    from public.import_approvals
+   where id = new.approval_id;
+
+  if needs_second and second_signer is null then
+    raise exception 'approval % still awaits its second approver', new.approval_id
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_import_commits_approval_complete on public.import_commits;
+create trigger trg_import_commits_approval_complete
+  before insert on public.import_commits
+  for each row execute function public.enforce_commit_approval_complete();
+
 -- ---------------------------------------------------- import_commit_items --
 -- What one commit actually wrote, row by row. This is the lineage a reviewer
 -- follows from an operational record back to the source row that produced it.
@@ -152,6 +290,9 @@ create table if not exists public.import_commit_items (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces (id) on delete cascade,
   commit_id uuid not null,
+  -- Carried so the two references below can be pinned to the same change set.
+  -- Without it, lineage is a claim rather than a constraint.
+  change_set_id uuid not null,
   change_set_item_id uuid not null,
   object_type public.canonical_object_type not null,
   -- The operational row written. Not a foreign key: the target table varies by
@@ -159,8 +300,11 @@ create table if not exists public.import_commit_items (
   internal_record_id uuid not null,
   change_kind public.change_kind not null,
   applied_at timestamptz not null default now(),
-  foreign key (commit_id, workspace_id)
-    references public.import_commits (id, workspace_id) on delete restrict,
+  foreign key (commit_id, change_set_id, workspace_id)
+    references public.import_commits (id, change_set_id, workspace_id) on delete restrict,
+  -- The applied item must be one of the items an approver actually previewed.
+  foreign key (change_set_item_id, change_set_id, workspace_id)
+    references public.change_set_items (id, change_set_id, workspace_id) on delete restrict,
   unique (commit_id, change_set_item_id)
 );
 

@@ -79,8 +79,13 @@ create table if not exists public.ingestion_batches (
   duplicate_rows integer not null default 0 check (duplicate_rows >= 0),
   foreign key (source_id, workspace_id)
     references public.data_sources (id, workspace_id) on delete cascade,
-  foreign key (mapping_version_id, workspace_id)
-    references public.source_mapping_versions (id, workspace_id) on delete restrict,
+  -- The mapping must belong to this batch's own source, not merely to the same
+  -- workspace. A mapping decides how raw fields become canonical ones, so
+  -- reading source A's rows through source B's mapping produces confident,
+  -- wrong facts rather than an error.
+  foreign key (mapping_version_id, source_id, workspace_id)
+    references public.source_mapping_versions (id, source_id, workspace_id)
+    on delete restrict,
   -- The counters describe the same rows the batch received. A total below the
   -- sum of its parts means the pipeline lost track of rows, which must not be
   -- storable.
@@ -94,6 +99,14 @@ alter table public.ingestion_batches
   drop constraint if exists ingestion_batches_id_workspace_key;
 alter table public.ingestion_batches
   add constraint ingestion_batches_id_workspace_key unique (id, workspace_id);
+
+-- Lets a staged record bind to the batch's own mapping version rather than to
+-- any mapping in the workspace.
+alter table public.ingestion_batches
+  drop constraint if exists ingestion_batches_id_mapping_workspace_key;
+alter table public.ingestion_batches
+  add constraint ingestion_batches_id_mapping_workspace_key
+  unique (id, mapping_version_id, workspace_id);
 
 create index if not exists ingestion_batches_workspace_idx
   on public.ingestion_batches (workspace_id);
@@ -203,10 +216,13 @@ create table if not exists public.staged_records (
   field_trust jsonb not null default '{}'::jsonb,
   corrected_from_hash text check (corrected_from_hash is null or corrected_from_hash ~ '^[a-f0-9]{64}$'),
   created_at timestamptz not null default now(),
-  foreign key (batch_id, workspace_id)
-    references public.ingestion_batches (id, workspace_id) on delete cascade,
-  foreign key (mapping_version_id, workspace_id)
-    references public.source_mapping_versions (id, workspace_id) on delete restrict
+  -- A row is interpreted by its batch's mapping, never by another one that
+  -- happens to share the workspace. This also means records cannot be staged
+  -- before a mapping version is chosen, because the batch's column is still
+  -- null and nothing matches it.
+  foreign key (batch_id, mapping_version_id, workspace_id)
+    references public.ingestion_batches (id, mapping_version_id, workspace_id)
+    on delete cascade
 );
 
 alter table public.staged_records
@@ -263,14 +279,48 @@ create index if not exists ingestion_findings_batch_idx
 create index if not exists ingestion_findings_open_idx
   on public.ingestion_findings (workspace_id, disposition, severity);
 
--- Section 13.4. These rules can never be overridden, so the database refuses a
--- resolution rather than trusting the review UI to hide the button.
-create or replace function public.enforce_hard_block_immutability()
+-- Section 13.4. These rules can never be overridden.
+--
+-- The list is duplicated from `HARD_BLOCK_RULES` in @repo/shared-schemas
+-- because the two layers must agree without one being able to call the other.
+-- An eval reads this file and fails if they drift.
+create or replace function public.is_hard_block_rule(rule text)
+returns boolean
+language sql
+immutable
+as $$
+  select rule in (
+    'signature_invalid',
+    'cross_workspace_reference',
+    'malware_detected',
+    'executable_content_in_csv',
+    'credential_revoked',
+    'hard_resource_limit_exceeded',
+    'event_id_reuse_different_hash',
+    'protected_field_mapping_attempt',
+    'scoring_config_change_attempt',
+    'customer_action_attempt'
+  );
+$$;
+
+-- Hard-block status follows from the rule that fired, not from whatever
+-- disposition the writer supplied. Deriving it here means a pipeline
+-- misclassification or a direct admin insert cannot file `malware_detected` as
+-- an ordinary finding and then resolve it.
+create or replace function public.enforce_hard_block_disposition()
 returns trigger
 language plpgsql
 as $$
 begin
-  if old.disposition = 'hard_block' and new.disposition is distinct from old.disposition then
+  if public.is_hard_block_rule(new.rule_id)
+     and new.disposition <> 'hard_block' then
+    raise exception 'finding rule % is a hard block and cannot be dispositioned as %',
+      new.rule_id, new.disposition
+      using errcode = 'check_violation';
+  end if;
+  if tg_op = 'UPDATE'
+     and old.disposition = 'hard_block'
+     and new.disposition is distinct from old.disposition then
     raise exception 'hard block finding % cannot be resolved', old.id
       using errcode = 'check_violation';
   end if;
@@ -280,5 +330,5 @@ $$;
 
 drop trigger if exists trg_ingestion_findings_hard_block on public.ingestion_findings;
 create trigger trg_ingestion_findings_hard_block
-  before update on public.ingestion_findings
-  for each row execute function public.enforce_hard_block_immutability();
+  before insert or update on public.ingestion_findings
+  for each row execute function public.enforce_hard_block_disposition();

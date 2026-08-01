@@ -174,10 +174,43 @@ create trigger trg_import_commit_items_append_only
   before update or delete on public.import_commit_items
   for each row execute function public.forbid_update_delete();
 
-drop trigger if exists trg_import_approvals_append_only on public.import_approvals;
-create trigger trg_import_approvals_append_only
-  before update or delete on public.import_approvals
+-- An approval is append-only in substance, but the second approver has not
+-- acted yet when the row is created. Their signature is new information rather
+-- than a rewrite, so exactly that one column may be filled in once. Everything
+-- else, including changing an already-recorded second approver, is refused.
+create or replace function public.forbid_approval_rewrite()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.id is distinct from old.id
+     or new.workspace_id is distinct from old.workspace_id
+     or new.batch_id is distinct from old.batch_id
+     or new.approved_by is distinct from old.approved_by
+     or new.business_reason is distinct from old.business_reason
+     or new.second_approval_required is distinct from old.second_approval_required
+     or new.approved_at is distinct from old.approved_at then
+    raise exception 'import_approvals is append-only; only the second approver may be added'
+      using errcode = 'check_violation';
+  end if;
+  if old.second_approved_by is not null
+     and new.second_approved_by is distinct from old.second_approved_by then
+    raise exception 'the second approver on approval % is already recorded', old.id
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_import_approvals_no_delete on public.import_approvals;
+create trigger trg_import_approvals_no_delete
+  before delete on public.import_approvals
   for each row execute function public.forbid_update_delete();
+
+drop trigger if exists trg_import_approvals_no_rewrite on public.import_approvals;
+create trigger trg_import_approvals_no_rewrite
+  before update on public.import_approvals
+  for each row execute function public.forbid_approval_rewrite();
 
 -- audit_evidence predates this spec and was never guarded. The runtime only
 -- appends, but "only appends" was a property of the code rather than of the

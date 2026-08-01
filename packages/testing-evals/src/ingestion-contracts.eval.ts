@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   IngestionState,
   allowedTransitions,
@@ -221,7 +223,11 @@ describe("batch and approval invariants", () => {
     expect(IngestionBatchSchema.safeParse({ ...batch, readyRows: 99 }).success).toBe(false);
   });
 
-  it("requires a second approver when the risk threshold demanded one", () => {
+  it("records an approval still awaiting its second signature", () => {
+    // The row states who has approved so far. Requiring the second signature
+    // here would force the first approver to name someone who has not acted,
+    // which is the thing two-person approval exists to prevent. The commit is
+    // where completeness is demanded: see `assertCommitAuthorized`.
     const approval = {
       id: UUID_A,
       workspaceId: UUID_B,
@@ -232,7 +238,7 @@ describe("batch and approval invariants", () => {
       secondApprovedBy: null,
       approvedAt: NOW,
     };
-    expect(ImportApprovalSchema.safeParse(approval).success).toBe(false);
+    expect(ImportApprovalSchema.safeParse(approval).success).toBe(true);
     expect(
       ImportApprovalSchema.safeParse({ ...approval, secondApprovedBy: UUID_B }).success,
     ).toBe(true);
@@ -518,5 +524,58 @@ describe("remote tool and webhook policy", () => {
       WebhookEnvelopeSchema.safeParse({ ...envelope, callbackUrl: "https://attacker" })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("the database agrees with the contracts", () => {
+  // Two of these lists are necessarily duplicated in SQL: Postgres cannot call
+  // into TypeScript, and the rules have to hold at the database boundary too.
+  // Duplication is fine as long as drift is loud, which is what these assert.
+  const MIGRATIONS = join(process.cwd(), "..", "..", "supabase", "migrations");
+  const quarantine = readFileSync(
+    join(MIGRATIONS, "0010_ingestion_batches_and_quarantine.sql"),
+    "utf8",
+  );
+  const triggers = readFileSync(
+    join(MIGRATIONS, "0012_domain_events_and_triggers.sql"),
+    "utf8",
+  );
+
+  it("carries every hard-block rule into is_hard_block_rule()", () => {
+    const fn = quarantine.slice(
+      quarantine.indexOf("function public.is_hard_block_rule"),
+      quarantine.indexOf("enforce_hard_block_disposition"),
+    );
+    for (const rule of HARD_BLOCK_RULES) {
+      expect(fn, `SQL is missing hard-block rule ${rule}`).toContain(`'${rule}'`);
+    }
+  });
+
+  it("adds no hard-block rule the contracts do not know about", () => {
+    const fn = quarantine.slice(
+      quarantine.indexOf("function public.is_hard_block_rule"),
+      quarantine.indexOf("enforce_hard_block_disposition"),
+    );
+    const inSql = [...fn.matchAll(/'([a-z_]+)'/g)].map((m) => m[1] as string);
+    for (const rule of inSql) {
+      expect(HARD_BLOCK_RULES, `SQL has an unknown hard-block rule ${rule}`).toContain(rule);
+    }
+  });
+
+  it("gives the trigger_action_type enum exactly the permitted actions", () => {
+    const enumBlock = triggers.slice(
+      triggers.indexOf("create type public.trigger_action_type"),
+      triggers.indexOf("create type public.trigger_state"),
+    );
+    for (const action of TriggerActionType.options) {
+      expect(enumBlock, `SQL enum is missing ${action}`).toContain(`'${action}'`);
+    }
+    // The prohibition has to survive in the database too: an enum that gained
+    // one of these would let a trigger be stored that the contracts forbid.
+    for (const prohibited of PROHIBITED_TRIGGER_ACTIONS) {
+      expect(enumBlock, `SQL enum admits prohibited action ${prohibited}`).not.toContain(
+        `'${prohibited}'`,
+      );
+    }
   });
 });

@@ -324,13 +324,15 @@ export const ImportApprovalSchema = z
     businessReason: z.string().min(1).max(1000),
     /** Section 7.2 step 9. Set when a risk threshold demanded a second approver. */
     secondApprovalRequired: z.boolean(),
+    /**
+     * Null until the second admin acts. This record is who has approved so far,
+     * not a promise about who will, so a first approver cannot fill it in on
+     * someone else's behalf.
+     */
     secondApprovedBy: z.string().uuid().nullable(),
     approvedAt: z.string().datetime(),
   })
-  .strict()
-  .refine((a) => !a.secondApprovalRequired || a.secondApprovedBy !== null, {
-    message: "a second approver is required when secondApprovalRequired is true",
-  });
+  .strict();
 export type ImportApproval = z.infer<typeof ImportApprovalSchema>;
 
 export const ImportCommitSchema = z

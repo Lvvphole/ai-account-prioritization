@@ -174,6 +174,16 @@ alter table public.source_mapping_versions
 alter table public.source_mapping_versions
   add constraint source_mapping_versions_id_workspace_key unique (id, workspace_id);
 
+-- Referenced by anything that must use a mapping belonging to a specific
+-- source. Workspace equality alone is not enough: a workspace with two sources
+-- could otherwise interpret source A's rows with source B's field mapping and
+-- commit the result as fact.
+alter table public.source_mapping_versions
+  drop constraint if exists source_mapping_versions_id_source_workspace_key;
+alter table public.source_mapping_versions
+  add constraint source_mapping_versions_id_source_workspace_key
+  unique (id, source_id, workspace_id);
+
 create index if not exists source_mapping_versions_source_idx
   on public.source_mapping_versions (source_id);
 

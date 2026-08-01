@@ -180,6 +180,13 @@ alter table public.trigger_versions
 alter table public.trigger_versions
   add constraint trigger_versions_id_workspace_key unique (id, workspace_id);
 
+-- Lets an execution prove the version it ran belongs to the trigger it names.
+alter table public.trigger_versions
+  drop constraint if exists trigger_versions_id_trigger_workspace_key;
+alter table public.trigger_versions
+  add constraint trigger_versions_id_trigger_workspace_key
+  unique (id, trigger_id, workspace_id);
+
 create index if not exists trigger_versions_event_idx
   on public.trigger_versions (workspace_id, event_type)
   where published_at is not null;
@@ -326,8 +333,11 @@ create table if not exists public.trigger_executions (
   completed_at timestamptz,
   foreign key (trigger_id, workspace_id)
     references public.trigger_definitions (id, workspace_id) on delete cascade,
-  foreign key (trigger_version_id, workspace_id)
-    references public.trigger_versions (id, workspace_id) on delete restrict,
+  -- The version must belong to the trigger this execution names. Otherwise the
+  -- audit row disagrees with itself about which rule ran, and cooldown counted
+  -- per trigger is attributed to the wrong one.
+  foreign key (trigger_version_id, trigger_id, workspace_id)
+    references public.trigger_versions (id, trigger_id, workspace_id) on delete restrict,
   foreign key (domain_event_id, workspace_id)
     references public.domain_events (id, workspace_id) on delete cascade,
   constraint trigger_executions_replay_has_origin
