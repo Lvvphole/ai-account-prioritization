@@ -82,7 +82,7 @@ The remaining implementation sequence is:
 ## Key features
 
 - **Deterministic ranking.** A pure weighted sum with a stable `accountId`
-  tie-break. The same inputs produce the same decision envelope.
+  tie-break. The same inputs produce the same pre-draft authority envelope.
 - **Bounded AI drafting.** The target runtime model may synthesize verified
   signals and draft action content, but it cannot change authoritative fields.
 - **Explainable by construction.** Closed-set reason codes and traceable source
@@ -101,8 +101,10 @@ The remaining implementation sequence is:
   blocks, and external writes create audit evidence.
 - **RBAC and Row Level Security.** Access is enforced in Postgres, not only in
   the UI.
-- **Eval-gated CI.** Deterministic, security, generative, and asynchronous judge
-  gates protect deployment.
+- **Eval-gated CI.** Deterministic and security gates protect deployment today.
+  Runtime-generation schema, grounding, authority, injection, and fallback gates
+  are planned and become deployment-blocking only after the hybrid runtime is
+  implemented. The asynchronous judge remains separately policy-gated.
 - **Schema as contract.** Zod is the source of truth and generates JSON Schema
   for the Python service.
 
@@ -123,7 +125,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["DISCOVER<br/>verified CRM signals"] --> B["PLAN<br/>deterministic decision envelope"]
+    A["DISCOVER<br/>verified CRM signals"] --> B["PLAN<br/>deterministic pre-draft authority envelope"]
     B --> C["CONTEXT<br/>minimum verified packet"]
     C --> D["DRAFT<br/>constrained LLM or template fallback"]
     D --> E{"VERIFY<br/>schema · grounding · guardrails · source · permission · approval"}
@@ -202,7 +204,7 @@ flowchart TB
     SEC["packages/security<br/>RBAC · approval · policy"]
     OBS["packages/observability<br/>PII-safe telemetry"]
     P["apps/api-python<br/>support service"]
-    J["packages/testing-evals<br/>deterministic · generative · judge"]
+    J["packages/testing-evals<br/>deterministic · planned generative · judge"]
     DB[("Supabase Postgres<br/>RLS · recommendations · audit")]
 
     W --> DB
@@ -229,7 +231,7 @@ packages/
   supabase-client/ Typed Supabase clients and generated DB types
   security/        RBAC, approval, PII and security policy
   observability/   PII-safe event and telemetry layer
-  testing-evals/   Deterministic, generative, and async judge evals
+  testing-evals/   Deterministic, planned generative, and async judge evals
   config-*/        Shared TypeScript and ESLint configuration
 infra/             Docker Compose and per-service Dockerfiles
 supabase/          Migrations, RLS policies, seed, and config
