@@ -145,9 +145,9 @@ const modelDraftable = (type: Recommendation["nextBestAction"]["type"]): boolean
   type === "log_research_note";
 
 /**
- * Conservative provider-independent upper bound. UTF-8 byte length is never
- * smaller than the number of byte-level input units, and the fixed protocol
- * allowance covers role/message framing without another metered provider call.
+ * Conservative provider-independent upper bound based on UTF-8 payload bytes,
+ * plus a fixed allowance for role/message framing. It intentionally overcounts
+ * normal text rather than making a second metered provider call just to count.
  */
 export function estimateRuntimeModelInputTokensUpperBound(
   request: RuntimeModelRequest,
@@ -241,11 +241,12 @@ export async function attachHybridActionDraft(
   try {
     const prepared = buildBudgetedDraftRequest(rec, ctx, policy);
     inputTokenUpperBound = prepared.inputTokenUpperBound;
-    reservedRunTokens = inputTokenUpperBound + policy.maxTokens;
+    const requestedRunTokens = inputTokenUpperBound + policy.maxTokens;
 
-    if (!reserveRunBudget(options.runBudget, reservedRunTokens)) {
+    if (!reserveRunBudget(options.runBudget, requestedRunTokens)) {
       throw new Error("DRAFT_RUN_BUDGET_EXCEEDED");
     }
+    reservedRunTokens = requestedRunTokens;
 
     const client = options.modelClient ?? anthropicRuntimeModelClient;
     const modelResult = await client.generate(prepared.request, policy);
