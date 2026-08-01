@@ -18,6 +18,7 @@ import {
 } from "../../lib/display";
 import ActionBar from "../../components/ActionBar";
 import FeedbackPanel from "../../components/FeedbackPanel";
+import { requireSession } from "../../lib/auth";
 
 /**
  * Account detail, ordered by the questions a rep actually asks: what should I
@@ -31,6 +32,9 @@ export default async function AccountDetailPage({
   params: Promise<{ accountId: string }>;
   searchParams: Promise<{ feedback?: string }>;
 }) {
+  // Account detail carries customer evidence, so it needs the same session gate
+  // as the dashboard it is reached from.
+  await requireSession();
   const { accountId } = await params;
   const { feedback } = await searchParams;
   const recordedFeedback = (await cookies()).get(`fb_${accountId}`)?.value;

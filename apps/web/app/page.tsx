@@ -72,7 +72,7 @@ export default function HomePage() {
               <h3>Today’s Plan</h3>
               <p className="preview-sub">Ranked by the deterministic scorer · run_demo</p>
             </div>
-            <a className="btn-sm" href="/dashboard">
+            <a className="btn-sm" href="/login">
               View All →
             </a>
           </div>
@@ -150,9 +150,9 @@ function PlanRow({ rec }: { rec: Recommendation }) {
       <div className="plan-main">
         <span className={`rank-badge rank-${tier.tone}`}>{rec.rank}</span>
         <div className="plan-id">
-          <a className="plan-name" href={`/accounts/${rec.accountId}`}>
+          <span className="plan-name">
             {profile?.name ?? rec.accountId}
-          </a>
+          </span>
           <p className="plan-meta">
             {profile ? `${profile.industry} · ${profile.tier}` : rec.accountId}
           </p>
