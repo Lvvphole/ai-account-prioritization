@@ -497,7 +497,7 @@ describe("runtime drafting Codex review regressions", () => {
     await runDailyPrioritizationForOwner("rep_alex", {
       now: ISO,
       autoApprove: true,
-      drafting: { policy: policy() },
+      drafting: { policy: policy({ maxEvidenceAgeDays: 3650 }) },
     });
 
     const draftAudits = store.auditLog.filter((entry) => entry.action === "runtime_draft");
@@ -515,7 +515,7 @@ describe("runtime drafting Codex review regressions", () => {
         maxSignals: 5,
         maxConcurrent: 2,
         maxRunTokens: 10000,
-        maxEvidenceAgeDays: 90,
+        maxEvidenceAgeDays: 3650,
         fallback: "template",
       });
       expect(
