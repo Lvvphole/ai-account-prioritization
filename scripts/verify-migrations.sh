@@ -57,7 +57,10 @@ else
   }
 
   echo "==> Starting a throwaway PostgreSQL cluster on port $PGPORT"
-  run "$PGBIN/initdb -D $PGDATA -A trust" >/dev/null 2>&1 \
+  # -U pins the database superuser name regardless of which OS account runs
+  # initdb. Without it the superuser is named after the invoking user, which
+  # differs between a root container (postgres) and a CI runner (runner).
+  run "$PGBIN/initdb -D $PGDATA -A trust -U postgres" >/dev/null 2>&1 \
     || fail "initdb failed"
   run "$PGBIN/pg_ctl -D $PGDATA -o '-k $PGSOCK -p $PGPORT' -l $PGDATA/log start" >/dev/null \
     || fail "could not start PostgreSQL"
