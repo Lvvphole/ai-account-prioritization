@@ -1,7 +1,7 @@
 import type { GeneratedDraft } from "@repo/shared-schemas";
 import type { VerifiedDraftContext, VerifiedDraftSignal } from "./build-draft-context";
 
-export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v6";
+export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v7";
 
 export interface DraftGroundingResult {
   passed: boolean;
@@ -33,6 +33,8 @@ const NEGATION_TOKENS = new Set([
   "shouldnt",
 ]);
 
+const GROUPED_NUMERIC_PATTERN =
+  /\p{Sc}?\p{N}{1,3}(?:,\p{N}{3})+(?:\.\p{N}+)?%?/gu;
 const TOKEN_PATTERN =
   /\p{Sc}?\p{N}{1,3}(?:,\p{N}{3})+(?:\.\p{N}+)?%?|\p{Sc}?\p{N}+(?:\.\p{N}+)?%?|[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)?/giu;
 const NUMERIC_TOKEN_PATTERN = /^\p{Sc}?\p{N}+(?:\.\p{N}+)?%?$/u;
@@ -46,15 +48,22 @@ const canonicalToken = (token: string): string => {
 };
 
 /**
- * Canonical lexical sequence used for fail-closed semantic grounding.
- * Function words are deliberately retained because modality and relationship
- * words such as "may", "over", and "by" can change the meaning of a claim.
- * Unicode letters/numbers are retained so non-ASCII entity names remain part of
- * the verified evidence contract. Grouped numeric values are tokenized atomically
- * (`$50,000` -> `$50000`).
+ * Canonical lexical sequence used only for deterministic failure diagnostics.
+ * Exact support is decided from the complete normalized description below so
+ * punctuation, symbols, emoji, and other entity-bearing characters cannot be
+ * discarded by tokenization.
  */
 const canonicalTokens = (value: string): string[] =>
   (value.match(TOKEN_PATTERN) ?? []).map(canonicalToken);
+
+const canonicalDescription = (value: string): string =>
+  value
+    .normalize("NFKC")
+    .replace(/[’]/g, "'")
+    .replace(GROUPED_NUMERIC_PATTERN, (token) => token.replace(/,/g, ""))
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLowerCase();
 
 const numericTokens = (value: string): string[] =>
   canonicalTokens(value).filter((token) => NUMERIC_TOKEN_PATTERN.test(token));
@@ -70,7 +79,9 @@ const sameSequence = (left: string[], right: string[]): boolean =>
 
 const sameMultiset = (left: string[], right: string[]): boolean => {
   if (left.length !== right.length) return false;
-  return [...left].sort().every((token, index) => token === [...right].sort()[index]);
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((token, index) => token === sortedRight[index]);
 };
 
 const groupSignalsById = (
@@ -89,13 +100,11 @@ const groupSignalsById = (
  * Conservative deterministic grounding check.
  *
  * A generated factual sentence must preserve one complete verified evidence
- * description after canonical punctuation/amount normalization under EVERY cited
- * source id. The model may select and order verified facts, but it may not omit,
- * substitute, reorder, or paraphrase factual tokens. This intentionally trades
- * linguistic freedom for deterministic semantic safety: modality, negation,
- * entity relationships, Unicode entity names, function words, and numeric values
- * remain coupled to the source statement instead of being validated as an
- * unordered token bag.
+ * description under EVERY cited source id. Normalization is intentionally
+ * narrow: Unicode compatibility form, case, apostrophe style, whitespace, and
+ * grouped numeric separators. Meaning-bearing punctuation, symbols, emoji,
+ * modality, negation, entity relationships, and numeric values remain part of
+ * the exact evidence contract.
  */
 export function validateDraftGrounding(
   draft: GeneratedDraft,
@@ -118,9 +127,10 @@ export function validateDraftGrounding(
       continue;
     }
 
+    const claimCanonical = canonicalDescription(sentence.text);
     const claimTokens = canonicalTokens(sentence.text);
     const claimNumbers = numericTokens(sentence.text);
-    if (claimTokens.length === 0) {
+    if (claimCanonical.length === 0 || claimTokens.length === 0) {
       failures.add("DRAFT_CLAIM_NOT_GROUNDED");
       continue;
     }
@@ -134,12 +144,13 @@ export function validateDraftGrounding(
       let relationshipMismatch = false;
 
       for (const signal of group) {
+        const evidenceCanonical = canonicalDescription(signal.description);
         const evidenceTokens = canonicalTokens(signal.description);
         const evidenceNumbers = new Set(numericTokens(signal.description));
         const numbersMatch = claimNumbers.every((token) => evidenceNumbers.has(token));
         numericSupported ||= numbersMatch;
 
-        if (sameSequence(claimTokens, evidenceTokens)) {
+        if (claimCanonical === evidenceCanonical) {
           exactSupported = true;
           break;
         }
