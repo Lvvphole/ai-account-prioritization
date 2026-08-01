@@ -346,6 +346,7 @@ describe("runtime drafting Codex review regressions", () => {
         policy: policy({ enabled: true, maxSignals: 1, fallback: "template" }),
         modelClient: invalidSchemaClient,
         now: ISO,
+        beforeModelInvoke: async () => {},
       },
     );
 
