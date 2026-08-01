@@ -33,6 +33,7 @@ export class RuntimeModelError extends Error {
       | "DRAFT_MODEL_INVALID_RESPONSE"
       | "DRAFT_MODEL_CONFIG_ERROR",
     message: string,
+    public readonly telemetry?: RuntimeModelTelemetry,
   ) {
     super(message);
     this.name = "RuntimeModelError";
@@ -56,6 +57,15 @@ export const anthropicRuntimeModelClient: RuntimeModelClient = {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), policy.timeoutMs);
     const started = Date.now();
+    const failureTelemetry = (
+      usage?: AnthropicResponse["usage"],
+    ): RuntimeModelTelemetry => ({
+      provider: "anthropic",
+      model: policy.model as string,
+      latencyMs: Date.now() - started,
+      inputTokens: usage?.input_tokens,
+      outputTokens: usage?.output_tokens,
+    });
 
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -79,6 +89,7 @@ export const anthropicRuntimeModelClient: RuntimeModelClient = {
         throw new RuntimeModelError(
           "DRAFT_MODEL_HTTP_ERROR",
           `Runtime model returned HTTP ${response.status}.`,
+          failureTelemetry(),
         );
       }
 
@@ -88,6 +99,7 @@ export const anthropicRuntimeModelClient: RuntimeModelClient = {
         throw new RuntimeModelError(
           "DRAFT_MODEL_INVALID_RESPONSE",
           "Runtime model response contained no text content.",
+          failureTelemetry(body.usage),
         );
       }
 
@@ -98,18 +110,13 @@ export const anthropicRuntimeModelClient: RuntimeModelClient = {
         throw new RuntimeModelError(
           "DRAFT_MODEL_INVALID_RESPONSE",
           "Runtime model response was not strict JSON.",
+          failureTelemetry(body.usage),
         );
       }
 
       return {
         output,
-        telemetry: {
-          provider: "anthropic",
-          model: policy.model,
-          latencyMs: Date.now() - started,
-          inputTokens: body.usage?.input_tokens,
-          outputTokens: body.usage?.output_tokens,
-        },
+        telemetry: failureTelemetry(body.usage),
       };
     } catch (error) {
       if (error instanceof RuntimeModelError) throw error;
@@ -117,11 +124,13 @@ export const anthropicRuntimeModelClient: RuntimeModelClient = {
         throw new RuntimeModelError(
           "DRAFT_MODEL_TIMEOUT",
           `Runtime model exceeded ${policy.timeoutMs}ms timeout.`,
+          failureTelemetry(),
         );
       }
       throw new RuntimeModelError(
         "DRAFT_MODEL_HTTP_ERROR",
         error instanceof Error ? error.message : "Unknown runtime model error.",
+        failureTelemetry(),
       );
     } finally {
       clearTimeout(timeout);
