@@ -3,7 +3,7 @@ import { DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS } from "./build-draft-context";
 
 export type DraftFallbackPolicy = "template" | "hold";
 
-export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v6";
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v7";
 
 export interface RuntimeDraftingPolicy {
   enabled: boolean;
@@ -43,23 +43,82 @@ export interface RuntimeDraftingPolicyAuditSnapshot {
   fallback: DraftFallbackPolicy;
 }
 
+const assertPolicyInteger = (
+  name: string,
+  value: unknown,
+  min: number,
+  max: number,
+): number => {
+  if (!Number.isSafeInteger(value) || (value as number) < min || (value as number) > max) {
+    throw new Error(`Invalid runtime drafting policy ${name}: ${String(value)}`);
+  }
+  return value as number;
+};
+
+/**
+ * Normalize and validate any policy regardless of origin. Environment parsing is
+ * not a trusted boundary because callers can inject RuntimeDraftingPolicy
+ * objects directly through the exported runtime APIs.
+ */
+export function normalizeRuntimeDraftingPolicy(
+  policy: RuntimeDraftingPolicy,
+): RuntimeDraftingPolicy {
+  if (typeof policy.enabled !== "boolean") {
+    throw new Error(`Invalid runtime drafting policy enabled: ${String(policy.enabled)}`);
+  }
+  if (policy.provider !== "anthropic") {
+    throw new Error(`Unsupported runtime drafting policy provider: ${String(policy.provider)}`);
+  }
+  if (policy.fallback !== "template" && policy.fallback !== "hold") {
+    throw new Error(`Unsupported runtime drafting policy fallback: ${String(policy.fallback)}`);
+  }
+  if (policy.maxAttempts !== 1) {
+    throw new Error(`Invalid runtime drafting policy maxAttempts: ${String(policy.maxAttempts)}`);
+  }
+
+  const normalized: RuntimeDraftingPolicy = {
+    ...policy,
+    timeoutMs: assertPolicyInteger("timeoutMs", policy.timeoutMs, 250, 30000),
+    maxTokens: assertPolicyInteger("maxTokens", policy.maxTokens, 64, 2000),
+    maxInputTokens: assertPolicyInteger("maxInputTokens", policy.maxInputTokens, 256, 32000),
+    maxSignals: assertPolicyInteger("maxSignals", policy.maxSignals, 1, 32),
+    maxConcurrent: assertPolicyInteger("maxConcurrent", policy.maxConcurrent, 1, 16),
+    maxRunTokens: assertPolicyInteger("maxRunTokens", policy.maxRunTokens, 256, 500000),
+    maxEvidenceAgeDays: assertPolicyInteger(
+      "maxEvidenceAgeDays",
+      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+      1,
+      3650,
+    ),
+    maxAttempts: 1,
+  };
+
+  if (normalized.enabled && (!normalized.apiKey || !normalized.model?.trim())) {
+    throw new Error(
+      "Runtime drafting enabled policy requires a non-empty apiKey and model identity.",
+    );
+  }
+
+  return normalized;
+}
+
 export function runtimeDraftingPolicyAuditSnapshot(
   policy: RuntimeDraftingPolicy,
 ): RuntimeDraftingPolicyAuditSnapshot {
+  const normalized = normalizeRuntimeDraftingPolicy(policy);
   return {
-    enabled: policy.enabled,
-    provider: policy.provider,
-    model: policy.model ?? null,
-    timeoutMs: policy.timeoutMs,
-    maxTokens: policy.maxTokens,
-    maxInputTokens: policy.maxInputTokens,
-    maxSignals: policy.maxSignals,
-    maxConcurrent: policy.maxConcurrent,
-    maxRunTokens: policy.maxRunTokens,
-    maxEvidenceAgeDays:
-      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
-    maxAttempts: policy.maxAttempts,
-    fallback: policy.fallback,
+    enabled: normalized.enabled,
+    provider: normalized.provider,
+    model: normalized.model ?? null,
+    timeoutMs: normalized.timeoutMs,
+    maxTokens: normalized.maxTokens,
+    maxInputTokens: normalized.maxInputTokens,
+    maxSignals: normalized.maxSignals,
+    maxConcurrent: normalized.maxConcurrent,
+    maxRunTokens: normalized.maxRunTokens,
+    maxEvidenceAgeDays: normalized.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+    maxAttempts: normalized.maxAttempts,
+    fallback: normalized.fallback,
   };
 }
 
@@ -107,7 +166,7 @@ export function runtimeDraftingPolicyFromEnv(
     throw new Error(`Unsupported RUNTIME_DRAFT_FALLBACK: ${fallback}`);
   }
 
-  const policy: RuntimeDraftingPolicy = {
+  return normalizeRuntimeDraftingPolicy({
     enabled,
     provider,
     apiKey: env.RUNTIME_DRAFT_API_KEY,
@@ -126,15 +185,7 @@ export function runtimeDraftingPolicyFromEnv(
     ),
     maxAttempts: 1,
     fallback,
-  };
-
-  if (enabled && (!policy.apiKey || !policy.model)) {
-    throw new Error(
-      "Runtime drafting is enabled but RUNTIME_DRAFT_API_KEY or RUNTIME_DRAFT_MODEL is missing.",
-    );
-  }
-
-  return policy;
+  });
 }
 
 /**
