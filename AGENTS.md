@@ -36,9 +36,11 @@ merely to make a gate pass.
 
 1. The LLM **must not rank accounts**.
 2. **Deterministic scoring** decides account score and rank.
-3. No model call may influence score, rank, confidence, reason codes,
+3. No model call may set or directly mutate score, rank, confidence, reason codes,
    next-best-action type, permissions, approval state, verification status, or
-   publication eligibility.
+   publication eligibility. Candidate content may be rejected by deterministic
+   post-draft verification, which alone computes verification and publish/hold
+   outcomes.
 4. Runtime LLM use is permitted only for bounded signal synthesis and action
    drafting after deterministic scoring, ranking, reason-code generation, and
    next-best-action selection.
@@ -113,7 +115,7 @@ publication, or silent success.
 
 Runtime generation is allowed only when all of the following are true:
 
-- The deterministic decision envelope is complete and immutable.
+- The pre-draft deterministic authority envelope is complete and immutable.
 - The input context contains only the minimum authorized, verified information
   required for the draft.
 - Customer-controlled text is clearly delimited as data and cannot provide
@@ -127,7 +129,7 @@ Runtime generation is allowed only when all of the following are true:
   the input context.
 - Every cited source exists, is verified, is fresh enough for the action, and
   supports the claim.
-- The action type and all authoritative fields remain unchanged.
+- The action type and all pre-draft authoritative fields remain unchanged.
 - Failure produces an explicit held state or an approved deterministic template
   fallback; it never grants publication authority.
 
@@ -312,7 +314,7 @@ configuration.
 
 ## 9. Determinism and behavioral reliability contract
 
-### 9.1 Deterministic decision envelope
+### 9.1 Pre-draft deterministic authority envelope
 
 Given identical:
 
@@ -322,7 +324,7 @@ Given identical:
 - injected clock;
 - code revision;
 
-The system must produce byte-identical deterministic outputs for:
+The system must produce byte-identical pre-draft authoritative outputs for:
 
 - extracted features;
 - scores;
@@ -331,11 +333,12 @@ The system must produce byte-identical deterministic outputs for:
 - reason codes;
 - source-signal references;
 - next-best-action type;
-- approval requirement;
-- verification outcome;
-- publish/hold decision.
+- approval requirement.
 
-Deterministic code must not depend on:
+This envelope is complete before model generation and cannot be changed by model
+output.
+
+Deterministic pre-draft code must not depend on:
 
 - an uninjected wall clock;
 - randomness or random identifiers;
@@ -364,12 +367,37 @@ Required deterministic invariants include:
 - confidence remains within `0–1`;
 - ranking is independent of input order;
 - ties resolve by the documented stable key;
-- every published recommendation has verified evidence;
 - every reason code maps to supporting evidence;
-- identical inputs produce identical serialized decision envelopes;
-- unverified, stale-beyond-policy, unauthorized, or malformed data fails closed.
+- identical inputs produce identical serialized pre-draft authority envelopes;
+- unverified, stale-beyond-policy, unauthorized, or malformed source data fails
+  closed before drafting.
 
-### 9.2 Probabilistic generation envelope
+### 9.2 Post-draft deterministic gate result
+
+Given identical:
+
+- pre-draft authority envelope;
+- candidate model draft or deterministic fallback draft;
+- schema, grounding, guardrail, permission, and approval policy versions;
+- approval state;
+- injected clock;
+- code revision;
+
+The deterministic verifier must produce byte-identical outputs for:
+
+- generated-output schema result;
+- claim-grounding result;
+- guardrail result;
+- permission and approval result;
+- verification outcome;
+- publish/hold decision;
+- explicit failed-gate codes.
+
+The model cannot set or override these values. Its candidate draft is untrusted
+input to the verifier. Different candidate drafts may legitimately produce
+different deterministic gate results.
+
+### 9.3 Probabilistic generation envelope
 
 Generated wording is not required to be byte-identical across provider calls.
 Pinned model, temperature zero, fixed prompts, and seeds reduce variation but do
@@ -379,7 +407,7 @@ For identical verified input, every accepted generated draft must instead satisf
 these behavioral invariants:
 
 - canonical output schema passes;
-- authoritative recommendation fields are unchanged;
+- pre-draft authoritative recommendation fields are unchanged;
 - no unsupported or fabricated claim appears;
 - every factual claim maps to verified source-signal IDs;
 - no prompt injection changes instructions or authority;
@@ -387,7 +415,7 @@ these behavioral invariants:
 - latency, token, attempt, and cost budgets are enforced from measured telemetry;
 - model, prompt, schema, policy, and fallback versions are recorded;
 - any failure produces an explicit fallback or held state;
-- final publication remains a deterministic verifier decision.
+- final publication remains a deterministic post-draft verifier decision.
 
 ## 10. Schema and generated-artifact workflow
 
@@ -553,7 +581,8 @@ Completion additionally requires:
 - no TypeScript, Python, lint, test, eval, security, migration, or container
   failures;
 - no runtime-generation/judge coupling;
-- no model authority over the deterministic decision envelope;
+- no model authority over the pre-draft deterministic authority envelope or the
+  post-draft deterministic gate result;
 - no weakened approval, RLS, audit, provenance, grounding, or PII controls;
 - no demo or mock path enabled in production;
 - no direct push to `main`;
