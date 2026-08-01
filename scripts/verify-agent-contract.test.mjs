@@ -8,6 +8,7 @@ import {
   extractPriority,
   isSourcePath,
   parseRedesignAuthorization,
+  parseScopedFixForwardAuthorization,
   reviewBodyFinding,
   subsystemForPath,
 } from './verify-agent-contract.mjs';
@@ -142,4 +143,10 @@ test('redesign authorization parser is marker and type bound', () => {
   const body = `${policy.authorization.marker}\n\`\`\`json\n{"type":"REDESIGN_AUTHORIZED","subsystem":"agent-harness","headSha":"c1"}\n\`\`\``;
   assert.equal(parseRedesignAuthorization(body, policy.authorization.marker).subsystem, 'agent-harness');
   assert.equal(parseRedesignAuthorization('plain comment', policy.authorization.marker), null);
+});
+
+test('scoped fix-forward authorization parser is marker and type bound', () => {
+  const body = `${policy.authorization.marker}\n\`\`\`json\n{"type":"SCOPED_FIX_FORWARD_AUTHORIZED","finding_ids":["f1"]}\n\`\`\``;
+  assert.equal(parseScopedFixForwardAuthorization(body, policy.authorization.marker).finding_ids[0], 'f1');
+  assert.equal(parseScopedFixForwardAuthorization('plain comment', policy.authorization.marker), null);
 });
