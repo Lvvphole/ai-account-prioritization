@@ -1,0 +1,62 @@
+{
+  "$ref": "#/definitions/GeneratedDraft",
+  "definitions": {
+    "GeneratedDraft": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "actionType": {
+          "type": "string",
+          "enum": [
+            "call",
+            "send_email",
+            "schedule_meeting",
+            "log_research_note",
+            "request_intro",
+            "escalate_to_manager",
+            "no_action_hold"
+          ]
+        },
+        "sentences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "sourceSignalIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1,
+                "maxItems": 4
+              }
+            },
+            "required": [
+              "text",
+              "sourceSignalIds"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 8
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "actionType",
+        "sentences"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
