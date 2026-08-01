@@ -1,41 +1,73 @@
 product:
   name: AI Account Prioritization Agent for B2B Sales Teams
   summary: >-
-    Turns messy B2B CRM/account data into a verified daily sales action plan:
-    which accounts to contact first, why, the next best action, the evidence, and
-    whether it passed safety, schema, permission, and eval gates.
+    Turns messy B2B CRM/account data into a verified daily sales action plan.
+    A deterministic decision core decides account priority and action authority;
+    a constrained runtime LLM may synthesize verified evidence and draft action
+    content; deterministic verification and human approval decide publication.
   planning: Agile Scrum
   philosophy: Strategic Programming (strict)
+  architecture_state: hybrid_runtime_contract_approved
+  implementation_state:
+    deterministic_core: shipped
+    runtime_llm_drafting: planned
+    deterministic_template_fallback: shipped
+    web_runtime_bridge: planned
 
 execution_rules:
   - llm_must_not_rank_accounts
   - deterministic_scoring_decides_rank
+  - model_must_not_mutate_authoritative_recommendation_fields
+  - runtime_llm_allowed_only_for_bounded_synthesis_and_drafting
+  - runtime_model_output_is_untrusted_candidate_content
+  - runtime_model_has_no_side_effecting_tools
+  - every_generated_factual_claim_requires_verified_source_ids
+  - deterministic_verifier_owns_publish_or_hold
+  - deterministic_template_fallback_explicit_audited_and_verified
   - typescript_zod_is_schema_source_of_truth
   - python_consumes_generated_json_schema_only
   - runtime_guardrails_synchronous_deterministic_low_latency
   - llm_judge_async_outside_runtime
   - human_approval_required_for_customer_facing_or_crm_writeback
-  - every_recommendation_has_score_confidence_reasoncodes_signals_nba
-  - no_publish_without_verification
+  - every_recommendation_has_score_rank_confidence_reasoncodes_signals_nba
+  - no_publish_without_schema_grounding_guardrail_source_permission_approval
   - no_unsupported_customer_claims
   - no_fabricated_facts
-  - every_critical_action_creates_audit_evidence
+  - every_critical_action_model_call_fallback_creates_audit_evidence
   - every_eval_gate_executable_through_turborepo
   - executor_must_not_self_certify
   - verifier_owns_completion
-  - on_verification_failure_stop_and_report
+  - on_verification_failure_hold_or_report
 
 architecture:
-  pattern: Turborepo-based modular agentic application architecture
+  pattern: Turborepo-based hybrid AI application architecture
   design_pattern: co-located agent-module pattern
+  authority_split:
+    deterministic:
+      - feature_extraction
+      - score
+      - rank
+      - confidence
+      - reason_codes
+      - source_signal_references
+      - next_best_action_type
+      - permissions
+      - approval_requirement
+      - verification_outcome
+      - publish_or_hold
+    probabilistic:
+      - verified_signal_synthesis
+      - grounded_action_drafting
   supports:
     - bounded self-checking human-in-the-loop workflow
-    - deterministic core plus guarded LLM generation
+    - deterministic decision core plus guarded runtime LLM generation
+    - explicit deterministic template fallback
+    - claim-level grounding verification
     - eval-gated CI/CD
     - shared-schema contract pattern
     - MCP-compatible tool registry
 
-loop: DISCOVER -> PLAN -> EXECUTE -> VERIFY -> ITERATE
+loop: DISCOVER -> PLAN -> EXECUTE -> VERIFY -> ITERATE -> PUBLISH_OR_HOLD
 
 workspaces:
   apps:
@@ -44,6 +76,9 @@ workspaces:
     - api-python
   packages:
     - shared-schemas
+    - supabase-client
+    - security
+    - observability
     - testing-evals
     - config-typescript
     - config-eslint
@@ -56,16 +91,96 @@ paths:
     - apps/api-python/src/schemas/generated
   runtime_entry: apps/agent-runtime/src/index.ts
   orchestrator_state: apps/agent-runtime/src/agents/orchestrator/orchestrator.state.ts
+  deterministic_prioritizer: apps/agent-runtime/src/agents/account-prioritizer
+  runtime_drafting: apps/agent-runtime/src/agents/sales-execution
+  runtime_model_adapter: apps/agent-runtime/src/inference
+  runtime_grounding_validator: apps/agent-runtime/src/agents/sales-execution/validate-draft-grounding.ts
+  deterministic_draft_fallback: apps/agent-runtime/src/agents/sales-execution/tools
   runtime_guardrails: apps/agent-runtime/src/agents/orchestrator/orchestrator.guardrails.ts
   evals: packages/testing-evals/src
   judge: packages/testing-evals/src/judges/llm-judge.ts
+  architecture_decisions: docs/decisions
+
+runtime_generation_contract:
+  allowed_tasks:
+    - verified_signal_synthesis
+    - email_draft
+    - call_objective
+    - meeting_objective
+    - crm_note
+  forbidden_authority:
+    - score
+    - rank
+    - confidence
+    - reason_codes
+    - source_signal_verification
+    - next_best_action_type
+    - tool_authority
+    - permissions
+    - approval_state
+    - verification_status
+    - publication_eligibility
+  required_controls:
+    - pinned_model
+    - versioned_prompt_and_hash
+    - strict_zod_output_schema
+    - minimum_verified_context
+    - no_general_tools
+    - no_side_effecting_tools
+    - fixed_timeout
+    - fixed_token_cap
+    - bounded_attempts
+    - claim_to_source_grounding
+    - authoritative_field_reconciliation
+    - measured_latency_and_token_telemetry
+    - explicit_audited_fallback_or_hold
+
+reliability_contract:
+  byte_identical_decision_envelope:
+    - extracted_features
+    - score
+    - rank
+    - confidence
+    - reason_codes
+    - source_signal_references
+    - next_best_action_type
+    - approval_requirement
+    - verification_outcome
+    - publish_or_hold
+  behavioral_generation_invariants:
+    - schema_valid
+    - authoritative_fields_unchanged
+    - no_unsupported_claims
+    - every_factual_claim_grounded
+    - prompt_injection_cannot_change_authority
+    - no_tool_or_side_effect_access
+    - budgets_enforced
+    - fallback_or_hold_on_failure
+
+implementation_sequence:
+  - connect_runtime_persistence_to_web
+  - add_generated_draft_schema
+  - add_bounded_runtime_model_adapter
+  - add_minimum_context_builder
+  - add_claim_grounding_validator
+  - preserve_and_test_template_fallback
+  - add_runtime_generation_evals
+  - enable_model_path_behind_environment_policy
+  - promote_after_all_gates_pass
 
 definition_of_done:
-  - pnpm install
+  - pnpm install --frozen-lockfile
+  - pnpm scan:secrets
   - pnpm generate:schemas
+  - pnpm lint
   - pnpm build
   - pnpm typecheck
+  - pnpm test
   - pnpm test:evals
+  - pnpm verify:security
+  - pnpm verify:observability
+  - pnpm verify:production
+
 optional_gates:
   - EVAL_JUDGE_ENABLED=true pnpm test:judge
 
@@ -78,6 +193,16 @@ eval_gates:
     deployment_blocking: true
   - id: security
     deployment_blocking: true
+  - id: runtime-drafting-schema
+    deployment_blocking_when: runtime_llm_drafting_implemented
+  - id: runtime-drafting-grounding
+    deployment_blocking_when: runtime_llm_drafting_implemented
+  - id: runtime-drafting-authority
+    deployment_blocking_when: runtime_llm_drafting_implemented
+  - id: runtime-drafting-injection
+    deployment_blocking_when: runtime_llm_drafting_implemented
+  - id: runtime-drafting-fallback
+    deployment_blocking_when: runtime_llm_drafting_implemented
   - id: daily-prioritization-judge
     deployment_blocking_when: EVAL_JUDGE_ENABLED=true
     runtime_path: false
