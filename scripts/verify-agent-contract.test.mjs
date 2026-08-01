@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {
   analyzeRepairHistory,
   applyRedesignCutovers,
+  classifyCheckDelta,
   countNumstat,
   extractPriority,
   isSourcePath,
   parseRedesignAuthorization,
+  reviewBodyFinding,
   subsystemForPath,
 } from './verify-agent-contract.mjs';
 
@@ -53,6 +55,25 @@ test('priority and subsystem classification remain deterministic', () => {
   assert.equal(subsystemForPath('scripts/verify-agent-contract.mjs', policy), 'agent-harness');
 });
 
+test('review-body P1 is normalized into repair findings', () => {
+  const result = reviewBodyFinding({
+    id: 42,
+    body: 'P1 review summary defect',
+    commit_id: 'c2',
+    submitted_at: '2026-08-01T10:00:00Z',
+    html_url: 'https://example.test/review/42',
+  }, policy);
+  assert.deepEqual(result, {
+    id: 'review-body:42',
+    priority: 'P1',
+    subsystem: 'unknown',
+    path: null,
+    reviewedCommitSha: 'c2',
+    createdAt: '2026-08-01T10:00:00Z',
+    url: 'https://example.test/review/42',
+  });
+});
+
 test('repair round includes every commit through the next reviewed commit', () => {
   const result = analyzeRepairHistory({
     policy,
@@ -74,6 +95,28 @@ test('post-repair P1 remains blocking regardless of thread resolution state', ()
   });
   assert.ok(result.blockedReasons.some((reason) => reason.code === 'NEW_VALID_P0_P1_AFTER_REPAIR'));
   assert.ok(result.blockedReasons.some((reason) => reason.code === 'SAME_SUBSYSTEM_REPEAT_DEFECT'));
+});
+
+test('same-subsystem repeat breaker ignores P2 but still blocks P1', () => {
+  const p2 = analyzeRepairHistory({
+    policy,
+    commitOrder: ['c1', 'c2'],
+    findings: [finding('f1', 'c1', 'P1'), finding('f2', 'c2', 'P2')],
+  });
+  assert.equal(p2.blockedReasons.some((reason) => reason.code === 'SAME_SUBSYSTEM_REPEAT_DEFECT'), false);
+
+  const p1 = analyzeRepairHistory({
+    policy,
+    commitOrder: ['c1', 'c2'],
+    findings: [finding('f1', 'c1', 'P1'), finding('f2', 'c2', 'P1')],
+  });
+  assert.equal(p1.blockedReasons.some((reason) => reason.code === 'SAME_SUBSYSTEM_REPEAT_DEFECT'), true);
+});
+
+test('cancelled repair check is incomplete verification', () => {
+  assert.equal(classifyCheckDelta('success', 'cancelled'), 'VERIFICATION_INCOMPLETE');
+  assert.equal(classifyCheckDelta('success', 'failure'), 'NEW_REGRESSION');
+  assert.equal(classifyCheckDelta('failure', 'cancelled'), null);
 });
 
 test('multiple findings on one reviewed commit are one checkpoint', () => {
