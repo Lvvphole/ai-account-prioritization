@@ -18,21 +18,23 @@ publication authority to a probabilistic model.
 
 ## Decision
 
-Add one constrained runtime LLM stage after deterministic recommendation
-creation and before deterministic verification.
+Add one constrained runtime LLM stage after the pre-draft deterministic authority
+envelope is complete and before deterministic post-draft verification.
 
 ```text
 verified CRM data
-  → deterministic score, rank, reasons, and action
+  → deterministic score, rank, reasons, action, permissions, approval requirement
+  → immutable pre-draft authority envelope
   → minimum verified draft context
   → constrained LLM draft OR deterministic template fallback
   → strict schema and claim grounding
-  → deterministic guardrails and permission checks
-  → human approval
-  → publish or hold
+  → deterministic guardrails, permission checks, and approval checks
+  → deterministic verification outcome and publish-or-hold decision
+  → audit and telemetry
 ```
 
-The model may synthesize verified signals and draft language. It may not change:
+The model may synthesize verified signals and draft language. It may not directly
+set or override:
 
 - score
 - rank
@@ -45,6 +47,10 @@ The model may synthesize verified signals and draft language. It may not change:
 - approval state
 - verification status
 - publication eligibility
+
+The candidate draft is untrusted input to the post-draft verifier. A different
+candidate may legitimately produce a different deterministic gate result, but the
+model never owns or certifies that result.
 
 ## Rationale
 
@@ -69,16 +75,21 @@ It preserves:
 - Fixed timeout, token cap, and bounded attempts.
 - Claim-level source references.
 - Deterministic grounding validator.
-- Authoritative-field reconciliation.
+- Pre-draft authoritative-field reconciliation.
 - Explicit template fallback or held state.
 - Audit and measured telemetry for every model call and fallback.
 - Adversarial prompt-injection tests.
-- Deployment-blocking generation evals.
+- Deployment-blocking generation evals after implementation and registration.
 
 ## Determinism statement
 
-The decision envelope remains byte-identical for identical inputs. Generated
-prose is governed by behavioral reliability, not claimed bit identity.
+The pre-draft authority envelope remains byte-identical for identical source
+inputs, policy, configuration, schema, clock, and code revision.
+
+The post-draft gate result is deterministic for an identical pre-draft envelope,
+candidate or fallback draft, gate-policy versions, approval state, clock, and code
+revision. Generated prose remains governed by behavioral reliability rather than
+claimed bit identity.
 
 ## Consequences
 
@@ -86,7 +97,8 @@ prose is governed by behavioral reliability, not claimed bit identity.
 
 - The application becomes genuinely runtime AI-enabled.
 - Drafts can be more contextual and useful.
-- Ranking and publication remain reproducible and auditable.
+- Ranking remains reproducible and auditable.
+- Publication remains controlled by deterministic post-draft verification.
 - Provider failure does not break the decision core.
 
 ### Costs and risks
@@ -94,6 +106,7 @@ prose is governed by behavioral reliability, not claimed bit identity.
 - Additional latency and token cost.
 - New prompt-injection and data-minimization surface.
 - Generated prose can vary across provider calls.
+- Different candidates can produce different deterministic gate results.
 - Grounding, model telemetry, and rollout infrastructure are required.
 
 ## Rejected alternatives
