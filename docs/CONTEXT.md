@@ -1,55 +1,109 @@
-# Context — process & engineering philosophy
+# Context — process and engineering philosophy
 
 ## Project planning: Agile Scrum
 
 - **Product Owner** — product intent, scope, user outcomes, acceptance criteria.
 - **Scrum Master** — workflow discipline, sprint boundaries, blockers, DoD.
-- **Developer Agent** — code, tests, schemas, docs, CI, build scripts.
+- **Developer Agent** — code, tests, schemas, prompts, docs, CI, build scripts.
 - **Verifier Agent** — typecheck, tests, evals, schema generation, CI parity,
-  final product gates. Owns completion judgment.
+  runtime authority checks, and final product gates. Owns completion judgment.
 - **Evaluator Agent** — confirms the implementation still satisfies the
-  architecture, safety, and product promise.
+  architecture, safety, grounding, cost, latency, and product promise.
 
 ## Execution philosophy: Strategic Programming (strict)
 
+```text
+contract → baseline → plan → execute → verify → evaluate → iterate → stop|blocked
 ```
-contract → plan → execute → verify → evaluate → iterate → stop
+
+- **Contract** — exact target, authority boundaries, constraints, non-goals, and
+  acceptance evidence.
+- **Baseline** — inspect current behavior, schemas, prompts, tests, data paths,
+  and telemetry before changing them.
+- **Plan** — identify files, dependencies, model boundaries, fallbacks, and gates.
+- **Execute** — modify only the coherent change set.
+- **Verify** — run executable checks and inspect evidence.
+- **Evaluate** — compare the result against the product and architecture
+  contracts, not merely compilation success.
+- **Iterate** — fix only evidenced failures.
+- **Stop** — when verifier-owned gates pass or a typed blocked state is reached.
+
+The executor never self-certifies; the verifier owns completion.
+
+## Hybrid AI engineering rule
+
+The product uses a deterministic decision core and a bounded probabilistic
+language-generation stage.
+
+```text
+deterministic authority
+  → minimum verified context
+  → constrained candidate generation
+  → deterministic verification
+  → human approval
+  → publish or hold
 ```
 
-- **Contract** — exact target and constraints.
-- **Plan** — files, dependencies, acceptance checks.
-- **Execute** — modify only required files.
-- **Verify** — run commands, inspect output.
-- **Evaluate** — compare result against the product contract.
-- **Iterate** — fix failures only.
-- **Stop** — when gates pass or a blocked state is reached.
+The model may improve expression and synthesis. It may not acquire decision,
+tool, approval, verification, or publication authority.
 
-The executor never self-certifies; the verifier owns completion. On a failed
-verification, stop and report the failing command/file/error.
-
-## Sprint history (as delivered)
+## Sprint history and next delivery path
 
 | Sprint | Scope | Exit gate |
 | --- | --- | --- |
-| 0 | Repo & build foundation | `pnpm install`, `pnpm build` |
+| 0 | Repo and build foundation | `pnpm install`, `pnpm build` |
 | 1 | Shared schemas | `pnpm generate:schemas` |
-| 2 | Agent runtime core | `pnpm typecheck` |
-| 3 | Domain agents & tools | `pnpm test:evals` |
-| 4 | Web app | `pnpm build` |
+| 2 | Deterministic runtime core | `pnpm typecheck` |
+| 3 | Domain agents and tools | `pnpm test:evals` |
+| 4 | Web application | `pnpm build` |
 | 5 | Python support service | `pnpm build:api-python` |
-| 6 | Eval & judge gates | `pnpm test:evals`, `EVAL_JUDGE_ENABLED=true pnpm test:judge` |
-| 7 | Final verification & push | full gate sequence |
+| 6 | Deterministic and judge gates | `pnpm test:evals`, optional judge |
+| 7 | Production verification foundation | full gate sequence |
+| 8 | Hybrid runtime architecture contract | docs and manifest consistency |
+| 9 | Runtime-to-web production bridge | persisted run visible in scoped UI |
+| 10 | Generated-draft schema and model adapter | schema, typecheck, unit tests |
+| 11 | Grounding, fallback, and security | grounding and adversarial evals |
+| 12 | Measured rollout and promotion | production verification + judge |
+
+## Required implementation order
+
+1. Keep the current deterministic runtime passing.
+2. Connect runtime results to durable persistence and the web workspace.
+3. Add the generated-draft schema before adding provider output.
+4. Add one bounded model adapter with no tools or side effects.
+5. Add minimum-context and claim-grounding verification.
+6. Preserve deterministic template fallback.
+7. Add deterministic, generative, and security evals.
+8. Add measured latency, token, cost, and fallback telemetry.
+9. Enable the model path only behind explicit environment policy.
+10. Promote only after all applicable gates pass.
 
 ## Definition of Done
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
+pnpm scan:secrets
 pnpm generate:schemas
+pnpm lint
 pnpm build
 pnpm typecheck
+pnpm test
 pnpm test:evals
+pnpm verify:security
+pnpm verify:observability
+pnpm verify:production
+git diff --check
 ```
 
-No unstaged changes · no TS errors · no failed evals · no schema-generation
-failure · no runtime↔judge coupling · no weakened approval gates · no direct push
-to `main`.
+Runtime-generation changes additionally require evidence that:
+
+- the model cannot mutate authoritative fields;
+- output schema failures fail closed;
+- every accepted factual claim is grounded;
+- prompt injection cannot alter authority or control flow;
+- timeout, token, attempt, and fallback policies are enforced;
+- human approval and deterministic publication authority remain intact;
+- the async judge is not coupled into the live runtime.
+
+No unstaged or unrelated changes, no schema-generation drift, no failed gates,
+no weakened approval or RLS controls, and no direct push to `main`.
