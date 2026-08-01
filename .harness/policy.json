@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "changeBudget": {
+    "maxChangedSourceLinesPerExecution": 1000,
+    "sourceExtensions": [
+      ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".sql",
+      ".sh", ".bash", ".zsh", ".json", ".yaml", ".yml", ".toml", ".tf",
+      ".css", ".scss", ".html", ".vue", ".svelte", ".go", ".rs", ".java",
+      ".kt", ".kts", ".cs", ".cpp", ".cc", ".c", ".h", ".hpp"
+    ],
+    "sourceBasenames": ["Dockerfile", "Makefile"],
+    "excludePrefixes": [
+      "node_modules/", "dist/", "build/", ".next/", "coverage/", "vendor/",
+      "packages/shared-schemas/generated/", "apps/api-python/src/schemas/generated/"
+    ],
+    "excludeBasenames": ["pnpm-lock.yaml", "package-lock.json", "yarn.lock"]
+  },
+  "repair": {
+    "maxRoundsPerPr": 2,
+    "newRegressionBudget": 0,
+    "newValidP0P1AfterRepair": 0,
+    "sameSubsystemRepeatDefectBudget": 0,
+    "priorityPattern": "\\bP([0-3])\\b",
+    "subsystemGroups": [
+      {
+        "name": "agent-harness",
+        "prefixes": [
+          "AGENTS.md",
+          ".harness/",
+          "scripts/verify-agent-contract",
+          ".github/workflows/ci.yml",
+          "package.json"
+        ]
+      }
+    ]
+  }
+}
