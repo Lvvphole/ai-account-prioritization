@@ -1,0 +1,34 @@
+{
+  "$ref": "#/definitions/FinalizeUploadRequest",
+  "definitions": {
+    "FinalizeUploadRequest": {
+      "type": "object",
+      "properties": {
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "observedBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "batchId",
+        "workspaceId",
+        "observedBytes",
+        "sha256"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -22,3 +22,4 @@ export {
 export { redactPII, redactValue, redactProperties } from "./pii";
 export * from "./workspace";
 export * from "./ingestion";
+export * from "./file-safety";

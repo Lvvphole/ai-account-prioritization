@@ -42,3 +42,37 @@ grant usage on schema auth to anon, authenticated, service_role;
 -- against something it actually has to take away.
 alter default privileges in schema public
   grant select, insert, update, delete on tables to anon, authenticated;
+
+-- Minimal stand-in for Supabase Storage, so migration 0015's bucket policies
+-- are created and their tenant predicate can be exercised.
+--
+-- This proves the predicate: an object's first path segment is the workspace,
+-- and only an admin of that workspace may read it. It does NOT prove behaviour
+-- of the real storage service, which has more columns and its own API layer.
+create schema if not exists storage;
+
+create table if not exists storage.buckets (
+  id text primary key,
+  name text not null,
+  public boolean not null default false,
+  file_size_limit bigint,
+  allowed_mime_types text[]
+);
+
+create table if not exists storage.objects (
+  id uuid primary key default gen_random_uuid(),
+  bucket_id text not null references storage.buckets (id),
+  name text not null,
+  owner uuid,
+  created_at timestamptz not null default now()
+);
+
+-- Supabase's own helper: splits an object name into path segments.
+create or replace function storage.foldername(name text)
+returns text[]
+language sql immutable as $$
+  select string_to_array(name, '/');
+$$;
+
+grant usage on schema storage to anon, authenticated, service_role;
+grant select, insert on storage.objects to authenticated;

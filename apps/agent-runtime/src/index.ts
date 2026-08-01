@@ -42,6 +42,16 @@ export {
   type DeterministicEvalCase,
 } from "./agents/account-prioritizer/prioritizer.eval";
 export { guardrailEvalCases } from "./agents/guardrails/guardrail.eval";
+export { parseCsvStream, type ParseOptions, type RowHandler } from "./ingestion/csv-parser";
+export {
+  evaluateScanGate,
+  assertScanAllows,
+  runSecurityScan,
+  ScanBlockedError,
+  type MalwareScanner,
+  type ScanGateOptions,
+  type ScanBlock,
+} from "./ingestion/scanner";
 
 /**
  * Register read-only runtime tools on the MCP registry. Side-effecting tools

@@ -1,0 +1,70 @@
+{
+  "$ref": "#/definitions/UploadIntentRequest",
+  "definitions": {
+    "UploadIntentRequest": {
+      "type": "object",
+      "properties": {
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "templateKind": {
+          "type": "string",
+          "enum": [
+            "accounts",
+            "contacts",
+            "opportunities",
+            "activities",
+            "intent_signals",
+            "account_health",
+            "combined_crm"
+          ]
+        },
+        "objectType": {
+          "type": "string",
+          "enum": [
+            "account",
+            "contact",
+            "opportunity",
+            "activity",
+            "intent_signal",
+            "account_health",
+            "contract"
+          ]
+        },
+        "mappingVersionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "originalFilename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "declaredContentType": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "declaredBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "workspaceId",
+        "sourceId",
+        "templateKind",
+        "objectType",
+        "mappingVersionId",
+        "originalFilename",
+        "declaredBytes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
