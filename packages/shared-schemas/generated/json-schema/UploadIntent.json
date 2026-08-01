@@ -1,0 +1,84 @@
+{
+  "$ref": "#/definitions/UploadIntent",
+  "definitions": {
+    "UploadIntent": {
+      "type": "object",
+      "properties": {
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "storagePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "bucket": {
+          "type": "string",
+          "const": "ingestion-quarantine"
+        },
+        "signedUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "maxBytes": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "maxRows": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "maxColumns": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "maxCellCharacters": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "maxProcessingMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "maxConcurrentBatches": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            }
+          },
+          "required": [
+            "maxBytes",
+            "maxRows",
+            "maxColumns",
+            "maxCellCharacters",
+            "maxProcessingMs",
+            "maxConcurrentBatches"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "batchId",
+        "workspaceId",
+        "storagePath",
+        "bucket",
+        "signedUrl",
+        "expiresAt",
+        "limits"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

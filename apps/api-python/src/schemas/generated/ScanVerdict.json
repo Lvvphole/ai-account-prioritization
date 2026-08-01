@@ -1,0 +1,94 @@
+{
+  "$ref": "#/definitions/ScanVerdict",
+  "definitions": {
+    "ScanVerdict": {
+      "type": "object",
+      "properties": {
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspaceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "check": {
+                "type": "string",
+                "enum": [
+                  "authorization",
+                  "workspace_binding",
+                  "object_ownership",
+                  "size_limits",
+                  "text_format",
+                  "malware",
+                  "parser_safety"
+                ]
+              },
+              "passed": {
+                "type": "boolean"
+              },
+              "detail": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "check",
+              "passed",
+              "detail"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "malwareStatus": {
+          "type": "string",
+          "enum": [
+            "clean",
+            "infected",
+            "unavailable"
+          ]
+        },
+        "providerId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scannedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "batchId",
+        "workspaceId",
+        "checks",
+        "malwareStatus",
+        "providerId",
+        "scannedAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

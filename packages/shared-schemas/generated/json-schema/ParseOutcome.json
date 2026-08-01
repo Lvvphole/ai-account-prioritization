@@ -1,0 +1,106 @@
+{
+  "$ref": "#/definitions/ParseOutcome",
+  "definitions": {
+    "ParseOutcome": {
+      "type": "object",
+      "properties": {
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 200
+        },
+        "rowsParsed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytesRead": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fatal": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "not_utf8",
+                "nul_byte",
+                "forbidden_control_character",
+                "row_limit_exceeded",
+                "column_limit_exceeded",
+                "cell_length_exceeded",
+                "byte_limit_exceeded",
+                "duration_exceeded",
+                "inconsistent_column_count",
+                "unterminated_quote",
+                "quote_outside_field",
+                "empty_file",
+                "missing_header",
+                "duplicate_header"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rowErrors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rowNumber": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_utf8",
+                  "nul_byte",
+                  "forbidden_control_character",
+                  "row_limit_exceeded",
+                  "column_limit_exceeded",
+                  "cell_length_exceeded",
+                  "byte_limit_exceeded",
+                  "duration_exceeded",
+                  "inconsistent_column_count",
+                  "unterminated_quote",
+                  "quote_outside_field",
+                  "empty_file",
+                  "missing_header",
+                  "duplicate_header"
+                ]
+              }
+            },
+            "required": [
+              "rowNumber",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1000
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "headers",
+        "rowsParsed",
+        "bytesRead",
+        "durationMs",
+        "fatal",
+        "rowErrors",
+        "truncated"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
