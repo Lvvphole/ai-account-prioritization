@@ -87,6 +87,12 @@ export function attachActionDraft(
 }
 
 export type DraftSource = "model" | "template" | "template_fallback" | "held";
+export type DraftValidationStatus = "not_run" | "passed" | "failed";
+
+export interface DraftClaimCitation {
+  text: string;
+  sourceSignalIds: string[];
+}
 
 export interface RuntimeDraftRunBudget {
   maxTokens: number;
@@ -99,6 +105,12 @@ export function createRuntimeDraftRunBudget(maxTokens: number): RuntimeDraftRunB
 
 export interface HybridDraftOutcome {
   source: DraftSource;
+  recommendationId: string;
+  selectedSourceSignalIds: string[];
+  claimCitations: DraftClaimCitation[];
+  schemaValidation: DraftValidationStatus;
+  groundingValidation: DraftValidationStatus;
+  groundingFailedGates: string[];
   failureCode?: string;
   telemetry?: RuntimeModelTelemetry;
   promptVersion: string;
@@ -122,6 +134,8 @@ export interface HybridDraftOptions {
   policy?: RuntimeDraftingPolicy;
   modelClient?: RuntimeModelClient;
   runBudget?: RuntimeDraftRunBudget;
+  /** Injected deterministic clock used for source freshness. */
+  now?: string;
 }
 
 export function hybridDraftContractMetadata(
@@ -175,6 +189,7 @@ function buildBudgetedDraftRequest(
   rec: Recommendation,
   ctx: AccountContext,
   policy: RuntimeDraftingPolicy,
+  now: string,
 ): {
   context: VerifiedDraftContext;
   request: RuntimeModelRequest;
@@ -182,6 +197,8 @@ function buildBudgetedDraftRequest(
 } {
   const prioritized = buildVerifiedDraftContext(rec, ctx, {
     maxSignals: policy.maxSignals,
+    now,
+    maxEvidenceAgeDays: policy.maxEvidenceAgeDays,
   });
   const selected: VerifiedDraftContext["signals"] = [];
   let selectedRequest: RuntimeModelRequest | undefined;
@@ -225,11 +242,13 @@ function reserveRunBudget(
   return true;
 }
 
+const uniqueIds = (ids: string[]): string[] => [...new Set(ids)];
+
 /**
  * Bounded runtime-AI drafting path. The model receives only a verified,
- * action-prioritized context that fits a hard conservative input budget. The
+ * action-prioritized context that fits hard freshness/input/run budgets. The
  * model can return candidate language only; strict schema parsing, grounding,
- * run-budget reservation, and deterministic fallbacks remain outside the model.
+ * audit evidence, and deterministic fallbacks remain outside the model.
  */
 export async function attachHybridActionDraft(
   rec: Recommendation,
@@ -239,20 +258,37 @@ export async function attachHybridActionDraft(
   const policy = options.policy ?? runtimeDraftingPolicyFromEnv();
   const template = (): Recommendation => attachActionDraft(rec, ctx);
   const baseOutcome = hybridDraftContractMetadata(policy);
+  const now = options.now ?? rec.createdAt;
   let modelTelemetry: RuntimeModelTelemetry | undefined;
   let inputTokenUpperBound: number | undefined;
   let reservedRunTokens: number | undefined;
+  let selectedSourceSignalIds: string[] = [];
+  let claimCitations: DraftClaimCitation[] = [];
+  let schemaValidation: DraftValidationStatus = "not_run";
+  let groundingValidation: DraftValidationStatus = "not_run";
+  let groundingFailedGates: string[] = [];
+
+  const outcomeBase = () => ({
+    ...baseOutcome,
+    recommendationId: rec.id,
+    selectedSourceSignalIds,
+    claimCitations,
+    schemaValidation,
+    groundingValidation,
+    groundingFailedGates,
+  });
 
   if (!policy.enabled || !modelDraftable(rec.nextBestAction.type)) {
     return {
       recommendation: template(),
-      outcome: { ...baseOutcome, source: "template" },
+      outcome: { ...outcomeBase(), source: "template" },
     };
   }
 
   try {
-    const prepared = buildBudgetedDraftRequest(rec, ctx, policy);
+    const prepared = buildBudgetedDraftRequest(rec, ctx, policy, now);
     inputTokenUpperBound = prepared.inputTokenUpperBound;
+    selectedSourceSignalIds = uniqueIds(prepared.context.signals.map((signal) => signal.id));
     const requestedRunTokens = inputTokenUpperBound + policy.maxTokens;
 
     if (!reserveRunBudget(options.runBudget, requestedRunTokens)) {
@@ -266,10 +302,18 @@ export async function attachHybridActionDraft(
 
     const parsed = GeneratedDraftSchema.safeParse(modelResult.output);
     if (!parsed.success) {
+      schemaValidation = "failed";
       throw new Error("DRAFT_SCHEMA_INVALID");
     }
+    schemaValidation = "passed";
+    claimCitations = parsed.data.sentences.map((sentence) => ({
+      text: sentence.text,
+      sourceSignalIds: [...sentence.sourceSignalIds],
+    }));
 
     const grounding = validateDraftGrounding(parsed.data, prepared.context);
+    groundingFailedGates = [...grounding.failedGates];
+    groundingValidation = grounding.passed ? "passed" : "failed";
     if (!grounding.passed) {
       throw new Error(grounding.failedGates[0] ?? "DRAFT_GROUNDING_FAILED");
     }
@@ -283,7 +327,7 @@ export async function attachHybridActionDraft(
         },
       },
       outcome: {
-        ...baseOutcome,
+        ...outcomeBase(),
         source: "model",
         telemetry: modelTelemetry,
         inputTokenUpperBound,
@@ -305,7 +349,7 @@ export async function attachHybridActionDraft(
       return {
         recommendation: template(),
         outcome: {
-          ...baseOutcome,
+          ...outcomeBase(),
           source: "template_fallback",
           failureCode,
           telemetry: modelTelemetry,
@@ -318,7 +362,7 @@ export async function attachHybridActionDraft(
     return {
       recommendation: rec,
       outcome: {
-        ...baseOutcome,
+        ...outcomeBase(),
         source: "held",
         failureCode,
         telemetry: modelTelemetry,
