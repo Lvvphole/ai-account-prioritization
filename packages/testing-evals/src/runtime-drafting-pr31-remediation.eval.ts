@@ -9,7 +9,12 @@ import {
   type RuntimeDraftingPolicy,
   type RuntimeModelClient,
 } from "agent-runtime";
-import type { Account, Activity, Recommendation } from "@repo/shared-schemas";
+import type {
+  Account,
+  Activity,
+  Opportunity,
+  Recommendation,
+} from "@repo/shared-schemas";
 
 const ISO = "2026-08-01T09:15:00Z";
 
@@ -296,6 +301,106 @@ describe("PR #31 Codex remediation", () => {
     expect(unmatched?.sourceSignals.some((signal) => signal.kind === "intent")).toBe(false);
     expect(unmatched?.reasonCodes).not.toContain("verified_intent_signal");
     expect(unmatched?.score).toBe(noIntent?.score);
+  });
+
+  it("does not synthesize an intent relationship across unrelated subject and body tokens", () => {
+    const relationshipAccount: Account = {
+      ...account,
+      id: "acc_intent_relationship",
+      ownerId: "rep_intent_relationship",
+      openPipelineUsd: 0,
+      tier: "smb",
+      lifecycleStage: "prospect",
+      intentSignals: ["pricing_page_visit"],
+    };
+    const misleadingActivity: Activity = {
+      id: "act_split_relationship",
+      accountId: relationshipAccount.id,
+      type: "intent_event",
+      subject: "Pricing inquiry",
+      body: "Visited careers page",
+      occurredAt: ISO,
+      createdById: "system",
+      verified: true,
+    };
+
+    const misleading = prioritizeAccounts({
+      runId: "run_split_relationship",
+      createdAt: ISO,
+      contexts: [
+        {
+          account: relationshipAccount,
+          contacts: [],
+          opportunities: [],
+          activities: [misleadingActivity],
+        },
+      ],
+    })[0];
+    const noIntent = prioritizeAccounts({
+      runId: "run_split_relationship_baseline",
+      createdAt: ISO,
+      contexts: [
+        {
+          account: { ...relationshipAccount, intentSignals: [] },
+          contacts: [],
+          opportunities: [],
+          activities: [misleadingActivity],
+        },
+      ],
+    })[0];
+
+    expect(misleading?.sourceSignals.some((signal) => signal.kind === "intent")).toBe(false);
+    expect(misleading?.reasonCodes).not.toContain("verified_intent_signal");
+    expect(misleading?.score).toBe(noIntent?.score);
+  });
+
+  it("validates stale authority even when a direct template does not interpolate source signals", async () => {
+    const staleOpportunity: Opportunity = {
+      id: "opp_stale_proposal",
+      accountId: account.id,
+      name: "Stale Proposal",
+      stage: "proposal",
+      amountUsd: 50_000,
+      probability: 0.5,
+      closeDate: "2026-12-01T00:00:00Z",
+      isClosed: false,
+      isWon: false,
+      nextStep: "Re-engage customer",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    const emailRecommendation: Recommendation = {
+      ...recommendation,
+      id: "rec_stale_email_authority",
+      reasonCodes: ["stalled_opportunity"],
+      sourceSignals: [
+        {
+          kind: "opportunity",
+          refId: staleOpportunity.id,
+          description: 'Open opportunity "Stale Proposal" in proposal stage worth $50,000.',
+          verified: true,
+        },
+      ],
+      nextBestAction: {
+        type: "send_email",
+        customerFacing: true,
+        crmWriteBack: false,
+        objective: "Re-engage the proposal.",
+      },
+    };
+
+    const result = await attachHybridActionDraft(
+      emailRecommendation,
+      { ...context, opportunities: [staleOpportunity] },
+      {
+        policy: policy({ enabled: false }),
+        now: ISO,
+      },
+    );
+
+    expect(result.outcome.source).toBe("held");
+    expect(result.outcome.failureCode).toBe("DRAFT_CONTEXT_STALE_SIGNAL");
+    expect(result.recommendation.nextBestAction.draft).toBeUndefined();
   });
 
   it("builds a durable service-context production entrypoint and fails closed without production durability", () => {
