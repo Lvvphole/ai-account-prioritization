@@ -58,3 +58,10 @@ export function runtimeDraftingPolicyFromEnv(
 
   return policy;
 }
+
+/**
+ * Parsed at module load so an enabled but incomplete runtime-drafting
+ * configuration fails fast during process startup rather than on the first
+ * recommendation.
+ */
+export const DEFAULT_RUNTIME_DRAFTING_POLICY = runtimeDraftingPolicyFromEnv();
