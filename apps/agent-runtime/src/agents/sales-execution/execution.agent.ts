@@ -19,6 +19,7 @@ import {
 } from "./execution.policy";
 import {
   anthropicRuntimeModelClient,
+  RuntimeModelError,
   type RuntimeModelClient,
   type RuntimeModelTelemetry,
 } from "../../inference/runtime-model";
@@ -160,7 +161,13 @@ export async function attachHybridActionDraft(
       },
     };
   } catch (error) {
-    const failureCode = error instanceof Error ? error.message : "DRAFT_MODEL_FAILURE";
+    const failureCode =
+      error instanceof RuntimeModelError
+        ? error.code
+        : error instanceof Error
+          ? error.message
+          : "DRAFT_MODEL_FAILURE";
+
     if (policy.fallback === "template") {
       return {
         recommendation: template(),
