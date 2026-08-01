@@ -30,11 +30,16 @@ function normalizeRole(value: string | undefined): AppRole {
 export async function getSessionContext(): Promise<SessionContext | null> {
   if (!isSupabaseConfigured()) {
     // Demo mode: the chosen role is carried in a cookie so Rep vs Manager vs
-    // Admin each get a coherent portal experience.
-    const role = normalizeRole((await cookies()).get("demo_role")?.value);
+    // Admin each get a coherent portal experience. No cookie means no role has
+    // been picked yet, which is the demo equivalent of being signed out —
+    // previously this defaulted to "rep", so a first-time visitor already had a
+    // session, the landing page rendered a signed-in nav, and Sign Out appeared
+    // to do nothing because the context was rebuilt on the next request.
+    const picked = (await cookies()).get("demo_role")?.value;
+    if (!picked) return null;
     // Identity only — the role travels in `role`. Embedding it here too made the
     // nav render it twice ("demo · rep · rep").
-    return { userId: "demo", email: "Demo user", role };
+    return { userId: "demo", email: "Demo user", role: normalizeRole(picked) };
   }
   const supabase = await createClient();
   const {

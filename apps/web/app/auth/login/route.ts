@@ -7,8 +7,11 @@ import { roleHome } from "../../lib/auth";
 /** Email + password sign-in. Sets the session cookies, then redirects. */
 export async function POST(request: NextRequest) {
   if (!isSupabaseConfigured()) {
+    // Demo mode has no password to check and this route sets no role cookie, so
+    // sending the visitor to /dashboard would only bounce them back. Return them
+    // to the role picker, which is the only way to establish a demo session.
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = "/login";
     url.search = "";
     return NextResponse.redirect(url, { status: 303 });
   }

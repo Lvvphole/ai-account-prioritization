@@ -47,18 +47,21 @@ export default async function LoginPage({
               icon="◑"
               label="Rep"
               sub="Today’s priority list, evidence and actions"
+              redirectTo={redirectTo}
             />
             <RoleEntry
               role="manager"
               icon="◕"
               label="Manager"
               sub="Team coverage and held recommendations"
+              redirectTo={redirectTo}
             />
             <RoleEntry
               role="admin"
               icon="◍"
               label="Admin"
               sub="Scoring weights and thresholds"
+              redirectTo={redirectTo}
             />
           </div>
         ) : (
@@ -101,15 +104,18 @@ function RoleEntry({
   icon,
   label,
   sub,
+  redirectTo,
 }: {
   role: AppRole;
   icon: string;
   label: string;
   sub: string;
+  redirectTo?: string;
 }) {
   return (
     <form action="/auth/demo" method="post">
       <input type="hidden" name="role" value={role} />
+      {redirectTo ? <input type="hidden" name="redirectTo" value={redirectTo} /> : null}
       <button type="submit" className="role-btn">
         <span className="role-icon" aria-hidden="true">
           {icon}

@@ -19,8 +19,15 @@ export async function POST(request: NextRequest) {
     maxAge: 60 * 60 * 24 * 7,
   });
 
+  // Honor the page the visitor was heading for before being sent to the picker,
+  // else drop them at the role's home. Only same-site absolute paths ("//host"
+  // is protocol-relative and would leave the app).
+  const requested = String(form.get("redirectTo") ?? "");
+  const safe =
+    requested.startsWith("/") && !requested.startsWith("//") ? requested : null;
+
   const url = request.nextUrl.clone();
-  url.pathname = roleHome(role);
+  url.pathname = safe ?? roleHome(role);
   url.search = "";
   return NextResponse.redirect(url, { status: 303 });
 }

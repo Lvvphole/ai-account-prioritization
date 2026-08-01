@@ -10,21 +10,30 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-export async function middleware(request: NextRequest) {
-  // No Supabase configured -> no-auth demo mode: skip the session check rather
-  // than throw (which would surface as a site-wide MIDDLEWARE_INVOCATION_FAILED).
-  if (!isSupabaseConfigured()) return NextResponse.next();
+function redirectToLogin(request: NextRequest, pathname: string) {
+  const url = request.nextUrl.clone();
+  url.pathname = "/login";
+  url.search = "";
+  url.searchParams.set("redirectTo", pathname);
+  return NextResponse.redirect(url);
+}
 
-  const { response, user } = await updateSession(request);
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (!user && !isPublic(pathname)) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.search = "";
-    url.searchParams.set("redirectTo", pathname);
-    return NextResponse.redirect(url);
+  // No Supabase configured -> demo mode. Don't run the Supabase session check
+  // (it would throw, surfacing as a site-wide MIDDLEWARE_INVOCATION_FAILED);
+  // gate on the demo role cookie instead so the role picker is a real door
+  // rather than decoration.
+  if (!isSupabaseConfigured()) {
+    const picked = request.cookies.get("demo_role")?.value;
+    if (!picked && !isPublic(pathname)) return redirectToLogin(request, pathname);
+    return NextResponse.next();
   }
+
+  const { response, user } = await updateSession(request);
+
+  if (!user && !isPublic(pathname)) return redirectToLogin(request, pathname);
 
   return response;
 }
