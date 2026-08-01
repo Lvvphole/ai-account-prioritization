@@ -290,7 +290,8 @@ Required deterministic invariants include:
 1. Edit Zod schemas only in `packages/shared-schemas/src`.
 2. Add new schemas to `SCHEMA_REGISTRY` in `src/index.ts`.
 3. Run `pnpm generate:schemas`.
-4. Commit both generated output locations when their source changes.
+4. Include both generated output locations in the change when their source
+   changes.
 5. Verify generated artifacts have no drift:
 
 ```bash
@@ -376,6 +377,12 @@ after each focused change.
 For the affected workspaces, run applicable lint, build, typecheck, unit tests,
 deterministic evals, schema drift, security, and migration checks.
 
+Database migration changes additionally require `pnpm db:lint`, but only through
+a repository-pinned Supabase CLI. Do not assume a globally installed CLI. Until
+the repository pins that executable, `pnpm db:lint` is not part of the standard
+clean-checkout completion gate; migration changes must run it in a controlled
+environment that declares the exact CLI version or report the gate as `BLOCKED`.
+
 ### Tier 3 — canonical completion gate
 
 A change is complete only when every applicable command below passes:
@@ -391,7 +398,6 @@ pnpm typecheck
 pnpm test
 pnpm test:evals
 pnpm build:api-python
-pnpm db:lint
 pnpm check:no-prisma
 pnpm verify:security
 pnpm verify:observability
