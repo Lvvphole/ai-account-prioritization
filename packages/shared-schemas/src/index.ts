@@ -18,6 +18,7 @@ import {
   NextBestActionSchema,
   VerificationResultSchema,
 } from "./recommendation";
+import { GeneratedDraftSchema, GeneratedDraftSentenceSchema } from "./generated-draft";
 import { FeedbackSchema } from "./feedback";
 import {
   AnalyticsEventSchema,
@@ -73,6 +74,7 @@ export * from "./contact";
 export * from "./opportunity";
 export * from "./activity";
 export * from "./recommendation";
+export * from "./generated-draft";
 export * from "./feedback";
 export * from "./analytics-event";
 export * from "./eval-result";
@@ -99,6 +101,8 @@ export const SCHEMA_REGISTRY = {
   SourceSignal: SourceSignalSchema,
   NextBestAction: NextBestActionSchema,
   VerificationResult: VerificationResultSchema,
+  GeneratedDraft: GeneratedDraftSchema,
+  GeneratedDraftSentence: GeneratedDraftSentenceSchema,
   Feedback: FeedbackSchema,
   AnalyticsEvent: AnalyticsEventSchema,
   AuditLogEntry: AuditLogEntrySchema,
