@@ -1,42 +1,12 @@
 import type { GeneratedDraft } from "@repo/shared-schemas";
 import type { VerifiedDraftContext, VerifiedDraftSignal } from "./build-draft-context";
 
-export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v4";
+export const DRAFT_GROUNDING_RULES_VERSION = "draft-grounding-v5";
 
 export interface DraftGroundingResult {
   passed: boolean;
   failedGates: string[];
 }
-
-const STOP_WORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "by",
-  "for",
-  "from",
-  "has",
-  "have",
-  "in",
-  "is",
-  "it",
-  "of",
-  "on",
-  "or",
-  "that",
-  "the",
-  "this",
-  "to",
-  "was",
-  "were",
-  "with",
-  "you",
-  "your",
-]);
 
 const NEGATION_TOKENS = new Set([
   "no",
@@ -63,46 +33,42 @@ const NEGATION_TOKENS = new Set([
   "shouldnt",
 ]);
 
-const normalizedTokens = (value: string): string[] =>
-  value
-    .toLowerCase()
-    .replace(/[’']/g, "")
-    .replace(/[^a-z0-9$%.-]+/g, " ")
-    .split(/\s+/)
-    .filter((token) => token.length > 0);
+const TOKEN_PATTERN =
+  /\$?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?|\$?\d+(?:\.\d+)?%?|[a-z0-9]+(?:['’][a-z0-9]+)?/gi;
+const NUMERIC_TOKEN_PATTERN = /^\$?\d+(?:\.\d+)?%?$/;
 
-const significantTokens = (value: string): string[] =>
-  normalizedTokens(value).filter(
-    (token) => token.length > 1 && !STOP_WORDS.has(token),
-  );
-
-const numericTokens = (value: string): string[] =>
-  value.match(/\b\d+(?:\.\d+)?%?\b/g) ?? [];
-
-const hasNegation = (value: string): boolean =>
-  normalizedTokens(value).some((token) => NEGATION_TOKENS.has(token));
-
-const isOrderedSubsequence = (claim: string[], evidence: string[]): boolean => {
-  if (claim.length === 0) return false;
-  let claimIndex = 0;
-  for (const token of evidence) {
-    if (token === claim[claimIndex]) claimIndex += 1;
-    if (claimIndex === claim.length) return true;
+const canonicalToken = (token: string): string => {
+  const lowered = token.toLowerCase().replace(/[’']/g, "");
+  if (NUMERIC_TOKEN_PATTERN.test(lowered.replace(/,/g, ""))) {
+    return lowered.replace(/,/g, "");
   }
-  return false;
+  return lowered;
 };
 
-const hasTokenMembership = (claim: string[], evidence: string[]): boolean => {
-  const available = new Map<string, number>();
-  for (const token of evidence) {
-    available.set(token, (available.get(token) ?? 0) + 1);
-  }
-  for (const token of claim) {
-    const remaining = available.get(token) ?? 0;
-    if (remaining === 0) return false;
-    available.set(token, remaining - 1);
-  }
-  return true;
+/**
+ * Canonical lexical sequence used for fail-closed semantic grounding.
+ * Function words are deliberately retained because modality and relationship
+ * words such as "may", "over", and "by" can change the meaning of a claim.
+ * Grouped numeric values are tokenized atomically (`$50,000` -> `$50000`).
+ */
+const canonicalTokens = (value: string): string[] =>
+  (value.match(TOKEN_PATTERN) ?? []).map(canonicalToken);
+
+const numericTokens = (value: string): string[] =>
+  canonicalTokens(value).filter((token) => NUMERIC_TOKEN_PATTERN.test(token));
+
+const withoutNegation = (tokens: string[]): string[] =>
+  tokens.filter((token) => !NEGATION_TOKENS.has(token));
+
+const hasNegation = (tokens: string[]): boolean =>
+  tokens.some((token) => NEGATION_TOKENS.has(token));
+
+const sameSequence = (left: string[], right: string[]): boolean =>
+  left.length === right.length && left.every((token, index) => token === right[index]);
+
+const sameMultiset = (left: string[], right: string[]): boolean => {
+  if (left.length !== right.length) return false;
+  return [...left].sort().every((token, index) => token === [...right].sort()[index]);
 };
 
 const groupSignalsById = (
@@ -118,12 +84,15 @@ const groupSignalsById = (
 };
 
 /**
- * Conservative deterministic grounding check. A sentence must cite only source
- * ids supplied to the model, preserve action authority, and be supported by one
- * complete verified description under every cited source id. Significant claim
- * tokens must occur in evidence order, which prevents entity/relationship swaps
- * that retain the same unordered token set. Negation polarity must also match.
- * Multiple verified signals may share one source-record id and are all retained.
+ * Conservative deterministic grounding check.
+ *
+ * A generated factual sentence must preserve one complete verified evidence
+ * description after canonical punctuation/amount normalization under EVERY cited
+ * source id. The model may select and order verified facts, but it may not omit,
+ * substitute, reorder, or paraphrase factual tokens. This intentionally trades
+ * linguistic freedom for deterministic semantic safety: modality, negation,
+ * entity relationships, function words, and numeric values remain coupled to
+ * the source statement instead of being validated as an unordered token bag.
  */
 export function validateDraftGrounding(
   draft: GeneratedDraft,
@@ -146,65 +115,56 @@ export function validateDraftGrounding(
       continue;
     }
 
-    const claimTokens = significantTokens(sentence.text);
+    const claimTokens = canonicalTokens(sentence.text);
+    const claimNumbers = numericTokens(sentence.text);
     if (claimTokens.length === 0) {
       failures.add("DRAFT_CLAIM_NOT_GROUNDED");
       continue;
     }
 
-    const claimContentTokens = claimTokens.filter(
-      (token) => !NEGATION_TOKENS.has(token),
-    );
-    const claimNumbers = numericTokens(sentence.text);
-    const claimIsNegated = hasNegation(sentence.text);
-
     for (const group of citedGroups) {
       if (!group) continue;
 
-      let fullySupported = false;
-      let contentSupportedWithOppositePolarity = false;
-      let relationshipReordered = false;
-      let numericSupported = false;
+      let exactSupported = false;
+      let numericSupported = claimNumbers.length === 0;
+      let polarityMismatch = false;
+      let relationshipMismatch = false;
 
       for (const signal of group) {
-        const evidenceTokens = significantTokens(signal.description);
-        const evidenceContentTokens = evidenceTokens.filter(
-          (token) => !NEGATION_TOKENS.has(token),
-        );
+        const evidenceTokens = canonicalTokens(signal.description);
         const evidenceNumbers = new Set(numericTokens(signal.description));
         const numbersMatch = claimNumbers.every((token) => evidenceNumbers.has(token));
-        const contentInOrder = isOrderedSubsequence(
-          claimContentTokens,
-          evidenceContentTokens,
-        );
-        const allTokensInOrder = isOrderedSubsequence(claimTokens, evidenceTokens);
-        const polarityMatches = claimIsNegated === hasNegation(signal.description);
-
         numericSupported ||= numbersMatch;
-        if (contentInOrder && numbersMatch && !polarityMatches) {
-          contentSupportedWithOppositePolarity = true;
-        }
-        if (
-          numbersMatch &&
-          polarityMatches &&
-          hasTokenMembership(claimTokens, evidenceTokens) &&
-          !allTokensInOrder
-        ) {
-          relationshipReordered = true;
-        }
-        if (allTokensInOrder && numbersMatch && polarityMatches) {
-          fullySupported = true;
+
+        if (sameSequence(claimTokens, evidenceTokens)) {
+          exactSupported = true;
           break;
         }
+
+        if (
+          numbersMatch &&
+          sameSequence(withoutNegation(claimTokens), withoutNegation(evidenceTokens)) &&
+          hasNegation(claimTokens) !== hasNegation(evidenceTokens)
+        ) {
+          polarityMismatch = true;
+        }
+
+        if (
+          numbersMatch &&
+          hasNegation(claimTokens) === hasNegation(evidenceTokens) &&
+          sameMultiset(claimTokens, evidenceTokens) &&
+          !sameSequence(claimTokens, evidenceTokens)
+        ) {
+          relationshipMismatch = true;
+        }
       }
 
-      if (fullySupported) continue;
-      if (!numericSupported && claimNumbers.length > 0) {
+      if (exactSupported) continue;
+      if (!numericSupported) {
         failures.add("DRAFT_UNSUPPORTED_NUMBER");
-      }
-      if (contentSupportedWithOppositePolarity) {
+      } else if (polarityMismatch) {
         failures.add("DRAFT_POLARITY_MISMATCH");
-      } else if (relationshipReordered) {
+      } else if (relationshipMismatch) {
         failures.add("DRAFT_RELATIONSHIP_MISMATCH");
       } else {
         failures.add("DRAFT_CLAIM_NOT_GROUNDED");
