@@ -10,11 +10,15 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-function redirectToLogin(request: NextRequest, pathname: string) {
+function redirectToLogin(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
   const url = request.nextUrl.clone();
   url.pathname = "/login";
   url.search = "";
-  url.searchParams.set("redirectTo", pathname);
+  // Carry the query string too: on pages that keep their state in the URL (the
+  // import wizard's ?kind=, for one) dropping it silently resumes somewhere
+  // other than where the visitor was headed. setSearchParams encodes it.
+  url.searchParams.set("redirectTo", `${pathname}${search}`);
   return NextResponse.redirect(url);
 }
 
@@ -27,13 +31,13 @@ export async function middleware(request: NextRequest) {
   // rather than decoration.
   if (!isSupabaseConfigured()) {
     const picked = request.cookies.get("demo_role")?.value;
-    if (!picked && !isPublic(pathname)) return redirectToLogin(request, pathname);
+    if (!picked && !isPublic(pathname)) return redirectToLogin(request);
     return NextResponse.next();
   }
 
   const { response, user } = await updateSession(request);
 
-  if (!user && !isPublic(pathname)) return redirectToLogin(request, pathname);
+  if (!user && !isPublic(pathname)) return redirectToLogin(request);
 
   return response;
 }
