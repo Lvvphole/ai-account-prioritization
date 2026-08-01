@@ -8,7 +8,11 @@ import type { AccountContext } from "../account-prioritizer/prioritizer.policy";
 import { generateCallObjective } from "./tools/generate-call-objective";
 import { generateEmailDraft } from "./tools/generate-email-draft";
 import { generateCrmNote } from "./tools/generate-crm-note";
-import { buildVerifiedDraftContext, type VerifiedDraftContext } from "./build-draft-context";
+import {
+  buildVerifiedDraftContext,
+  DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+  type VerifiedDraftContext,
+} from "./build-draft-context";
 import {
   buildRuntimeDraftUserPrompt,
   RUNTIME_DRAFT_PROMPT_HASH,
@@ -130,12 +134,31 @@ export interface HybridDraftResult {
   outcome: HybridDraftOutcome;
 }
 
+/** Non-secret evidence persisted before an external runtime-model invocation. */
+export interface HybridDraftInvocationStart {
+  recommendationId: string;
+  accountId: string;
+  selectedSourceSignalIds: string[];
+  provider: RuntimeDraftingPolicy["provider"];
+  model: string | null;
+  promptVersion: string;
+  promptHash: string;
+  schemaVersion: string;
+  policyVersion: string;
+  effectivePolicyHash: string;
+  groundingVersion: string;
+  inputTokenUpperBound: number;
+  reservedRunTokens: number;
+}
+
 export interface HybridDraftOptions {
   policy?: RuntimeDraftingPolicy;
   modelClient?: RuntimeModelClient;
   runBudget?: RuntimeDraftRunBudget;
   /** Injected deterministic clock used for source freshness. */
   now?: string;
+  /** Durable pre-invocation audit hook. A failure prevents provider invocation. */
+  beforeModelInvoke?: (invocation: HybridDraftInvocationStart) => Promise<void>;
 }
 
 export function hybridDraftContractMetadata(
@@ -198,7 +221,8 @@ function buildBudgetedDraftRequest(
   const prioritized = buildVerifiedDraftContext(rec, ctx, {
     maxSignals: policy.maxSignals,
     now,
-    maxEvidenceAgeDays: policy.maxEvidenceAgeDays,
+    maxEvidenceAgeDays:
+      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
   });
   const selected: VerifiedDraftContext["signals"] = [];
   let selectedRequest: RuntimeModelRequest | undefined;
@@ -251,10 +275,17 @@ const TEMPLATE_SIGNAL_ACTIONS = new Set<Recommendation["nextBestAction"]["type"]
 ]);
 
 /**
- * Source-signal provenance for deterministic templates that embed verified
- * recommendation evidence directly in their rendered draft.
+ * Validate every source signal that a deterministic template will consume,
+ * regardless of the model-visible maxSignals cap. This prevents a fallback from
+ * reintroducing stale, future-dated, unresolved, or unverified evidence that was
+ * not selected for the provider request.
  */
-function templateSignalProvenance(rec: Recommendation): {
+function validatedTemplateProvenance(
+  rec: Recommendation,
+  ctx: AccountContext,
+  now: string,
+  policy: RuntimeDraftingPolicy,
+): {
   selectedSourceSignalIds: string[];
   claimCitations: DraftClaimCitation[];
 } {
@@ -262,31 +293,44 @@ function templateSignalProvenance(rec: Recommendation): {
     return { selectedSourceSignalIds: [], claimCitations: [] };
   }
 
-  const verifiedSignals = rec.sourceSignals.filter((signal) => signal.verified);
+  const validated = buildVerifiedDraftContext(rec, ctx, {
+    maxSignals: rec.sourceSignals.length,
+    now,
+    maxEvidenceAgeDays:
+      policy.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
+  });
+
   return {
-    selectedSourceSignalIds: uniqueIds(verifiedSignals.map((signal) => signal.refId)),
-    claimCitations: verifiedSignals.map((signal) => ({
+    selectedSourceSignalIds: uniqueIds(validated.signals.map((signal) => signal.id)),
+    claimCitations: validated.signals.map((signal) => ({
       text: signal.description,
-      sourceSignalIds: [signal.refId],
+      sourceSignalIds: [signal.id],
     })),
   };
 }
 
-/**
- * Freshness/source-resolution failures invalidate the evidence itself. They may
- * not fall back to a template that would re-render the same rejected evidence.
- */
+/** Evidence failures and unavailable pre-invocation audit storage are fail-closed. */
 const NON_FALLBACK_CONTEXT_FAILURES = new Set([
   "DRAFT_CONTEXT_STALE_SIGNAL",
+  "DRAFT_CONTEXT_FUTURE_SIGNAL",
   "DRAFT_CONTEXT_SOURCE_UNRESOLVED",
   "DRAFT_CONTEXT_SOURCE_TIME_INVALID",
+  "DRAFT_AUDIT_START_FAILED",
 ]);
+
+const failureCodeFromError = (error: unknown): string =>
+  error instanceof RuntimeModelError
+    ? error.code
+    : error instanceof Error
+      ? error.message
+      : "DRAFT_MODEL_FAILURE";
 
 /**
  * Bounded runtime-AI drafting path. The model receives only a verified,
  * action-prioritized context that fits hard freshness/input/run budgets. The
  * model can return candidate language only; strict schema parsing, grounding,
- * audit evidence, and deterministic fallbacks remain outside the model.
+ * durable pre-invocation evidence, and deterministic fallbacks remain outside
+ * the model.
  */
 export async function attachHybridActionDraft(
   rec: Recommendation,
@@ -316,14 +360,29 @@ export async function attachHybridActionDraft(
     groundingFailedGates,
   });
 
-  if (!policy.enabled || !modelDraftable(rec.nextBestAction.type)) {
-    const provenance = templateSignalProvenance(rec);
+  const renderValidatedTemplate = (): Recommendation => {
+    const provenance = validatedTemplateProvenance(rec, ctx, now, policy);
     selectedSourceSignalIds = provenance.selectedSourceSignalIds;
     claimCitations = provenance.claimCitations;
-    return {
-      recommendation: template(),
-      outcome: { ...outcomeBase(), source: "template" },
-    };
+    return template();
+  };
+
+  if (!policy.enabled || !modelDraftable(rec.nextBestAction.type)) {
+    try {
+      return {
+        recommendation: renderValidatedTemplate(),
+        outcome: { ...outcomeBase(), source: "template" },
+      };
+    } catch (error) {
+      return {
+        recommendation: rec,
+        outcome: {
+          ...outcomeBase(),
+          source: "held",
+          failureCode: failureCodeFromError(error),
+        },
+      };
+    }
   }
 
   try {
@@ -336,6 +395,28 @@ export async function attachHybridActionDraft(
       throw new Error("DRAFT_RUN_BUDGET_EXCEEDED");
     }
     reservedRunTokens = requestedRunTokens;
+
+    if (options.beforeModelInvoke) {
+      try {
+        await options.beforeModelInvoke({
+          recommendationId: rec.id,
+          accountId: rec.accountId,
+          selectedSourceSignalIds: [...selectedSourceSignalIds],
+          provider: policy.provider,
+          model: policy.model ?? null,
+          promptVersion: baseOutcome.promptVersion,
+          promptHash: baseOutcome.promptHash,
+          schemaVersion: baseOutcome.schemaVersion,
+          policyVersion: baseOutcome.policyVersion,
+          effectivePolicyHash: baseOutcome.effectivePolicyHash,
+          groundingVersion: baseOutcome.groundingVersion,
+          inputTokenUpperBound,
+          reservedRunTokens,
+        });
+      } catch {
+        throw new Error("DRAFT_AUDIT_START_FAILED");
+      }
+    }
 
     const client = options.modelClient ?? anthropicRuntimeModelClient;
     const modelResult = await client.generate(prepared.request, policy);
@@ -379,12 +460,7 @@ export async function attachHybridActionDraft(
     if (error instanceof RuntimeModelError && error.telemetry) {
       modelTelemetry = error.telemetry;
     }
-    const failureCode =
-      error instanceof RuntimeModelError
-        ? error.code
-        : error instanceof Error
-          ? error.message
-          : "DRAFT_MODEL_FAILURE";
+    const failureCode = failureCodeFromError(error);
 
     if (NON_FALLBACK_CONTEXT_FAILURES.has(failureCode)) {
       return {
@@ -401,20 +477,31 @@ export async function attachHybridActionDraft(
     }
 
     if (policy.fallback === "template") {
-      const provenance = templateSignalProvenance(rec);
-      selectedSourceSignalIds = provenance.selectedSourceSignalIds;
-      claimCitations = provenance.claimCitations;
-      return {
-        recommendation: template(),
-        outcome: {
-          ...outcomeBase(),
-          source: "template_fallback",
-          failureCode,
-          telemetry: modelTelemetry,
-          inputTokenUpperBound,
-          reservedRunTokens,
-        },
-      };
+      try {
+        return {
+          recommendation: renderValidatedTemplate(),
+          outcome: {
+            ...outcomeBase(),
+            source: "template_fallback",
+            failureCode,
+            telemetry: modelTelemetry,
+            inputTokenUpperBound,
+            reservedRunTokens,
+          },
+        };
+      } catch (fallbackError) {
+        return {
+          recommendation: rec,
+          outcome: {
+            ...outcomeBase(),
+            source: "held",
+            failureCode: failureCodeFromError(fallbackError),
+            telemetry: modelTelemetry,
+            inputTokenUpperBound,
+            reservedRunTokens,
+          },
+        };
+      }
     }
 
     return {
