@@ -33,16 +33,22 @@ system objective.**
 
 A new harness component is architecturally justified only when an evidenced
 failure, explicit product requirement, or explicit high-consequence threat
-cannot be satisfied by the existing simpler boundary. The preferred direction
-is:
+cannot be satisfied by the existing simpler boundary.
+
+When probabilistic drafting is enabled, the runtime pipeline is mandatory:
 
 ```text
-deterministic software
-  > bounded probabilistic capability
-  > deterministic verification
+deterministic decision authority
+  -> bounded probabilistic generation, when enabled
+  -> deterministic post-draft verification
+  -> human approval for side effects
 ```
 
-and, for control complexity:
+The minimum-sufficient-control rule governs how each required boundary is
+implemented; it does not permit omission of mandatory verification, safety,
+approval, provenance, authorization, or publication gates.
+
+For genuinely substitutable control classes, prefer:
 
 ```text
 simple local control
@@ -51,10 +57,10 @@ simple local control
   > autonomous control plane
 ```
 
-Moving right requires evidence that the simpler class is insufficient and that
-the added component improves the whole system after accounting for latency,
-token/compute cost, code, state, dependencies, operational burden, and new
-failure modes.
+Moving right among these substitutable control classes requires evidence that the
+simpler class is insufficient and that the added component improves the whole
+system after accounting for latency, token/compute cost, code, state,
+dependencies, operational burden, and new failure modes.
 
 Machine enforcement is reserved for properties that are authoritative,
 deterministic, semantically unambiguous, and inexpensive enough to evaluate
