@@ -124,18 +124,21 @@ Do not build a second complex subsystem merely to mechanically enforce a judgmen
 
 ## Repair economics
 
-Repair behavior is governed by defect class, not by maximizing the number of permitted attempts.
+Repair behavior is governed by defect class and diagnostic evidence, not by maximizing the number of permitted attempts or imposing an arbitrary universal retry count.
 
 ```text
 evidenced local failure
   -> smallest local repair
   -> targeted verification
-      -> same failure persists: BLOCKED
+      -> same failure + materially new diagnostic evidence:
+           one specific, bounded, non-speculative follow-up repair
+      -> same failure + no materially new diagnostic evidence: BLOCKED
+      -> explicitly justified bound reached: BLOCKED
       -> new significant failure from same control mechanism: STOP AND REASSESS DESIGN
       -> verification passes without new defect class: continue
 ```
 
-A local defect receives a local repair.
+A local defect receives a local repair. A follow-up repair is justified only when targeted verification materially reduces uncertainty by identifying a specific, bounded correction. Unchanged failure without new diagnostic evidence does not earn another attempt.
 
 When a repair exposes a new significant defect class caused by the same control mechanism, the next action is not automatic fix-forward. Reassess whether the mechanism is incorrectly modeled, over-complex, or unnecessary.
 
