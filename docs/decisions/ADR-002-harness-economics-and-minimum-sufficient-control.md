@@ -37,8 +37,8 @@ Use the following as a decision model, not invented telemetry:
 
 ```text
 HarnessValue =
-  demonstrated_benefit(correctness, reliability,safety,cost)
-  - added_burden(complexity,latency,cost,state,dependencies,failure_surface)
+  demonstrated_benefit(correctness, reliability, safety, cost)
+  - added_burden(complexity, latency, cost, state, dependencies, failure_surface)
 ```
 
 A component is justified only when its expected or measured benefit exceeds its added burden.
