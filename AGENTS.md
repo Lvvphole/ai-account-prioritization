@@ -83,7 +83,7 @@ merely to make a gate pass.
 The goal of the harness is not maximum control. The goal is the **minimum
 sufficient control** required to produce the desired system behavior reliably.
 The canonical architecture decision is
-`docs/decisions/0001-harness-economics-and-minimum-sufficient-control.md`.
+`docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`.
 
 **Every harness component must pay rent.** Before adding or preserving a harness
 component, establish:
@@ -363,7 +363,7 @@ Before completion:
 | Product contract | `docs/PRD.md`, `prd_manifest.yaml` |
 | System architecture | `docs/ARCHITECTURE.md` |
 | Architecture decisions | `docs/decisions/` |
-| Harness economics | `docs/decisions/0001-harness-economics-and-minimum-sufficient-control.md` |
+| Harness economics | `docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md` |
 | Engineering workflow | `docs/CONTEXT.md`, `AGENTS.md` |
 | Schema source of truth | `packages/shared-schemas/src` |
 | JSON Schema generation | `packages/shared-schemas/scripts/generate-json-schemas.ts` |
