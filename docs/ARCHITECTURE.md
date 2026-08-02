@@ -25,7 +25,7 @@ publish or must be held.
 ## Minimum-sufficient harness principle
 
 The canonical decision is
-`docs/decisions/0001-harness-economics-and-minimum-sufficient-control.md`.
+`docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`.
 
 This architecture deliberately minimizes both probabilistic authority and the
 amount of machinery required to constrain it. **Harness complexity is not a
