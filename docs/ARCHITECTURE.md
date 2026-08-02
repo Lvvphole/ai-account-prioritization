@@ -22,6 +22,49 @@ apply. The runtime LLM may only determine how a verified recommendation is
 expressed. A deterministic post-draft verifier decides whether the candidate may
 publish or must be held.
 
+## Minimum-sufficient harness principle
+
+The canonical decision is
+`docs/decisions/0001-harness-economics-and-minimum-sufficient-control.md`.
+
+This architecture deliberately minimizes both probabilistic authority and the
+amount of machinery required to constrain it. **Harness complexity is not a
+system objective.**
+
+A new harness component is architecturally justified only when an evidenced
+failure, explicit product requirement, or explicit high-consequence threat
+cannot be satisfied by the existing simpler boundary. The preferred direction
+is:
+
+```text
+deterministic software
+  > bounded probabilistic capability
+  > deterministic verification
+```
+
+and, for control complexity:
+
+```text
+simple local control
+  > stateful control
+  > orchestration
+  > autonomous control plane
+```
+
+Moving right requires evidence that the simpler class is insufficient and that
+the added component improves the whole system after accounting for latency,
+token/compute cost, code, state, dependencies, operational burden, and new
+failure modes.
+
+Machine enforcement is reserved for properties that are authoritative,
+deterministic, semantically unambiguous, and inexpensive enough to evaluate
+relative to the protected operation. Engineering judgment is not converted into
+a state machine merely to make it mechanically enforceable.
+
+Whole-system reliability is the target. Reducing model uncertainty while
+introducing greater harness uncertainty is an architectural regression, not an
+improvement.
+
 ## Implementation status
 
 This document defines the approved target architecture.
