@@ -78,6 +78,73 @@ merely to make a gate pass.
 22. Any failed safety, permission, provenance, schema, grounding, or production
     gate blocks publication or deployment.
 
+### 2.1 Harness economics and minimum-sufficient-control contract
+
+The goal of the harness is not maximum control. The goal is the **minimum
+sufficient control** required to produce the desired system behavior reliably.
+The canonical architecture decision is
+`docs/decisions/0001-harness-economics-and-minimum-sufficient-control.md`.
+
+**Every harness component must pay rent.** Before adding or preserving a harness
+component, establish:
+
+1. the evidenced failure, explicit requirement, or explicit high-consequence
+   threat it addresses;
+2. why the existing system is insufficient;
+3. the least complex mechanism capable of addressing it;
+4. the acceptance evidence that will prove the mechanism works;
+5. the additional latency, token/compute cost, code, state, dependencies,
+   operational work, and failure modes it introduces; and
+6. why its expected or measured benefit exceeds its added burden.
+
+If these cannot be established, do not add the component. Never invent a numeric
+harness-value, complexity, cost, or reliability score when telemetry is absent.
+
+Escalate control complexity only when the prior level is insufficient:
+
+```text
+no additional mechanism
+  → clearer contract, prompt, or context
+  → schema or static validation
+  → deterministic local code
+  → targeted test or evaluation
+  → bounded retry or recovery
+  → durable state
+  → orchestration or additional agents
+  → new control-plane subsystem
+```
+
+Hard rules:
+
+- Do not add controls for hypothetical failures unless an explicit
+  high-consequence threat model requires them.
+- Do not use an LLM where deterministic software satisfies the requirement.
+- Do not create durable state when the required decision is stateless.
+- Do not infer authoritative state from mutable artifacts when it can be
+  represented directly at the source.
+- Do not introduce multi-agent, workflow, or control-plane architecture when a
+  smaller boundary works.
+- Do not add a verifier for a verifier merely to increase apparent assurance.
+- Retries, reflection, review, evaluation, and repair loops require explicit
+  stop conditions.
+- Passing CI proves only the properties covered by those gates; it does not prove
+  the harness architecture itself is correct.
+- Do not turn heuristic thresholds into fail-closed policy without evidence that
+  the threshold corresponds to a real requirement or demonstrated failure
+  boundary.
+- Whole-system reliability is the target. Reducing model uncertainty while
+  introducing greater harness uncertainty is a regression.
+- Simplify or remove a harness component when it duplicates a simpler mechanism,
+  no longer protects an evidenced requirement, or creates more burden than
+  demonstrated value.
+
+Machine-enforce properties only when they are authoritative, deterministic,
+semantically unambiguous, and inexpensive enough to evaluate relative to the
+protected operation. Engineering judgments such as whether a change is too
+broad, an abstraction is unnecessary, or a harness is over-engineered remain
+review judgments unless the system has a trustworthy authoritative
+representation for them.
+
 ## 3. The runtime path is sacred
 
 ```text
@@ -218,8 +285,15 @@ contract → baseline → plan → execute → verify → evaluate → iterate �
 - Fix only the evidenced failure.
 - Do not rerun an identical failed command without a relevant change or new
   diagnostic evidence.
-- Maximum repair attempts for the same gate: **3**.
-- Repeated identical failure after attempted repair becomes `BLOCKED`.
+- A local defect receives the smallest coherent local repair, followed by the
+  narrowest relevant verification.
+- If the same failure persists after the repair, stop and report `BLOCKED` rather
+  than repeating speculative fixes.
+- If a repair exposes a new significant defect class caused by the same control
+  mechanism, stop local fix-forward and reassess the design before another
+  repair.
+- Repeated harness defects are evidence about the harness architecture itself.
+  The governing response is `STOP → REDUCE OR REDESIGN → VERIFY`.
 
 ### Review handling: identify → validate → fix_or_rebut → verify → respond → resolve
 
@@ -285,6 +359,7 @@ Before completion:
 | Product contract | `docs/PRD.md`, `prd_manifest.yaml` |
 | System architecture | `docs/ARCHITECTURE.md` |
 | Architecture decisions | `docs/decisions/` |
+| Harness economics | `docs/decisions/0001-harness-economics-and-minimum-sufficient-control.md` |
 | Engineering workflow | `docs/CONTEXT.md`, `AGENTS.md` |
 | Schema source of truth | `packages/shared-schemas/src` |
 | JSON Schema generation | `packages/shared-schemas/scripts/generate-json-schemas.ts` |
