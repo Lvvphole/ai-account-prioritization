@@ -78,6 +78,29 @@ merely to make a gate pass.
 22. Any failed safety, permission, provenance, schema, grounding, or production
     gate blocks publication or deployment.
 
+### 2.1 Harness economics operationalization
+
+The canonical harness-economics doctrine is
+`docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`.
+For harness-economics semantics only, that ADR is authoritative and this file
+operationalizes it. If this file conflicts with ADR-002 on mandatory-invariant
+treatment, component admission, simplicity precedence, machine-enforcement
+boundaries, removal economics, or repair economics, stop and correct the conflict
+before proceeding. This narrow delegation does not change precedence for other
+requirements and never weakens the non-negotiable invariants above.
+
+Mandatory product and runtime invariants are requirements, not discretionary
+controls. Do not use harness economics to delete a required verification, safety,
+approval, provenance, tenancy, schema, grounding, authorization, or publication
+boundary. Apply ADR-002 to choose the smallest sufficient implementation that
+preserves the invariant.
+
+Before adding or preserving a discretionary harness control, or choosing among
+substitutable implementations, apply ADR-002's admission and simplicity rules.
+Do not duplicate a second doctrine here. Machine-enforcement, removal, and repair
+decisions also follow ADR-002. Never invent numeric harness-value, complexity,
+cost, reliability, or drift scores when telemetry is absent.
+
 ## 3. The runtime path is sacred
 
 ```text
@@ -215,11 +238,25 @@ contract → baseline → plan → execute → verify → evaluate → iterate �
 
 ### Iterate
 
-- Fix only the evidenced failure.
-- Do not rerun an identical failed command without a relevant change or new
-  diagnostic evidence.
-- Maximum repair attempts for the same gate: **3**.
-- Repeated identical failure after attempted repair becomes `BLOCKED`.
+- Follow ADR-002 repair economics; there is no universal numeric repair count.
+- Fix only the evidenced failure. Do not rerun an identical failed command
+  without a relevant change or materially new diagnostic evidence.
+- A local defect receives the smallest coherent local repair, followed by the
+  narrowest relevant verification.
+- If the same failure persists and targeted verification produces materially new
+  diagnostic evidence that identifies a specific, bounded, non-speculative
+  correction, and no explicitly justified bound has been reached, apply the next
+  smallest coherent repair and verify again. Every additional repair requires
+  fresh evidence that materially narrows the diagnosis.
+- If materially new diagnostic evidence is exhausted, or an explicitly justified
+  bound has been reached, stop and report `BLOCKED`. Do not repeat an unchanged
+  repair or continue speculative fix-forward.
+- If a repair exposes a new significant defect class caused by the same control
+  mechanism, stop local fix-forward and reassess, reduce, or redesign the
+  mechanism before another local repair.
+- Repeated significant harness defects from the same mechanism are evidence about
+  the harness architecture itself. The governing response is
+  `STOP → REDUCE OR REDESIGN → VERIFY`.
 
 ### Review handling: identify → validate → fix_or_rebut → verify → respond → resolve
 
@@ -285,6 +322,7 @@ Before completion:
 | Product contract | `docs/PRD.md`, `prd_manifest.yaml` |
 | System architecture | `docs/ARCHITECTURE.md` |
 | Architecture decisions | `docs/decisions/` |
+| Harness economics | `docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md` |
 | Engineering workflow | `docs/CONTEXT.md`, `AGENTS.md` |
 | Schema source of truth | `packages/shared-schemas/src` |
 | JSON Schema generation | `packages/shared-schemas/scripts/generate-json-schemas.ts` |

@@ -22,6 +22,47 @@ apply. The runtime LLM may only determine how a verified recommendation is
 expressed. A deterministic post-draft verifier decides whether the candidate may
 publish or must be held.
 
+## Minimum-sufficient harness architecture
+
+The canonical harness-economics doctrine is
+`docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`.
+This section records only the architectural consequences of that decision; it
+does not redefine component admission, repair economics, removal economics,
+simplicity precedence, or machine-enforcement rules.
+
+The product's mandatory runtime boundaries remain requirements. Harness economics
+applies to the implementation chosen for each boundary, not to whether a required
+boundary may be omitted.
+
+The runtime responsibility shape is:
+
+```text
+deterministic decision authority
+  -> bounded drafting
+       probabilistic generation when enabled
+       OR approved deterministic fallback
+  -> deterministic post-draft verification
+  -> human approval for customer-facing or side-effecting actions
+  -> publish or hold
+```
+
+A probabilistic draft never bypasses deterministic post-draft verification.
+These sequential responsibilities are not substitutable control classes.
+
+For genuinely substitutable control implementations, the architectural preference
+is:
+
+```text
+simple local control
+  > stateful control
+  > orchestration
+  > autonomous control plane
+```
+
+Movement toward a more complex substitutable control class follows ADR-002.
+Whole-system reliability remains the target: reducing model uncertainty while
+introducing greater harness uncertainty is an architectural regression.
+
 ## Implementation status
 
 This document defines the approved target architecture.
