@@ -78,72 +78,28 @@ merely to make a gate pass.
 22. Any failed safety, permission, provenance, schema, grounding, or production
     gate blocks publication or deployment.
 
-### 2.1 Harness economics and minimum-sufficient-control contract
+### 2.1 Harness economics operationalization
 
-The goal of the harness is not maximum control. The goal is the **minimum
-sufficient control** required to produce the desired system behavior reliably.
-The canonical architecture decision is
+The canonical harness-economics doctrine is
 `docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`.
+For harness-economics semantics only, that ADR is authoritative and this file
+operationalizes it. If this file conflicts with ADR-002 on mandatory-invariant
+treatment, component admission, simplicity precedence, machine-enforcement
+boundaries, removal economics, or repair economics, stop and correct the conflict
+before proceeding. This narrow delegation does not change precedence for other
+requirements and never weakens the non-negotiable invariants above.
 
-**Every harness component must pay rent.** Before adding or preserving a harness
-component, establish:
+Mandatory product and runtime invariants are requirements, not discretionary
+controls. Do not use harness economics to delete a required verification, safety,
+approval, provenance, tenancy, schema, grounding, authorization, or publication
+boundary. Apply ADR-002 to choose the smallest sufficient implementation that
+preserves the invariant.
 
-1. the evidenced failure, explicit requirement, or explicit high-consequence
-   threat it addresses;
-2. why the existing system is insufficient;
-3. the least complex mechanism capable of addressing it;
-4. the acceptance evidence that will prove the mechanism works;
-5. the additional latency, token/compute cost, code, state, dependencies,
-   operational work, and failure modes it introduces; and
-6. why its expected or measured benefit exceeds its added burden.
-
-If these cannot be established, do not add the component. Never invent a numeric
-harness-value, complexity, cost, or reliability score when telemetry is absent.
-
-Escalate control complexity only when the prior level is insufficient:
-
-```text
-no additional mechanism
-  → clearer contract, prompt, or context
-  → schema or static validation
-  → deterministic local code
-  → targeted test or evaluation
-  → bounded retry or recovery
-  → durable state
-  → orchestration or additional agents
-  → new control-plane subsystem
-```
-
-Hard rules:
-
-- Do not add controls for hypothetical failures unless an explicit
-  high-consequence threat model requires them.
-- Do not use an LLM where deterministic software satisfies the requirement.
-- Do not create durable state when the required decision is stateless.
-- Do not infer authoritative state from mutable artifacts when it can be
-  represented directly at the source.
-- Do not introduce multi-agent, workflow, or control-plane architecture when a
-  smaller boundary works.
-- Do not add a verifier for a verifier merely to increase apparent assurance.
-- Retries, reflection, review, evaluation, and repair loops require explicit
-  stop conditions.
-- Passing CI proves only the properties covered by those gates; it does not prove
-  the harness architecture itself is correct.
-- Do not turn heuristic thresholds into fail-closed policy without evidence that
-  the threshold corresponds to a real requirement or demonstrated failure
-  boundary.
-- Whole-system reliability is the target. Reducing model uncertainty while
-  introducing greater harness uncertainty is a regression.
-- Simplify or remove a harness component when it duplicates a simpler mechanism,
-  no longer protects an evidenced requirement, or creates more burden than
-  demonstrated value.
-
-Machine-enforce properties only when they are authoritative, deterministic,
-semantically unambiguous, and inexpensive enough to evaluate relative to the
-protected operation. Engineering judgments such as whether a change is too
-broad, an abstraction is unnecessary, or a harness is over-engineered remain
-review judgments unless the system has a trustworthy authoritative
-representation for them.
+Before adding or preserving a discretionary harness control, or choosing among
+substitutable implementations, apply ADR-002's admission and simplicity rules.
+Do not duplicate a second doctrine here. Machine-enforcement, removal, and repair
+decisions also follow ADR-002. Never invent numeric harness-value, complexity,
+cost, reliability, or drift scores when telemetry is absent.
 
 ## 3. The runtime path is sacred
 
@@ -282,22 +238,25 @@ contract → baseline → plan → execute → verify → evaluate → iterate �
 
 ### Iterate
 
-- Fix only the evidenced failure.
-- Do not rerun an identical failed command without a relevant change or new
-  diagnostic evidence.
+- Follow ADR-002 repair economics; there is no universal numeric repair count.
+- Fix only the evidenced failure. Do not rerun an identical failed command
+  without a relevant change or materially new diagnostic evidence.
 - A local defect receives the smallest coherent local repair, followed by the
   narrowest relevant verification.
-- If the same failure persists after a repair, a follow-up repair is permitted
-  only when targeted verification produces materially new diagnostic evidence
-  that identifies a specific, bounded, non-speculative correction.
-- If verification produces no materially new evidence, or an explicitly
-  justified bound has been reached, stop and report `BLOCKED`. Do not repeat an
-  unchanged repair or continue speculative fix-forward.
+- If the same failure persists and targeted verification produces materially new
+  diagnostic evidence that identifies a specific, bounded, non-speculative
+  correction, and no explicitly justified bound has been reached, apply the next
+  smallest coherent repair and verify again. Every additional repair requires
+  fresh evidence that materially narrows the diagnosis.
+- If materially new diagnostic evidence is exhausted, or an explicitly justified
+  bound has been reached, stop and report `BLOCKED`. Do not repeat an unchanged
+  repair or continue speculative fix-forward.
 - If a repair exposes a new significant defect class caused by the same control
-  mechanism, stop local fix-forward and reassess the design before another
-  repair.
-- Repeated harness defects are evidence about the harness architecture itself.
-  The governing response is `STOP → REDUCE OR REDESIGN → VERIFY`.
+  mechanism, stop local fix-forward and reassess, reduce, or redesign the
+  mechanism before another local repair.
+- Repeated significant harness defects from the same mechanism are evidence about
+  the harness architecture itself. The governing response is
+  `STOP → REDUCE OR REDESIGN → VERIFY`.
 
 ### Review handling: identify → validate → fix_or_rebut → verify → respond → resolve
 
