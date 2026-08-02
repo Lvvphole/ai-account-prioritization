@@ -287,8 +287,12 @@ contract → baseline → plan → execute → verify → evaluate → iterate �
   diagnostic evidence.
 - A local defect receives the smallest coherent local repair, followed by the
   narrowest relevant verification.
-- If the same failure persists after the repair, stop and report `BLOCKED` rather
-  than repeating speculative fixes.
+- If the same failure persists after a repair, a follow-up repair is permitted
+  only when targeted verification produces materially new diagnostic evidence
+  that identifies a specific, bounded, non-speculative correction.
+- If verification produces no materially new evidence, or an explicitly
+  justified bound has been reached, stop and report `BLOCKED`. Do not repeat an
+  unchanged repair or continue speculative fix-forward.
 - If a repair exposes a new significant defect class caused by the same control
   mechanism, stop local fix-forward and reassess the design before another
   repair.
