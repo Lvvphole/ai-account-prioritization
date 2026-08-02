@@ -22,33 +22,35 @@ apply. The runtime LLM may only determine how a verified recommendation is
 expressed. A deterministic post-draft verifier decides whether the candidate may
 publish or must be held.
 
-## Minimum-sufficient harness principle
+## Minimum-sufficient harness architecture
 
-The canonical decision is
+The canonical harness-economics doctrine is
 `docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`.
+This section records only the architectural consequences of that decision; it
+does not redefine component admission, repair economics, removal economics,
+simplicity precedence, or machine-enforcement rules.
 
-This architecture deliberately minimizes both probabilistic authority and the
-amount of machinery required to constrain it. **Harness complexity is not a
-system objective.**
+The product's mandatory runtime boundaries remain requirements. Harness economics
+applies to the implementation chosen for each boundary, not to whether a required
+boundary may be omitted.
 
-A new harness component is architecturally justified only when an evidenced
-failure, explicit product requirement, or explicit high-consequence threat
-cannot be satisfied by the existing simpler boundary.
-
-When probabilistic drafting is enabled, the runtime pipeline is mandatory:
+The runtime responsibility shape is:
 
 ```text
 deterministic decision authority
-  -> bounded probabilistic generation, when enabled
+  -> bounded drafting
+       probabilistic generation when enabled
+       OR approved deterministic fallback
   -> deterministic post-draft verification
-  -> human approval for side effects
+  -> human approval for customer-facing or side-effecting actions
+  -> publish or hold
 ```
 
-The minimum-sufficient-control rule governs how each required boundary is
-implemented; it does not permit omission of mandatory verification, safety,
-approval, provenance, authorization, or publication gates.
+A probabilistic draft never bypasses deterministic post-draft verification.
+These sequential responsibilities are not substitutable control classes.
 
-For genuinely substitutable control classes, prefer:
+For genuinely substitutable control implementations, the architectural preference
+is:
 
 ```text
 simple local control
@@ -57,19 +59,9 @@ simple local control
   > autonomous control plane
 ```
 
-Moving right among these substitutable control classes requires evidence that the
-simpler class is insufficient and that the added component improves the whole
-system after accounting for latency, token/compute cost, code, state,
-dependencies, operational burden, and new failure modes.
-
-Machine enforcement is reserved for properties that are authoritative,
-deterministic, semantically unambiguous, and inexpensive enough to evaluate
-relative to the protected operation. Engineering judgment is not converted into
-a state machine merely to make it mechanically enforceable.
-
-Whole-system reliability is the target. Reducing model uncertainty while
-introducing greater harness uncertainty is an architectural regression, not an
-improvement.
+Movement toward a more complex substitutable control class follows ADR-002.
+Whole-system reliability remains the target: reducing model uncertainty while
+introducing greater harness uncertainty is an architectural regression.
 
 ## Implementation status
 
