@@ -10,29 +10,49 @@ import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-obs
  */
 export function generateReasonCodes(
   ctx: AccountContext,
-  _features: AccountFeatures,
+  features: AccountFeatures,
 ): ReasonCode[] {
   const cfg = RUNTIME_CONFIG;
   const a = ctx.account;
   const codes = new Set<ReasonCode>();
 
-  if (a.openPipelineUsd >= cfg.highPipelineThresholdUsd) codes.add("high_open_pipeline");
-  if (resolveVerifiedIntentObservations(a, ctx.activities).length > 0) {
+  if (
+    features.availability.pipeline &&
+    a.openPipelineUsd >= cfg.highPipelineThresholdUsd
+  ) {
+    codes.add("high_open_pipeline");
+  }
+  if (
+    features.availability.intent &&
+    resolveVerifiedIntentObservations(a, ctx.activities).length > 0
+  ) {
     codes.add("verified_intent_signal");
   }
   if (
+    features.availability.staleness &&
     a.daysSinceLastContact !== undefined &&
     a.daysSinceLastContact >= cfg.staleContactThresholdDays
   ) {
     codes.add("stale_no_contact");
   }
-  if (a.lifecycleStage === "renewal") codes.add("renewal_approaching");
-  if (a.lifecycleStage === "churn_risk") codes.add("churn_risk_detected");
-  if (a.healthScore !== undefined && a.healthScore < cfg.churnRiskHealthThreshold) {
+  if (features.availability.lifecycle && a.lifecycleStage === "renewal") {
+    codes.add("renewal_approaching");
+  }
+  if (features.availability.lifecycle && a.lifecycleStage === "churn_risk") {
     codes.add("churn_risk_detected");
   }
-  if (a.tier === "strategic") codes.add("strategic_tier_account");
   if (
+    features.availability.healthRisk &&
+    a.healthScore !== undefined &&
+    a.healthScore < cfg.churnRiskHealthThreshold
+  ) {
+    codes.add("churn_risk_detected");
+  }
+  if (features.availability.tier && a.tier === "strategic") {
+    codes.add("strategic_tier_account");
+  }
+  if (
+    features.availability.pipeline &&
     ctx.opportunities.some(
       (o) => !o.isClosed && (o.stage === "proposal" || o.stage === "negotiation"),
     )
