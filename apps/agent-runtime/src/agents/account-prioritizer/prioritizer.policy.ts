@@ -21,19 +21,10 @@ export type AccountFeatureModes = Readonly<Record<AccountFeatureName, FeatureSta
 export const PIPELINE_DERIVATION_VERSION = "open-opportunity-sum-usd-cents-v2";
 const USD_MINOR_UNITS_PER_DOLLAR = 100n;
 
-/**
- * Runtime-only exact transport evidence for database numeric values. Durable
- * Supabase reads populate amountUsdExact before JavaScript number conversion can
- * erase sub-cent source precision.
- */
-export type ExactOpportunity = Opportunity & {
-  amountUsdExact?: string;
-};
-
 export interface AccountContext {
   account: Account;
   contacts: Contact[];
-  opportunities: ExactOpportunity[];
+  opportunities: Opportunity[];
   activities: Activity[];
   sourceCapabilities?: CrmSourceCapabilities;
   featureModes?: AccountFeatureModes;
