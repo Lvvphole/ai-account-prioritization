@@ -49,7 +49,7 @@ export interface RunOptions {
   /** Optional RLS context for durable Supabase-backed runs. */
   rlsContext?: RlsContext;
   /**
-   * Authoritative connector capability declarations keyed by canonical account.
+   * Authoritative connector capabilities keyed by canonical account ID.
    * Durable runs fail closed when any account is missing this evidence.
    */
   sourceCapabilitiesByAccountId?: Readonly<Record<string, CrmSourceCapabilities>>;
@@ -364,7 +364,7 @@ export async function runDailyPrioritizationForOwner(
           actorId: "orchestrator",
           action: "block_recommendation",
           decision: "blocked",
-          reason: `Recommendation blocked before verification (${failedGates.join(", ")}).`,
+          reason: `Failed gates: ${failedGates.join(", ")}`,
           occurredAt: now,
         },
         repo,
@@ -372,70 +372,106 @@ export async function runDailyPrioritizationForOwner(
       continue;
     }
 
-    const approvedCandidate = await applyApproval(candidate, opts, runId, now, repo);
-    const verification = verifyRecommendation(approvedCandidate, now);
-    const verifiedCandidate: Recommendation = {
-      ...approvedCandidate,
-      verification,
-    };
+    const withApproval = await applyApproval(candidate, opts, runId, now, repo);
+    const { recommendation, allowed } = verifyRecommendation(withApproval, now);
 
-    if (verification.status !== "passed") {
+    if (allowed) {
+      const publishedRec: Recommendation = { ...recommendation, published: true };
+      published.push(publishedRec);
+      await writeAuditLog(
+        {
+          runId,
+          accountId: publishedRec.accountId,
+          actorId: "orchestrator",
+          action: "publish_recommendation",
+          decision: "allowed",
+          reason: "Passed schema, guardrails, source verification, and permission.",
+          evidence: { score: publishedRec.score, rank: publishedRec.rank },
+          occurredAt: now,
+        },
+        repo,
+      );
+      await trackEvent(
+        {
+          name: "recommendation_published",
+          runId,
+          accountId: publishedRec.accountId,
+          userId: ownerId,
+          occurredAt: now,
+          properties: { rank: publishedRec.rank, score: publishedRec.score },
+        },
+        repo,
+      );
+    } else {
       blocked.push({
-        recommendationId: verifiedCandidate.id,
-        accountId: verifiedCandidate.accountId,
-        failedGates: verification.failedGates,
+        recommendationId: recommendation.id,
+        accountId: recommendation.accountId,
+        failedGates: recommendation.verification.failedGates,
       });
       await writeAuditLog(
         {
           runId,
-          accountId: verifiedCandidate.accountId,
+          accountId: recommendation.accountId,
           actorId: "orchestrator",
           action: "block_recommendation",
           decision: "blocked",
-          reason: `Recommendation blocked by verification (${verification.failedGates.join(", ")}).`,
+          reason: `Failed gates: ${recommendation.verification.failedGates.join(", ")}`,
           occurredAt: now,
         },
         repo,
       );
-      continue;
+      await trackEvent(
+        {
+          name: "recommendation_blocked",
+          runId,
+          accountId: recommendation.accountId,
+          userId: ownerId,
+          occurredAt: now,
+          properties: { failedGates: recommendation.verification.failedGates },
+        },
+        repo,
+      );
     }
-
-    const finalRecommendation: Recommendation = {
-      ...verifiedCandidate,
-      published: true,
-    };
-    published.push(finalRecommendation);
-    await writeAuditLog(
-      {
-        runId,
-        accountId: finalRecommendation.accountId,
-        actorId: "orchestrator",
-        action: "publish_recommendation",
-        decision: "allowed",
-        reason: "Recommendation passed deterministic verification and approval policy.",
-        occurredAt: now,
-      },
-      repo,
-    );
   }
 
-  state = transition(state, "VERIFY", { published, blocked });
-  state = transition(state, "STOP", {});
+  state = transition(state, "VERIFY", { candidates: withDrafts });
+  state = transition(state, "ITERATE", { published, blocked });
+  state = transition(state, "PUBLISH", { published, blocked });
+  state = transition(state, "DONE");
 
-  const run: PrioritizationRun = {
-    id: runId,
+  const run: PrioritizationRun = PrioritizationRunSchema.parse({
+    runId,
     ownerId,
-    status: "completed",
+    generatedAt: now,
+    recommendations: published.sort((a, b) => a.rank - b.rank),
     totalAccountsConsidered: accounts.length,
     blockedCount: blocked.length,
-    recommendations: published,
-    startedAt: now,
-    completedAt: now,
-  };
-  return PrioritizationRunSchema.parse(run);
+  });
+
+  await trackEvent(
+    {
+      name: "run_completed",
+      runId,
+      userId: ownerId,
+      occurredAt: now,
+      properties: {
+        published: published.length,
+        blocked: blocked.length,
+        runtimeDraftTokensReserved: runBudget.reservedTokens,
+        runtimeDraftTokenBudget: runBudget.maxTokens,
+      },
+    },
+    repo,
+  );
+
+  if (state.phase !== "DONE") {
+    throw new Error(`Run ${runId} did not reach DONE (phase=${state.phase}).`);
+  }
+
+  return run;
 }
 
-export interface OrchestratorBlocked {
+interface OrchestratorBlocked {
   recommendationId: string;
   accountId: string;
   failedGates: string[];
