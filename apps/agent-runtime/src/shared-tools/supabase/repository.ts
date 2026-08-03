@@ -15,6 +15,7 @@ import {
   OpportunitySchema,
 } from "@repo/shared-schemas";
 import type { Json, Tables, TypedSupabaseClient } from "@repo/supabase-client";
+import { assertCapabilitySnapshotFresh } from "../../ingestion/source-capabilities";
 import type { RuntimeRepository } from "../runtime-repository";
 import { createRuntimeClient } from "./client";
 import { getServiceRoleClient } from "./service-role-client";
@@ -68,8 +69,16 @@ function toContact(row: Tables<"contacts">): Contact {
   } satisfies Contact);
 }
 
-function toOpportunity(row: Tables<"opportunities">): Opportunity {
-  return OpportunitySchema.parse({
+type OpportunityRowWithExactAmount = Tables<"opportunities"> & {
+  amount_usd_exact: string;
+};
+
+type OpportunityWithExactAmount = Opportunity & {
+  amountUsdExact: string;
+};
+
+function toOpportunity(row: OpportunityRowWithExactAmount): OpportunityWithExactAmount {
+  const opportunity = OpportunitySchema.parse({
     id: row.id,
     accountId: row.account_id,
     name: row.name,
@@ -83,6 +92,8 @@ function toOpportunity(row: Tables<"opportunities">): Opportunity {
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   } satisfies Opportunity);
+
+  return { ...opportunity, amountUsdExact: row.amount_usd_exact };
 }
 
 function toActivity(row: Tables<"activities">): Activity {
@@ -157,14 +168,17 @@ export function createSupabaseRepository(
     },
 
     async listOpportunitiesByAccount(accountId) {
-      const rows = await fetchAllRows<Tables<"opportunities">>(
+      const rows = await fetchAllRows<OpportunityRowWithExactAmount>(
         "read opportunities",
         (from, to) =>
           read
             .from("opportunities")
-            .select("*")
+            .select("*,amount_usd_exact:amount_usd::text")
             .eq("account_id", accountId)
-            .range(from, to),
+            .range(from, to) as unknown as PromiseLike<{
+              data: OpportunityRowWithExactAmount[] | null;
+              error: { message: string } | null;
+            }>,
       );
       return rows.map(toOpportunity);
     },
@@ -199,12 +213,14 @@ export function createSupabaseRepository(
       const snapshots: Record<string, CrmSourceCapabilitySnapshot> = {};
       for (const row of rows) {
         try {
-          snapshots[row.account_id] = CrmSourceCapabilitySnapshotSchema.parse({
+          const snapshot = CrmSourceCapabilitySnapshotSchema.parse({
             ...(row.capabilities as Record<string, unknown>),
             source: row.source,
             mappingVersion: row.mapping_version,
             observedAt: iso(row.observed_at),
           });
+          assertCapabilitySnapshotFresh(snapshot.observedAt, nowIso);
+          snapshots[row.account_id] = snapshot;
         } catch (error) {
           const message = error instanceof Error ? error.message : "unknown schema error";
           throw new Error(
