@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   coalesceAccountEvents,
-  createNotificationJob,
-  nextNotificationAttemptAt,
+  createNotificationDelivery,
   prioritizeAccounts,
   resolveFeatureModes,
 } from "agent-runtime";
@@ -190,17 +189,18 @@ describe("event-driven CRM foundation", () => {
     expect(high?.reasonCodes).not.toContain("verified_intent_signal");
   });
 
-  it("creates stable collision-safe notification ids and bounded retry times", () => {
+  it("creates stable collision-safe delivery evidence without retry scheduling", () => {
     const input = {
       workspaceId: "ws_1",
       recipientId: "a:b",
       recommendationId: "c",
       channel: "email" as const,
+      workflowRunId: "workflow_1",
       now: "2026-08-03T09:00:00.000Z",
     };
-    const first = createNotificationJob(input);
-    const second = createNotificationJob({ ...input, now: "2026-08-03T10:00:00.000Z" });
-    const delimiterCollisionCandidate = createNotificationJob({
+    const first = createNotificationDelivery(input);
+    const second = createNotificationDelivery({ ...input, now: "2026-08-03T10:00:00.000Z" });
+    const delimiterCollisionCandidate = createNotificationDelivery({
       ...input,
       recipientId: "a",
       recommendationId: "b:c",
@@ -208,7 +208,16 @@ describe("event-driven CRM foundation", () => {
 
     expect(first.idempotencyKey).toBe(second.idempotencyKey);
     expect(first.idempotencyKey).not.toBe(delimiterCollisionCandidate.idempotencyKey);
-    expect(nextNotificationAttemptAt(input.now, 1)).toBe("2026-08-03T09:01:00.000Z");
-    expect(nextNotificationAttemptAt(input.now, 10)).toBe("2026-08-03T10:00:00.000Z");
+    expect(first).toMatchObject({
+      workflowRunId: "workflow_1",
+      status: "requested",
+      providerMessageId: null,
+      requestedAt: input.now,
+      sentAt: null,
+      failedAt: null,
+      failureCode: null,
+    });
+    expect(first).not.toHaveProperty("attemptCount");
+    expect(first).not.toHaveProperty("availableAt");
   });
 });
