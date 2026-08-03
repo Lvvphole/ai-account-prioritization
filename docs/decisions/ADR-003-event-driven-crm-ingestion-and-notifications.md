@@ -66,11 +66,11 @@ Classify input fields as follows:
 
 Each connector declares its capabilities. A feature can be `observed`, `derived`, or `unavailable`.
 
-Persist the current authoritative declaration per canonical account in `account_source_capabilities`. Store the source, capability object, source-mapping version, and observation time. Durable prioritization loads this evidence from Supabase and fails closed when any account has no valid declaration.
+Persist the current authoritative declaration per canonical account in `account_source_capabilities`. Store the workspace, source, capability object, source-mapping version, and observation time. The database must enforce that the capability row and its canonical account have the same `(account_id, workspace_id)` binding. Durable prioritization loads this evidence from Supabase and fails closed when any account has no valid declaration.
 
 The scorer removes unavailable feature weights and renormalizes the remaining weights. It does not create a neutral health score. It does not treat missing contact history as maximal staleness.
 
-A feature can be `derived` only when the repository contains a versioned deterministic derivation. Pipeline derivation version `open-opportunity-sum-v1` sums only open canonical opportunity records.
+A feature can be `derived` only when the repository contains a versioned deterministic derivation. Pipeline derivation version `open-opportunity-sum-usd-cents-v2` sorts open canonical opportunities by stable opportunity ID, validates each amount to USD cent precision, sums integer cents, and only then converts the exact minor-unit total to dollars. Values with precision finer than one cent fail closed. This prevents database row order or floating-point addition order from changing score, reasons, or action authority.
 
 ## Process contract
 
@@ -141,6 +141,7 @@ Each process execution must record the applicable workflow deployment, policy ve
 - Never decrease the publication-attempt count.
 - Require a workflow run identifier and publication timestamp before `published` is valid.
 - Record a stable error code for `failed` and `dead` states.
+- Source-adapter inserts must start in `pending` state. Publication status and publication evidence are not insert authority.
 
 ## Delivery ledger controls
 
@@ -160,6 +161,8 @@ The delivery ledger records:
 - stable failure code when delivery fails.
 
 Delivery identity and idempotency columns are immutable to application code. Terminal delivery rows are immutable and cannot return to `requested`.
+
+A new ledger row must start in `requested` state without terminal provider, success, or failure evidence. Application insert authority excludes terminal-state columns. Terminal evidence can be established only through the guarded update transition from the requested row.
 
 The Workflow SDK step owns retry behavior for the provider call.
 
