@@ -32,6 +32,11 @@
           "minimum": 0,
           "default": 0
         },
+        "amountUsdExact": {
+          "type": "string",
+          "pattern": "^\\d+(?:\\.\\d+)?$",
+          "description": "Optional exact decimal text preserved from the authoritative monetary source before JavaScript number conversion."
+        },
         "probability": {
           "type": "number",
           "minimum": 0,
