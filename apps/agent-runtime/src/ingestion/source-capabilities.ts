@@ -45,7 +45,10 @@ export function resolveFeatureModes(
     // scorer requires authoritative intent signal codes that map to verified
     // observations. Keep intent unavailable until a versioned derivation exists.
     intent: capabilities.intentSignals ? "observed" : "unavailable",
-    staleness: capabilities.activities || capabilities.emailEvents ? "derived" : "unavailable",
+    // Activity/email availability alone does not define an authoritative
+    // account-level last-contact aggregate. Keep staleness unavailable until a
+    // versioned deterministic derivation produces that value.
+    staleness: "unavailable",
     tier: capabilities.accountTier ? "observed" : "unavailable",
     // A renewal-to-lifecycle derivation is not implemented or versioned yet.
     lifecycle: capabilities.lifecycleStage ? "observed" : "unavailable",
