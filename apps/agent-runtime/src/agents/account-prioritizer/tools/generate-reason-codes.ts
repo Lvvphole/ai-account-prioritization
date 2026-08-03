@@ -10,7 +10,7 @@ import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-obs
  */
 export function generateReasonCodes(
   ctx: AccountContext,
-  features: AccountFeatures,
+  _features: AccountFeatures,
 ): ReasonCode[] {
   const cfg = RUNTIME_CONFIG;
   const a = ctx.account;
@@ -46,20 +46,10 @@ export function generateReasonCodes(
   }
   if (a.dataQualityFlags.length > 0) codes.add("data_quality_blocked");
 
-  // Fallback: never return an empty set. Select only from available evidence.
-  if (codes.size === 0) {
-    const ranked: [keyof Omit<AccountFeatures, "availability">, ReasonCode][] = [
-      ["pipeline", "high_open_pipeline"],
-      ["healthRisk", "churn_risk_detected"],
-      ["staleness", "stale_no_contact"],
-      ["tier", "strategic_tier_account"],
-    ];
-    const best = ranked
-      .filter(([featureName]) => features.availability[featureName])
-      .map(([featureName, code]) => ({ value: features[featureName], code }))
-      .sort((x, y) => y.value - x.value)[0];
-    codes.add(best ? best.code : "stale_no_contact");
-  }
+  // The schema requires one reason. If no domain predicate is supported, the
+  // absence of enough qualifying evidence is itself a deterministic data-quality
+  // block. Do not mislabel an SMB account as strategic or invent threshold facts.
+  if (codes.size === 0) codes.add("data_quality_blocked");
 
   return [...codes];
 }
