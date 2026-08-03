@@ -91,6 +91,35 @@ export interface Database {
           },
         ];
       };
+      account_source_capabilities: {
+        Row: {
+          account_id: string;
+          source: string;
+          capabilities: Json;
+          mapping_version: string;
+          observed_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          account_id: string;
+          source: string;
+          capabilities: Json;
+          mapping_version: string;
+          observed_at: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["account_source_capabilities"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "account_source_capabilities_account_id_fkey";
+            columns: ["account_id"];
+            referencedRelation: "accounts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       contacts: {
         Row: {
           id: string;
