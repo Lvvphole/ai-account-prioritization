@@ -8,7 +8,7 @@ import {
 import { RUNTIME_CONFIG } from "../../config/runtime";
 import {
   CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION,
-  assertCapabilitySnapshotFresh,
+  assessCapabilitySnapshotTemporalAuthority,
   resolveFeatureModes,
 } from "../../ingestion/source-capabilities";
 import type { AccountContext } from "./prioritizer.policy";
@@ -104,15 +104,9 @@ function resolveAccountSourceAuthority(
     args.sourceCapabilitiesByAccountId?.[accountId],
   );
   const explicitSnapshotValue = args.sourceCapabilitySnapshotsByAccountId?.[accountId];
-  if (!explicitSnapshotValue) {
-    if (declaration.snapshot) {
-      assertCapabilitySnapshotFresh(declaration.snapshot.observedAt, args.createdAt);
-    }
-    return declaration;
-  }
+  if (!explicitSnapshotValue) return declaration;
 
   const explicitSnapshot = CrmSourceCapabilitySnapshotSchema.parse(explicitSnapshotValue);
-  assertCapabilitySnapshotFresh(explicitSnapshot.observedAt, args.createdAt);
   const snapshotCapabilities = capabilitiesFromSnapshot(explicitSnapshot);
   if (
     declaration.capabilities &&
@@ -137,16 +131,25 @@ export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
     ]),
   );
 
-  const contexts = args.contexts.map((context) => {
-    const capabilities = authorityByAccountId.get(context.account.id)?.capabilities;
-    return capabilities
-      ? {
-          ...context,
-          sourceCapabilities: capabilities,
-          featureModes: resolveFeatureModes(capabilities),
-        }
-      : context;
-  });
+  const contexts = args.contexts
+    .filter((context) => {
+      const snapshot = authorityByAccountId.get(context.account.id)?.snapshot;
+      if (!snapshot) return true;
+      return (
+        assessCapabilitySnapshotTemporalAuthority(snapshot.observedAt, args.createdAt).status ===
+        "fresh"
+      );
+    })
+    .map((context) => {
+      const capabilities = authorityByAccountId.get(context.account.id)?.capabilities;
+      return capabilities
+        ? {
+            ...context,
+            sourceCapabilities: capabilities,
+            featureModes: resolveFeatureModes(capabilities),
+          }
+        : context;
+    });
   const scored = scoreAccounts(contexts);
   const ranked = rankAccounts(scored);
 
