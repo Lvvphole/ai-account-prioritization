@@ -55,6 +55,45 @@ describe("event-driven CRM foundation", () => {
     expect(reversed).toEqual(work);
   });
 
+  it("normalizes offset-bearing event timestamps before first/last ordering", () => {
+    const work = coalesceAccountEvents([
+      {
+        workspaceId: "ws_1",
+        source: "crm",
+        sourceEventId: "evt_early",
+        type: "crm.account.updated",
+        accountId: "acc_1",
+        changedFields: ["tier"],
+        occurredAt: "2026-08-03T10:00:00+02:00",
+      },
+      {
+        workspaceId: "ws_1",
+        source: "crm",
+        sourceEventId: "evt_late",
+        type: "crm.account.updated",
+        accountId: "acc_1",
+        changedFields: ["tier"],
+        occurredAt: "2026-08-03T09:00:00Z",
+      },
+    ]);
+
+    expect(work[0]?.firstOccurredAt).toBe("2026-08-03T08:00:00.000Z");
+    expect(work[0]?.lastOccurredAt).toBe("2026-08-03T09:00:00.000Z");
+    expect(() =>
+      coalesceAccountEvents([
+        {
+          workspaceId: "ws_1",
+          source: "crm",
+          sourceEventId: "evt_invalid",
+          type: "crm.account.updated",
+          accountId: "acc_1",
+          changedFields: ["tier"],
+          occurredAt: "not-a-timestamp",
+        },
+      ]),
+    ).toThrow("Invalid account event occurredAt timestamp");
+  });
+
   it("orders work with an ordinal comparator", () => {
     const work = coalesceAccountEvents([
       {
