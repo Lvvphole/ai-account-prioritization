@@ -41,13 +41,13 @@ insert into public.recommendations
   (id, workspace_id, run_id, account_id, owner_id, score, rank, confidence,
    reason_codes, reason_narrative, next_best_action, source_signals, verification)
 values
-  ('rec-authority-tenant-a', 'aaaaaaaa-0000-0000-0000-000000000001', 'run-authority-a',
+  ('91000000-0000-0000-0000-0000000000a1', 'aaaaaaaa-0000-0000-0000-000000000001', 'run-authority-a',
    '90000000-0000-0000-0000-0000000000a1', '11111111-1111-1111-1111-111111111111',
    0, 1, 1, array['no_qualifying_signal'], 'Fixture recommendation A.',
    '{"type":"no_action_hold","customerFacing":false,"crmWriteBack":false,"objective":"fixture"}'::jsonb,
    '[{"kind":"derived","refId":"fixture-a","description":"fixture","verified":true}]'::jsonb,
    '{"status":"passed","schemaValid":true,"guardrailsPassed":true,"sourceSignalsVerified":true,"permissionGranted":true,"failedGates":[],"checkedAt":"2026-08-03T09:00:00.000Z"}'::jsonb),
-  ('rec-authority-tenant-b', 'bbbbbbbb-0000-0000-0000-000000000002', 'run-authority-b',
+  ('91000000-0000-0000-0000-0000000000b2', 'bbbbbbbb-0000-0000-0000-000000000002', 'run-authority-b',
    '90000000-0000-0000-0000-0000000000b2', '44444444-4444-4444-4444-444444444444',
    0, 1, 1, array['no_qualifying_signal'], 'Fixture recommendation B.',
    '{"type":"no_action_hold","customerFacing":false,"crmWriteBack":false,"objective":"fixture"}'::jsonb,
@@ -211,7 +211,7 @@ select pg_temp.expect_fail(
       (workspace_id, recipient_id, recommendation_id, channel, idempotency_key,
        status, provider_message_id, sent_at)
     values ('aaaaaaaa-0000-0000-0000-000000000001', 'recipient-forged',
-            'rec-authority-tenant-a', 'email', repeat('f', 64),
+            '91000000-0000-0000-0000-0000000000a1', 'email', repeat('f', 64),
             'sent', 'provider-forged', now())$$,
   'database guard rejects a forged sent delivery insert');
 
@@ -220,21 +220,21 @@ select pg_temp.expect_ok(
   $$insert into public.notification_deliveries
       (workspace_id, recipient_id, recommendation_id, channel, idempotency_key, workflow_run_id)
     values ('aaaaaaaa-0000-0000-0000-000000000001', 'recipient-valid',
-            'rec-authority-tenant-a', 'email', repeat('a', 64), 'workflow-valid')$$,
+            '91000000-0000-0000-0000-0000000000a1', 'email', repeat('a', 64), 'workflow-valid')$$,
   'service role creates a requested delivery for a recommendation in the same workspace');
 
 select pg_temp.expect_fail(
   $$insert into public.notification_deliveries
       (workspace_id, recipient_id, recommendation_id, channel, idempotency_key, workflow_run_id)
     values ('aaaaaaaa-0000-0000-0000-000000000001', 'recipient-cross-tenant',
-            'rec-authority-tenant-b', 'email', repeat('b', 64), 'workflow-cross-tenant')$$,
+            '91000000-0000-0000-0000-0000000000b2', 'email', repeat('b', 64), 'workflow-cross-tenant')$$,
   'service role cannot bind tenant A delivery evidence to tenant B recommendation');
 
 select pg_temp.expect_fail(
   $$insert into public.notification_deliveries
       (workspace_id, recipient_id, recommendation_id, channel, idempotency_key, workflow_run_id)
     values ('aaaaaaaa-0000-0000-0000-000000000001', 'recipient-missing',
-            'rec-does-not-exist', 'email', repeat('c', 64), 'workflow-missing')$$,
+            '91000000-0000-0000-0000-000000000099', 'email', repeat('c', 64), 'workflow-missing')$$,
   'service role cannot reserve delivery evidence for a nonexistent recommendation');
 reset role;
 
