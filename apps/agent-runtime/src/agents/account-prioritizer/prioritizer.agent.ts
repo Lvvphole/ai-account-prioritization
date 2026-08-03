@@ -1,4 +1,5 @@
 import {
+  CrmSourceCapabilitiesSchema,
   CrmSourceCapabilitySnapshotSchema,
   type CrmSourceCapabilities,
   type CrmSourceCapabilitySnapshot,
@@ -32,23 +33,102 @@ export interface PrioritizeArgs {
   createdAt: string;
   /** Connector capability declarations keyed by canonical account ID. */
   sourceCapabilitiesByAccountId?: Readonly<Record<string, CrmSourceCapabilities>>;
-  /** Explicit provenance override for tests or bounded callers. */
+  /** Provenance-bearing capability snapshots keyed by canonical account ID. */
   sourceCapabilitySnapshotsByAccountId?: Readonly<
     Record<string, CrmSourceCapabilitySnapshot>
   >;
 }
 
-function snapshotFromCapabilityDeclaration(
+interface ResolvedAccountSourceAuthority {
+  capabilities?: CrmSourceCapabilities;
+  snapshot?: CrmSourceCapabilitySnapshot;
+}
+
+const CAPABILITY_KEYS = [
+  "accounts",
+  "contacts",
+  "opportunities",
+  "activities",
+  "accountTier",
+  "lifecycleStage",
+  "emailEvents",
+  "renewals",
+  "healthScore",
+  "intentSignals",
+] as const satisfies readonly (keyof CrmSourceCapabilities)[];
+
+function capabilitiesFromSnapshot(
+  snapshot: CrmSourceCapabilitySnapshot,
+): CrmSourceCapabilities {
+  return CrmSourceCapabilitiesSchema.parse(
+    Object.fromEntries(CAPABILITY_KEYS.map((key) => [key, snapshot[key]])),
+  );
+}
+
+function capabilitiesEqual(
+  left: CrmSourceCapabilities,
+  right: CrmSourceCapabilities,
+): boolean {
+  return CAPABILITY_KEYS.every((key) => left[key] === right[key]);
+}
+
+function parseCapabilityDeclaration(
   value: CrmSourceCapabilities | undefined,
-): CrmSourceCapabilitySnapshot | undefined {
-  if (!value) return undefined;
-  const parsed = CrmSourceCapabilitySnapshotSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+): ResolvedAccountSourceAuthority {
+  if (!value) return {};
+
+  const snapshot = CrmSourceCapabilitySnapshotSchema.safeParse(value);
+  if (snapshot.success) {
+    return {
+      capabilities: capabilitiesFromSnapshot(snapshot.data),
+      snapshot: snapshot.data,
+    };
+  }
+
+  return { capabilities: CrmSourceCapabilitiesSchema.parse(value) };
+}
+
+/**
+ * Resolve one capability authority object for both scoring and durable evidence.
+ * Duplicate declarations are accepted only when their capability content agrees.
+ */
+function resolveAccountSourceAuthority(
+  args: PrioritizeArgs,
+  accountId: string,
+): ResolvedAccountSourceAuthority {
+  const declaration = parseCapabilityDeclaration(
+    args.sourceCapabilitiesByAccountId?.[accountId],
+  );
+  const explicitSnapshotValue = args.sourceCapabilitySnapshotsByAccountId?.[accountId];
+  if (!explicitSnapshotValue) return declaration;
+
+  const explicitSnapshot = CrmSourceCapabilitySnapshotSchema.parse(explicitSnapshotValue);
+  const snapshotCapabilities = capabilitiesFromSnapshot(explicitSnapshot);
+  if (
+    declaration.capabilities &&
+    !capabilitiesEqual(declaration.capabilities, snapshotCapabilities)
+  ) {
+    throw new Error(
+      `Conflicting CRM source authority for account ${accountId}: scoring capabilities do not match the provenance snapshot.`,
+    );
+  }
+
+  return {
+    capabilities: snapshotCapabilities,
+    snapshot: explicitSnapshot,
+  };
 }
 
 export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
+  const authorityByAccountId = new Map(
+    args.contexts.map((context) => [
+      context.account.id,
+      resolveAccountSourceAuthority(args, context.account.id),
+    ]),
+  );
+
   const contexts = args.contexts.map((context) => {
-    const capabilities = args.sourceCapabilitiesByAccountId?.[context.account.id];
+    const capabilities = authorityByAccountId.get(context.account.id)?.capabilities;
     return capabilities
       ? {
           ...context,
@@ -69,9 +149,7 @@ export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
       r.confidence,
       RUNTIME_CONFIG.minPublishableConfidence,
     );
-    const sourceCapabilitySnapshot =
-      args.sourceCapabilitySnapshotsByAccountId?.[r.accountId] ??
-      snapshotFromCapabilityDeclaration(args.sourceCapabilitiesByAccountId?.[r.accountId]);
+    const sourceCapabilitySnapshot = authorityByAccountId.get(r.accountId)?.snapshot;
 
     const rec: Recommendation = {
       id: `rec_${args.runId}_${r.accountId}`,
