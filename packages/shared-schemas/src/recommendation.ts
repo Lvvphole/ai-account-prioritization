@@ -23,6 +23,7 @@ export const ReasonCode = z.enum([
   "new_executive_buyer",
   "strategic_tier_account",
   "stalled_opportunity",
+  "no_qualifying_signal",
   "data_quality_blocked",
 ]);
 export type ReasonCode = z.infer<typeof ReasonCode>;

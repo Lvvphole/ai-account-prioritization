@@ -46,10 +46,9 @@ export function generateReasonCodes(
   }
   if (a.dataQualityFlags.length > 0) codes.add("data_quality_blocked");
 
-  // The schema requires one reason. If no domain predicate is supported, the
-  // absence of enough qualifying evidence is itself a deterministic data-quality
-  // block. Do not mislabel an SMB account as strategic or invent threshold facts.
-  if (codes.size === 0) codes.add("data_quality_blocked");
+  // A complete low-signal account is not a data-quality failure. Preserve the
+  // schema invariant with an explicit neutral policy result that maps to hold.
+  if (codes.size === 0) codes.add("no_qualifying_signal");
 
   return [...codes];
 }

@@ -8,12 +8,12 @@ import {
 
 describe("event-driven CRM foundation", () => {
   it("coalesces noisy account events and keeps source-qualified evidence", () => {
-    const work = coalesceAccountEvents([
+    const events = [
       {
         workspaceId: "ws_1",
         source: "hubspot",
         sourceEventId: "evt_2",
-        type: "crm.activity.created",
+        type: "crm.activity.created" as const,
         accountId: "acc_1",
         changedFields: ["occurredAt"],
         occurredAt: "2026-08-03T09:01:00.000Z",
@@ -22,7 +22,7 @@ describe("event-driven CRM foundation", () => {
         workspaceId: "ws_1",
         source: "salesforce",
         sourceEventId: "evt_2",
-        type: "crm.opportunity.updated",
+        type: "crm.opportunity.updated" as const,
         accountId: "acc_1",
         changedFields: ["amountUsd"],
         occurredAt: "2026-08-03T09:00:00.000Z",
@@ -31,12 +31,14 @@ describe("event-driven CRM foundation", () => {
         workspaceId: "ws_1",
         source: "hubspot",
         sourceEventId: "evt_2",
-        type: "crm.activity.created",
+        type: "crm.activity.created" as const,
         accountId: "acc_1",
         changedFields: ["occurredAt"],
         occurredAt: "2026-08-03T09:01:00.000Z",
       },
-    ]);
+    ];
+    const work = coalesceAccountEvents(events);
+    const reversed = coalesceAccountEvents([...events].reverse());
 
     expect(work).toHaveLength(1);
     expect(work[0]).toMatchObject({
@@ -50,6 +52,7 @@ describe("event-driven CRM foundation", () => {
       firstOccurredAt: "2026-08-03T09:00:00.000Z",
       lastOccurredAt: "2026-08-03T09:01:00.000Z",
     });
+    expect(reversed).toEqual(work);
   });
 
   it("orders work with an ordinal comparator", () => {
@@ -76,7 +79,7 @@ describe("event-driven CRM foundation", () => {
     expect(work.map((item) => item.accountId)).toEqual(["A", "z"]);
   });
 
-  it("does not require a source-provided health score", () => {
+  it("keeps health unavailable until a versioned derivation exists", () => {
     const modes = resolveFeatureModes({
       accounts: true,
       contacts: true,
@@ -90,7 +93,7 @@ describe("event-driven CRM foundation", () => {
       intentSignals: false,
     });
 
-    expect(modes.healthRisk).toBe("derived");
+    expect(modes.healthRisk).toBe("unavailable");
     expect(modes.intent).toBe("derived");
     expect(modes.pipeline).toBe("derived");
   });

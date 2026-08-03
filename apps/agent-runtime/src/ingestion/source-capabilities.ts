@@ -53,10 +53,7 @@ export function resolveFeatureModes(
         ? "observed"
         : "derived"
       : "unavailable",
-    healthRisk: capabilities.healthScore
-      ? "observed"
-      : capabilities.activities && capabilities.opportunities
-        ? "derived"
-        : "unavailable",
+    // A derived health formula is not implemented or versioned yet.
+    healthRisk: capabilities.healthScore ? "observed" : "unavailable",
   };
 }

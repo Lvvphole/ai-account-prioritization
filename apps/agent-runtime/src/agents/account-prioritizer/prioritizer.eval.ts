@@ -3,6 +3,7 @@ import type { AccountContext } from "./prioritizer.policy";
 import { scoreAccount, scoreAccounts } from "./tools/score-accounts";
 import { rankAccounts } from "./tools/rank-accounts";
 import { generateReasonCodes } from "./tools/generate-reason-codes";
+import { selectNextBestAction } from "./tools/select-next-best-action";
 import { computeConfidence, extractFeatures } from "./prioritizer.policy";
 
 /**
@@ -132,11 +133,50 @@ export const prioritizerEvalCases: DeterministicEvalCase[] = [
     },
   },
   {
-    id: "min_one_reason_code",
+    id: "low_signal_account_uses_neutral_hold",
     run: () => {
-      const c = ctx({ id: "a1", tier: "smb", lifecycleStage: "dormant", openPipelineUsd: 0 });
+      const c = ctx({
+        id: "a1",
+        tier: "smb",
+        lifecycleStage: "prospect",
+        openPipelineUsd: 0,
+        employeeCount: 25,
+        annualRevenueUsd: 500_000,
+        daysSinceLastContact: 1,
+        healthScore: 90,
+      });
       const codes = generateReasonCodes(c, extractFeatures(c));
-      return { passed: codes.length >= 1, details: `codes=${codes.join(",")}` };
+      const action = selectNextBestAction(c, codes, 1, 0.6);
+      return {
+        passed:
+          codes.length === 1 &&
+          codes[0] === "no_qualifying_signal" &&
+          action.type === "no_action_hold" &&
+          action.customerFacing === false &&
+          action.crmWriteBack === false,
+        details: `codes=${codes.join(",")} action=${action.type}`,
+      };
+    },
+  },
+  {
+    id: "actual_data_quality_flags_remain_blocked",
+    run: () => {
+      const c = ctx({
+        id: "a1",
+        tier: "smb",
+        lifecycleStage: "prospect",
+        dataQualityFlags: ["missing_primary_contact"],
+      });
+      const codes = generateReasonCodes(c, extractFeatures(c));
+      const action = selectNextBestAction(c, codes, 1, 0.6);
+      return {
+        passed:
+          codes.includes("data_quality_blocked") &&
+          !codes.includes("no_qualifying_signal") &&
+          action.type === "log_research_note" &&
+          action.crmWriteBack === true,
+        details: `codes=${codes.join(",")} action=${action.type}`,
+      };
     },
   },
   {

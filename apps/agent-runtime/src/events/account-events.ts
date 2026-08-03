@@ -56,6 +56,11 @@ function eventReferenceKey(reference: AccountEventReference): string {
   return JSON.stringify([reference.source, reference.sourceEventId]);
 }
 
+function compareEventReferences(a: AccountEventReference, b: AccountEventReference): number {
+  const sourceOrder = compareOrdinal(a.source, b.source);
+  return sourceOrder !== 0 ? sourceOrder : compareOrdinal(a.sourceEventId, b.sourceEventId);
+}
+
 export function affectedFeaturesForEvent(event: AccountEvent): AccountFeatureName[] {
   if (event.type === "schedule.reconciliation.requested") {
     return ["pipeline", "intent", "staleness", "tier", "lifecycle", "healthRisk"];
@@ -108,8 +113,13 @@ export function coalesceAccountEvents(events: AccountEvent[]): AccountRecomputeW
     if (event.occurredAt > existing.lastOccurredAt) existing.lastOccurredAt = event.occurredAt;
   }
 
-  return [...byAccount.values()].sort((a, b) => {
-    const workspaceOrder = compareOrdinal(a.workspaceId, b.workspaceId);
-    return workspaceOrder !== 0 ? workspaceOrder : compareOrdinal(a.accountId, b.accountId);
-  });
+  return [...byAccount.values()]
+    .map((work) => ({
+      ...work,
+      eventReferences: [...work.eventReferences].sort(compareEventReferences),
+    }))
+    .sort((a, b) => {
+      const workspaceOrder = compareOrdinal(a.workspaceId, b.workspaceId);
+      return workspaceOrder !== 0 ? workspaceOrder : compareOrdinal(a.accountId, b.accountId);
+    });
 }
