@@ -103,6 +103,35 @@ describe("Supabase repository mapping + audit write", () => {
     expect(a.daysSinceLastContact).toBe(24);
   });
 
+  it("preserves the exact Postgres numeric text on opportunity reads", async () => {
+    h.tableData.opportunities = [
+      {
+        id: "opp-exact-1",
+        account_id: "aaaaaaa1-0000-0000-0000-000000000001",
+        name: "Exact pipeline amount",
+        stage: "proposal",
+        amount_usd: 70000000000000,
+        amount_usd_exact: "70000000000000.001",
+        probability: 0.5,
+        close_date: null,
+        is_closed: false,
+        is_won: false,
+        next_step: null,
+        created_at: "2026-06-01T00:00:00+00:00",
+        updated_at: "2026-06-01T00:00:00+00:00",
+      },
+    ];
+
+    const repo = createSupabaseRepository(SERVICE, NOW);
+    const opportunities = await repo.listOpportunitiesByAccount(
+      "aaaaaaa1-0000-0000-0000-000000000001",
+    );
+
+    expect(opportunities).toHaveLength(1);
+    expect(opportunities[0]?.amountUsd).toBe(70000000000000);
+    expect(opportunities[0]?.amountUsdExact).toBe("70000000000000.001");
+  });
+
   it("writes audit evidence with mapped fields and no synthetic id", async () => {
     const repo = createSupabaseRepository(SERVICE, NOW);
     await repo.appendAudit({
