@@ -6,7 +6,11 @@ import {
   type Recommendation,
 } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../config/runtime";
-import { resolveFeatureModes } from "../../ingestion/source-capabilities";
+import {
+  CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION,
+  assertCapabilitySnapshotFresh,
+  resolveFeatureModes,
+} from "../../ingestion/source-capabilities";
 import type { AccountContext } from "./prioritizer.policy";
 import { scoreAccounts } from "./tools/score-accounts";
 import { rankAccounts, type RankedAccount } from "./tools/rank-accounts";
@@ -100,9 +104,15 @@ function resolveAccountSourceAuthority(
     args.sourceCapabilitiesByAccountId?.[accountId],
   );
   const explicitSnapshotValue = args.sourceCapabilitySnapshotsByAccountId?.[accountId];
-  if (!explicitSnapshotValue) return declaration;
+  if (!explicitSnapshotValue) {
+    if (declaration.snapshot) {
+      assertCapabilitySnapshotFresh(declaration.snapshot.observedAt, args.createdAt);
+    }
+    return declaration;
+  }
 
   const explicitSnapshot = CrmSourceCapabilitySnapshotSchema.parse(explicitSnapshotValue);
+  assertCapabilitySnapshotFresh(explicitSnapshot.observedAt, args.createdAt);
   const snapshotCapabilities = capabilitiesFromSnapshot(explicitSnapshot);
   if (
     declaration.capabilities &&
@@ -143,13 +153,21 @@ export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
   return ranked.map((r) => {
     const reasonCodes = generateReasonCodes(r.context, r.features);
     const sourceSignals = discoverAccountSignals(r.context, r.features, reasonCodes);
+    const sourceCapabilitySnapshot = authorityByAccountId.get(r.accountId)?.snapshot;
+    if (sourceCapabilitySnapshot) {
+      sourceSignals.push({
+        kind: "derived",
+        refId: r.accountId,
+        description: `Capability snapshot observed at ${sourceCapabilitySnapshot.observedAt} was accepted under ${CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION}.`,
+        verified: true,
+      });
+    }
     const nextBestAction = selectNextBestAction(
       r.context,
       reasonCodes,
       r.confidence,
       RUNTIME_CONFIG.minPublishableConfidence,
     );
-    const sourceCapabilitySnapshot = authorityByAccountId.get(r.accountId)?.snapshot;
 
     const rec: Recommendation = {
       id: `rec_${args.runId}_${r.accountId}`,
