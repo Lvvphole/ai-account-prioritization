@@ -48,11 +48,8 @@ export function resolveFeatureModes(
         : "unavailable",
     staleness: capabilities.activities || capabilities.emailEvents ? "derived" : "unavailable",
     tier: capabilities.accountTier ? "observed" : "unavailable",
-    lifecycle: capabilities.lifecycleStage || capabilities.renewals
-      ? capabilities.lifecycleStage
-        ? "observed"
-        : "derived"
-      : "unavailable",
+    // A renewal-to-lifecycle derivation is not implemented or versioned yet.
+    lifecycle: capabilities.lifecycleStage ? "observed" : "unavailable",
     // A derived health formula is not implemented or versioned yet.
     healthRisk: capabilities.healthScore ? "observed" : "unavailable",
   };
