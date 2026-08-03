@@ -144,13 +144,12 @@ export {
   type AccountRecomputeWork,
 } from "./events/account-events";
 export {
-  createNotificationJob,
-  nextNotificationAttemptAt,
+  createNotificationDelivery,
   notificationIdempotencyKey,
-  type CreateNotificationJobInput,
+  type CreateNotificationDeliveryInput,
   type NotificationChannel,
-  type NotificationJob,
-  type NotificationStatus,
+  type NotificationDeliveryRecord,
+  type NotificationDeliveryStatus,
 } from "./notifications/notification-job";
 
 /**
