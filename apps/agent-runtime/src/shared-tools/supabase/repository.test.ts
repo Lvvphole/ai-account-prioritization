@@ -133,7 +133,7 @@ describe("Supabase repository mapping + audit write", () => {
     expect(opportunities[0]?.amountUsdExact).toBe("70000000000000.001");
   });
 
-  it("rejects expired capability snapshots on the durable repository path", async () => {
+  it("returns stale structural capability evidence for per-account policy classification", async () => {
     const accountId = "aaaaaaa1-0000-0000-0000-000000000001";
     h.tableData.account_source_capabilities = [
       {
@@ -160,9 +160,13 @@ describe("Supabase repository mapping + audit write", () => {
     ];
 
     const repo = createSupabaseRepository(SERVICE, NOW);
-    await expect(repo.listSourceCapabilitiesByAccountIds([accountId])).rejects.toThrow(
-      "is stale under crm-source-capability-max-age-7d-v1",
-    );
+    const snapshots = await repo.listSourceCapabilitiesByAccountIds([accountId]);
+    expect(snapshots[accountId]).toMatchObject({
+      source: "salesforce",
+      mappingVersion: "salesforce-account-v8",
+      observedAt: "2026-06-01T00:00:00.000Z",
+      opportunities: true,
+    });
   });
 
   it("writes audit evidence with mapped fields and no synthetic id", async () => {
