@@ -15,6 +15,17 @@ export const CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION =
   "crm-source-capability-max-age-7d-v1";
 export const CAPABILITY_SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+const OFFSET_BEARING_ISO_INSTANT =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u;
+
+export type CapabilityTemporalStatus = "fresh" | "stale" | "future";
+
+export interface CapabilityTemporalAssessment {
+  status: CapabilityTemporalStatus;
+  failedGate: "CAPABILITY_SNAPSHOT_STALE" | "CAPABILITY_SNAPSHOT_FUTURE" | null;
+  ageMs: number;
+}
+
 /** A decision feature together with its source and derivation evidence. */
 export interface FeatureValue<T> {
   value: T | null;
@@ -36,24 +47,61 @@ export function unavailableFeature<T>(): FeatureValue<T> {
   };
 }
 
-/**
- * Reject capability authority that is too old or is observed after the injected
- * decision clock. The policy version changes when the maximum age changes.
- */
-export function assertCapabilitySnapshotFresh(observedAt: string, nowIso: string): void {
-  const observedMs = Date.parse(observedAt);
-  const nowMs = Date.parse(nowIso);
-  if (!Number.isFinite(observedMs) || !Number.isFinite(nowMs)) {
-    throw new Error("Capability snapshot freshness requires valid ISO timestamps.");
+function parseAuthorityInstant(value: string, label: string): number {
+  if (!OFFSET_BEARING_ISO_INSTANT.test(value)) {
+    throw new Error(`${label} must be an offset-bearing ISO timestamp.`);
   }
 
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) {
+    throw new Error(`${label} must be a valid ISO timestamp.`);
+  }
+  return milliseconds;
+}
+
+/**
+ * Classify capability evidence against the injected decision clock.
+ * Ordinary stale or future evidence is a per-account business state, not an
+ * infrastructure exception. Invalid timestamp syntax remains a contract error.
+ */
+export function assessCapabilitySnapshotTemporalAuthority(
+  observedAt: string,
+  nowIso: string,
+): CapabilityTemporalAssessment {
+  const observedMs = parseAuthorityInstant(observedAt, "Capability snapshot observedAt");
+  const nowMs = parseAuthorityInstant(nowIso, "Decision clock");
   const ageMs = nowMs - observedMs;
+
   if (ageMs < 0) {
+    return {
+      status: "future",
+      failedGate: "CAPABILITY_SNAPSHOT_FUTURE",
+      ageMs,
+    };
+  }
+  if (ageMs > CAPABILITY_SNAPSHOT_MAX_AGE_MS) {
+    return {
+      status: "stale",
+      failedGate: "CAPABILITY_SNAPSHOT_STALE",
+      ageMs,
+    };
+  }
+  return { status: "fresh", failedGate: null, ageMs };
+}
+
+/**
+ * Strict assertion for callers that explicitly require fresh authority.
+ * Production reconciliation should classify per account instead of using this
+ * assertion as a batch-read gate.
+ */
+export function assertCapabilitySnapshotFresh(observedAt: string, nowIso: string): void {
+  const assessment = assessCapabilitySnapshotTemporalAuthority(observedAt, nowIso);
+  if (assessment.status === "future") {
     throw new Error(
       `Capability snapshot is newer than the injected decision clock under ${CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION}.`,
     );
   }
-  if (ageMs > CAPABILITY_SNAPSHOT_MAX_AGE_MS) {
+  if (assessment.status === "stale") {
     throw new Error(
       `Capability snapshot is stale under ${CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION}.`,
     );
