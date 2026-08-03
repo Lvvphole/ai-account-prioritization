@@ -1,4 +1,8 @@
-import type { CrmSourceCapabilities, Recommendation } from "@repo/shared-schemas";
+import type {
+  CrmSourceCapabilities,
+  CrmSourceCapabilitySnapshot,
+  Recommendation,
+} from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../config/runtime";
 import { resolveFeatureModes } from "../../ingestion/source-capabilities";
 import type { AccountContext } from "./prioritizer.policy";
@@ -37,12 +41,15 @@ export interface PrioritizeArgs {
   runId: string;
   contexts: AccountContext[];
   createdAt: string;
-  /**
-   * Connector capability declarations keyed by canonical account ID. The full
-   * declaration is retained because contacts and other evidence can influence
-   * confidence/reasons even when they are not score dimensions.
-   */
+  /** Connector capability declarations keyed by canonical account ID. */
   sourceCapabilitiesByAccountId?: Readonly<Record<string, CrmSourceCapabilities>>;
+  /**
+   * Immutable provenance for the capability declaration used by each durable
+   * account decision. Offline/current-contract evaluations can omit this field.
+   */
+  sourceCapabilitySnapshotsByAccountId?: Readonly<
+    Record<string, CrmSourceCapabilitySnapshot>
+  >;
 }
 
 export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
@@ -68,6 +75,8 @@ export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
       r.confidence,
       RUNTIME_CONFIG.minPublishableConfidence,
     );
+    const sourceCapabilitySnapshot =
+      args.sourceCapabilitySnapshotsByAccountId?.[r.accountId];
 
     const rec: Recommendation = {
       id: `rec_${args.runId}_${r.accountId}`,
@@ -80,8 +89,8 @@ export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
       reasonCodes,
       reasonNarrative: buildNarrative(r, reasonCodes),
       sourceSignals,
+      ...(sourceCapabilitySnapshot ? { sourceCapabilitySnapshot } : {}),
       nextBestAction,
-      // Verification is filled in by the orchestrator's guardrail pass.
       verification: {
         status: "pending",
         schemaValid: false,
