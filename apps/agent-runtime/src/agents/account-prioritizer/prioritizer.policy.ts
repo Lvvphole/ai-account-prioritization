@@ -2,6 +2,7 @@ import type {
   Account,
   Activity,
   Contact,
+  CrmSourceCapabilities,
   FeatureStatus,
   Opportunity,
 } from "@repo/shared-schemas";
@@ -25,6 +26,8 @@ export interface AccountContext {
   contacts: Contact[];
   opportunities: Opportunity[];
   activities: Activity[];
+  /** Full connector declaration retains non-score evidence such as contacts. */
+  sourceCapabilities?: CrmSourceCapabilities;
   /**
    * Connector or record provenance for each scoring feature. When present,
    * `unavailable` removes the feature from scoring, confidence, and reason generation.
@@ -47,6 +50,10 @@ export const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
 function featureModeAllows(ctx: AccountContext, featureName: AccountFeatureName): boolean {
   return ctx.featureModes?.[featureName] !== "unavailable";
+}
+
+export function contactEvidenceIsSupported(ctx: AccountContext): boolean {
+  return ctx.sourceCapabilities?.contacts !== false;
 }
 
 function featureIsSupported(
@@ -129,23 +136,24 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
  * Optional or unsupported evidence cannot increase confidence. Current-contract
  * contexts without an explicit capability map keep the existing completeness
  * policy for deterministic regression compatibility. Connector-aware contexts
- * gate each affected completeness check with the same feature availability used
- * by scoring.
+ * gate each affected completeness check with the same source authority used by
+ * scoring and reason generation.
  */
 export function computeConfidence(ctx: AccountContext): number {
   const a = ctx.account;
   const hasVerifiedActivity = ctx.activities.some((x) => x.verified);
-  const connectorAware = ctx.featureModes !== undefined;
+  const connectorAware = ctx.featureModes !== undefined || ctx.sourceCapabilities !== undefined;
   const stalenessAvailable = featureModeAllows(ctx, "staleness");
   const intentAvailable = featureModeAllows(ctx, "intent");
   const pipelineAvailable = featureModeAllows(ctx, "pipeline");
+  const contactsAvailable = contactEvidenceIsSupported(ctx);
 
   const completenessChecks: boolean[] = [
     a.employeeCount !== undefined,
     a.annualRevenueUsd !== undefined,
     stalenessAvailable &&
       (a.daysSinceLastContact !== undefined || a.lastContactedAt !== undefined),
-    ctx.contacts.length > 0,
+    contactsAvailable && ctx.contacts.length > 0,
     (intentAvailable || stalenessAvailable) && hasVerifiedActivity,
     connectorAware
       ? pipelineAvailable && ctx.opportunities.length > 0
