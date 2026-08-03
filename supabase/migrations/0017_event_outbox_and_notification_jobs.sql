@@ -51,10 +51,16 @@ create table if not exists public.notification_deliveries (
   requested_at timestamptz not null default now(),
   sent_at timestamptz,
   failed_at timestamptz,
-  failure_code text,
+  failure_code text check (failure_code is null or char_length(failure_code) between 1 and 200),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (workspace_id, idempotency_key)
+  unique (workspace_id, idempotency_key),
+  constraint notification_delivery_terminal_evidence check (
+    (status = 'requested' and sent_at is null and failed_at is null and failure_code is null)
+    or (status = 'sent' and sent_at is not null and failed_at is null and failure_code is null)
+    or (status = 'failed' and sent_at is null and failed_at is not null and failure_code is not null)
+    or (status = 'cancelled' and sent_at is null and failed_at is null and failure_code is null)
+  )
 );
 
 create index if not exists notification_deliveries_recommendation_idx
@@ -72,9 +78,20 @@ alter table public.notification_deliveries enable row level security;
 revoke all on table public.integration_event_outbox from anon, authenticated;
 revoke all on table public.notification_deliveries from anon, authenticated;
 grant select, insert, update, delete on table public.integration_event_outbox to service_role;
--- Delivery evidence and its idempotency key are durable. Application paths can
--- append and update the ledger, but they cannot delete it and reopen a send key.
-grant select, insert, update on table public.notification_deliveries to service_role;
+
+-- Delivery identity and the idempotency key are immutable to application code.
+-- Only delivery-result columns can change after insert; updated_at is maintained
+-- by the trigger above. DELETE is not granted, so a completed send key cannot be
+-- reopened by removing or rewriting its durable evidence.
+grant select, insert on table public.notification_deliveries to service_role;
+grant update (
+  workflow_run_id,
+  status,
+  provider_message_id,
+  sent_at,
+  failed_at,
+  failure_code
+) on table public.notification_deliveries to service_role;
 
 comment on table public.integration_event_outbox is
   'Transactional outbox for CRM events. The relay publishes durable workflow starts and records the workflow run id.';
