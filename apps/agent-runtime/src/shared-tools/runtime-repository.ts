@@ -13,15 +13,7 @@ import { createSupabaseRepository } from "./supabase/repository";
 
 /**
  * RuntimeRepository — the single data port the deterministic runtime reads and
- * writes through. It has two implementations selected per run:
- *
- * - in-memory (default): deterministic, offline; used by evals/CI and any run
- *   without an RLS context. This is the contract-mandated fallback.
- * - Supabase: used ONLY when an RLS context is supplied AND Supabase is
- *   configured (env present). Reads honor RLS; audit evidence is durable.
- *
- * Methods are async so both implementations share one interface; the in-memory
- * store resolves synchronously underneath, preserving determinism.
+ * writes through. It has two implementations selected per run.
  */
 export interface RuntimeRepository {
   listAccountsByOwner(ownerId: string): Promise<Account[]>;
@@ -29,8 +21,11 @@ export interface RuntimeRepository {
   listContactsByAccount(accountId: string): Promise<Contact[]>;
   listOpportunitiesByAccount(accountId: string): Promise<Opportunity[]>;
   listActivitiesByAccount(accountId: string): Promise<Activity[]>;
-  /** Authoritative connector capability snapshots keyed by canonical account ID. */
-  listSourceCapabilitySnapshotsByAccountIds(
+  /**
+   * Authoritative connector declarations keyed by canonical account ID. Each
+   * value also carries source, mapping-version, and observation-time provenance.
+   */
+  listSourceCapabilitiesByAccountIds(
     accountIds: readonly string[],
   ): Promise<Record<string, CrmSourceCapabilitySnapshot>>;
   appendAudit(entry: AuditLogEntry): Promise<void>;
@@ -54,7 +49,7 @@ export const inMemoryRepository: RuntimeRepository = {
   async listActivitiesByAccount(accountId) {
     return inMemory.listActivitiesByAccount(accountId);
   },
-  async listSourceCapabilitySnapshotsByAccountIds(_accountIds) {
+  async listSourceCapabilitiesByAccountIds(_accountIds) {
     // Offline/current-contract eval inputs do not represent connector ingestion.
     return {};
   },
@@ -68,11 +63,7 @@ export const inMemoryRepository: RuntimeRepository = {
 
 /**
  * Resolve the repository for a run. Falls back to the in-memory store unless an
- * RLS context is supplied AND Supabase is configured — so evals/CI and any
- * context-less run stay offline and deterministic by construction.
- *
- * `nowIso` anchors Supabase's derived staleness (days since last contact); the
- * in-memory implementation ignores it.
+ * RLS context is supplied AND Supabase is configured.
  */
 export function resolveRepository(ctx?: RlsContext, nowIso?: string): RuntimeRepository {
   if (ctx && isSupabaseConfigured()) {
