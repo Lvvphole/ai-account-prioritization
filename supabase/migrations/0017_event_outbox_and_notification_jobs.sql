@@ -164,7 +164,7 @@ create table if not exists public.notification_deliveries (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   recipient_id text not null check (char_length(recipient_id) between 1 and 500),
-  recommendation_id uuid not null,
+  recommendation_id text not null check (char_length(recommendation_id) between 1 and 500),
   channel text not null check (channel in ('email', 'in_app')),
   idempotency_key text not null check (char_length(idempotency_key) = 64),
   workflow_run_id text,
