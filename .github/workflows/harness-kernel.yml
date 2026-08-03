@@ -35,7 +35,7 @@ jobs:
 
       - name: Verify affected repository contracts
         run: >-
-          pnpm harness:verify --
+          pnpm harness:verify
           --base "${{ github.event.pull_request.base.sha }}"
           --head "${{ github.event.pull_request.head.sha }}"
           --evidence verification-reports/harness-evidence.json
