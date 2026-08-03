@@ -1,4 +1,4 @@
-# ADR-003: Event-Driven CRM Ingestion and Notifications
+# ADR-003: Event-Driven CRM Ingestion and Durable Account-Action Orchestration
 
 - **Status:** Accepted
 - **Date:** 2026-08-03
@@ -6,59 +6,172 @@
 
 ## Context
 
-The application currently runs as a daily decision-support workflow. The scorer also accepts enrichment fields, such as `healthScore`, that many CRMs do not supply. Missing enrichment must not become invented data.
+The application starts from CRM facts and produces verified sales recommendations. The target state is an event-driven decision and action-support system with bounded automation.
 
-CRM changes, scheduled reconciliation, and notification delivery have different execution needs. Kafka is an event-stream platform. It is not a scheduler or an email job runner. Adding Kafka before event volume and replay requirements justify it would add cost and failure surface without proportional value.
+Many CRMs do not supply enrichment fields such as account health. Missing enrichment must stay unavailable. The runtime must not create replacement facts.
+
+CRM events, business decisions, human approval, and external delivery have different responsibilities. An event log does not own a long-running business process. A database job table must not become a custom workflow engine.
+
+`Practical Process Automation` separates event communication from process orchestration. It also treats durable state, waiting, retries, human work, and process visibility as workflow-engine responsibilities. Vercel Workflow SDK provides durable TypeScript workflows, retryable steps, suspension and resumption, hooks for external events, and execution observability. The application already uses TypeScript and Vercel. This gives the smallest sufficient orchestration layer for the current requirements.
 
 ## Decision
 
-Use this path:
+Use four explicit authorities:
 
 ```text
-CRM webhook or scheduled pull
-  → source adapter and capability declaration
-  → canonical CRM record
-  → transactional Postgres outbox event
-  → durable worker with idempotency, retry, and dead-letter state
-  → account-level event coalescing
-  → recompute only affected account features
-  → verified recommendation
-  → approval policy
-  → idempotent in-app or email notification job
+Supabase
+  → canonical business facts, approvals, outcomes, and audit evidence
+
+Transactional outbox
+  → atomic publication boundary for accepted CRM changes
+
+Vercel Workflow SDK
+  → durable process execution, steps, waits, retries, and operational traces
+
+Deterministic domain policy
+  → feature availability, scoring, rank, reasons, action authority, and verification
 ```
 
-Keep the weekday daily run as the reconciliation path. Event processing is the fast path.
+Use this runtime path after the workflow implementation is delivered:
+
+```text
+CRM webhook or scheduled reconciliation
+  → source adapter and capability declaration
+  → canonical CRM write + transactional outbox event
+  → outbox relay starts one durable account-action workflow
+  → load authoritative account snapshot
+  → coalesce relevant source events
+  → derive only supported features
+  → deterministic score, rank, reasons, and action
+  → bounded draft generation when permitted
+  → deterministic verification
+  → hold, internal delivery, or human approval wait
+  → re-read authoritative approval after resume
+  → idempotent external action
+  → persist outcome and audit evidence
+```
+
+Keep the weekday daily run as the reconciliation path. Event processing is the fast path. Both paths must use the same domain policy.
+
+Do not add the Workflow SDK dependency in this PR. This PR defines the boundary and persistence foundation. A later PR implements the durable process.
 
 ## Data contract
 
-Classify input fields as:
+Classify input fields as follows:
 
 1. Native CRM facts, such as accounts, contacts, opportunities, and activities.
 2. Configured CRM facts, such as account tier and lifecycle stage.
 3. Deterministically derived features, such as staleness and pipeline totals.
 4. Optional external enrichment, such as intent or account health.
 
-Each connector declares its capabilities. A feature can be `observed`, `derived`, or `unavailable`. The scorer removes unavailable feature weights and renormalizes the remaining weights. It does not invent a neutral health score or maximal staleness.
+Each connector declares its capabilities. A feature can be `observed`, `derived`, or `unavailable`.
 
-## Event processing controls
+The scorer removes unavailable feature weights and renormalizes the remaining weights. It does not create a neutral health score. It does not treat missing contact history as maximal staleness.
 
-- Use `(workspace_id, source, source_event_id)` as the event idempotency boundary.
-- Store the normalized write and outbox event in one transaction.
+A feature can be `derived` only when the repository contains a versioned deterministic derivation.
+
+## Process contract
+
+### Business authority
+
+Supabase is the source of truth for:
+
+- canonical CRM records;
+- feature provenance;
+- recommendations;
+- approvals;
+- delivery outcomes;
+- durable business audit evidence.
+
+Workflow state is not the business source of truth.
+
+### Process authority
+
+Vercel Workflow SDK will own:
+
+- process progression;
+- completed-step checkpoints;
+- waits and timers;
+- retryable step execution;
+- workflow failure state;
+- workflow-version binding;
+- operational execution traces.
+
+Do not implement a second retry scheduler or general process-state machine in application tables.
+
+### Event and command semantics
+
+Events describe completed facts. Examples are `crm.account.updated`, `recommendation.created`, `approval.granted`, and `notification.sent`.
+
+Commands request work. Examples are `recompute_account`, `request_approval`, `send_notification`, and `record_outcome`.
+
+An event can wake a workflow. It cannot authorize a customer-facing side effect.
+
+### Transactional publication
+
+Store an accepted canonical CRM change and its outbox event in one database transaction.
+
+The outbox relay can retry publication to the workflow runtime. It does not own the account-action process after publication succeeds.
+
+### Human approval
+
+A customer-facing send or CRM write-back requires durable approval evidence.
+
+A workflow hook can resume a waiting process. The hook is not approval authority. After the workflow resumes, it must read the current approval record from Supabase before it performs the side effect.
+
+### Idempotent side effects
+
+Every external side effect requires a deterministic idempotency key. Retry must not create duplicate email, CRM writes, or notifications.
+
+### Version binding
+
+Each process execution must record the applicable workflow deployment, policy version, scoring version, schema version, source mapping version, and model or prompt identity when model drafting occurs.
+
+## Outbox controls
+
+- Use `(workspace_id, source, source_event_id)` as the source-event idempotency boundary.
+- Keep source-qualified event identifiers as audit evidence.
 - Coalesce webhook bursts by workspace and account before recomputation.
-- Keep all source event ids as audit evidence.
-- Use bounded retries and a terminal `dead` state.
-- Do not send customer-facing email without the existing approval gate.
-- Use a stable notification idempotency key to prevent duplicate delivery.
+- Use ordinal ordering for durable event evidence.
+- Keep bounded retry and terminal failure state only for outbox publication.
+- Record the workflow run identifier after publication succeeds.
+
+## Delivery ledger controls
+
+The database stores delivery evidence. It does not schedule delivery retries.
+
+The delivery ledger records:
+
+- workspace;
+- recipient;
+- recommendation;
+- channel;
+- idempotency key;
+- workflow run identifier;
+- delivery status;
+- provider message identifier when available;
+- request, success, and failure timestamps;
+- stable failure code when delivery fails.
+
+The Workflow SDK step owns retry behavior for the provider call.
 
 ## Kafka admission rule
 
 Do not add Kafka now. Add it behind the outbox boundary only when measured requirements show at least one of these conditions:
 
-- The managed queue cannot support required event volume.
+- The selected transport cannot support the required event volume.
 - Multiple independent systems must consume the same ordered stream.
 - Long-window replay is a product requirement.
 - Strict partition ordering is required at scale.
 - An enterprise customer requires Kafka integration.
+
+## Framework isolation
+
+Keep scoring, verification, schemas, source mapping, approval policy, and business rules independent of Workflow SDK types.
+
+The future workflow calls domain functions through a thin adapter. This permits a runtime change without rewriting business authority.
+
+Do not add another orchestration platform unless Vercel Workflow SDK fails a documented production requirement.
 
 ## Consequences
 
@@ -66,25 +179,42 @@ Do not add Kafka now. Add it behind the outbox boundary only when measured requi
 
 - Common CRM data can enter the product without vendor-specific health fields.
 - Missing evidence remains explicit.
-- Webhook events update affected accounts without full-book recomputation.
-- The daily schedule detects missed events and repairs drift.
-- Notification delivery has retry, idempotency, and terminal failure states.
-- Kafka remains an optional transport, not a premature platform dependency.
+- Webhook events can update affected accounts without full-book recomputation.
+- Daily reconciliation can detect missed events and repair drift.
+- The outbox preserves atomic publication without becoming the process engine.
+- The database keeps durable business evidence without duplicating workflow runtime state.
+- Human approval can wait without a custom polling system.
+- Kafka remains an optional transport.
+- The architecture reuses the existing Vercel and TypeScript platform.
 
 ### Costs and risks
 
-- A durable worker must claim and process outbox rows.
+- The outbox relay still requires a small publication component.
 - Source adapters must maintain field mappings and capability declarations.
 - Derived health requires a separate versioned formula before it can be enabled.
-- Operators need metrics for queue lag, retries, dead events, and delivery failures.
+- Workflow SDK becomes an infrastructure dependency when the durable process is implemented.
+- Operators still need business audit views in Supabase and workflow execution views in Vercel.
 
-## Implementation sequence
+## Phase 1 scope
 
-1. Make optional feature availability explicit in scoring.
-2. Add connector capability and feature-provenance contracts.
-3. Add the transactional outbox and notification job tables.
-4. Add account-event routing, coalescing, and idempotent notification contracts.
-5. Connect CRM webhook adapters to the outbox.
-6. Add the durable worker and provider-specific email adapter.
-7. Add operational metrics and dead-letter recovery.
-8. Evaluate Kafka only against the admission rule.
+This PR must deliver only the foundation:
+
+1. Explicit optional-feature availability.
+2. Connector capability and provenance contracts.
+3. Transactional outbox persistence.
+4. Delivery-ledger persistence without generic retry scheduling.
+5. Deterministic event routing, coalescing, and idempotency.
+6. Reconciliation of trajectory eval contracts with the intentional scoring change.
+7. Passing CI, security, migration, build, schema, and eval gates.
+
+This PR must not add a live CRM webhook, Workflow SDK dependency, provider-specific email adapter, Kafka, or another orchestration framework.
+
+## Next delivery
+
+The next PR will implement one `accountActionWorkflow` with Vercel Workflow SDK. It will use durable steps for external work and a bounded approval wait for customer-facing actions.
+
+## References
+
+- Bernd Ruecker, *Practical Process Automation*, O'Reilly Media. See the sections on orchestration, event-driven architecture, workflow engines, human tasks, and reliable distributed communication.
+- Vercel Workflow SDK: https://vercel.com/docs/workflow
+- Vercel guidance for durable workflows and human approval: https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk
