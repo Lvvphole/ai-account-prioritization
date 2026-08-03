@@ -23,6 +23,7 @@ const h = vi.hoisted(() => {
         select() {
           return {
             eq: () => ranged,
+            in: () => ranged,
             range: (from: number, to: number) => page(from, to),
           };
         },
@@ -130,6 +131,38 @@ describe("Supabase repository mapping + audit write", () => {
     expect(opportunities).toHaveLength(1);
     expect(opportunities[0]?.amountUsd).toBe(70000000000000);
     expect(opportunities[0]?.amountUsdExact).toBe("70000000000000.001");
+  });
+
+  it("rejects expired capability snapshots on the durable repository path", async () => {
+    const accountId = "aaaaaaa1-0000-0000-0000-000000000001";
+    h.tableData.account_source_capabilities = [
+      {
+        account_id: accountId,
+        workspace_id: "22222222-2222-2222-2222-222222222222",
+        source: "salesforce",
+        capabilities: {
+          accounts: true,
+          contacts: false,
+          opportunities: true,
+          activities: false,
+          accountTier: false,
+          lifecycleStage: false,
+          emailEvents: false,
+          renewals: false,
+          healthScore: false,
+          intentSignals: false,
+        },
+        mapping_version: "salesforce-account-v8",
+        observed_at: "2026-06-01T00:00:00+00:00",
+        created_at: "2026-06-01T00:00:00+00:00",
+        updated_at: "2026-06-01T00:00:00+00:00",
+      },
+    ];
+
+    const repo = createSupabaseRepository(SERVICE, NOW);
+    await expect(repo.listSourceCapabilitiesByAccountIds([accountId])).rejects.toThrow(
+      "is stale under crm-source-capability-max-age-7d-v1",
+    );
   });
 
   it("writes audit evidence with mapped fields and no synthetic id", async () => {
