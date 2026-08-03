@@ -1,6 +1,7 @@
 import {
   PrioritizationRunSchema,
   type CrmSourceCapabilities,
+  type CrmSourceCapabilitySnapshot,
   type PrioritizationRun,
   type Recommendation,
 } from "@repo/shared-schemas";
@@ -49,10 +50,15 @@ export interface RunOptions {
   /** Optional RLS context for durable Supabase-backed runs. */
   rlsContext?: RlsContext;
   /**
-   * Optional injected connector capabilities for tests or bounded callers.
-   * Durable runs load the authoritative snapshot from Supabase when omitted.
+   * Offline/test-only connector declaration override. Durable runs always load
+   * the provenance-bearing capability snapshot from Supabase.
    */
   sourceCapabilitiesByAccountId?: Readonly<Record<string, CrmSourceCapabilities>>;
+}
+
+interface ResolvedSourceAuthority {
+  capabilities?: Readonly<Record<string, CrmSourceCapabilities>>;
+  snapshots?: Readonly<Record<string, CrmSourceCapabilitySnapshot>>;
 }
 
 function buildContexts(inputs: OrchestratorInputs): AccountContext[] {
@@ -64,24 +70,26 @@ function buildContexts(inputs: OrchestratorInputs): AccountContext[] {
   }));
 }
 
-async function resolveSourceCapabilities(
+async function resolveSourceAuthority(
   accountIds: readonly string[],
   opts: RunOptions,
   repo: RuntimeRepository,
-): Promise<Readonly<Record<string, CrmSourceCapabilities>> | undefined> {
-  // Offline/in-memory runs keep the current canonical-input regression contract.
-  if (repo === inMemoryRepository) return opts.sourceCapabilitiesByAccountId;
+): Promise<ResolvedSourceAuthority> {
+  if (repo === inMemoryRepository) {
+    return { capabilities: opts.sourceCapabilitiesByAccountId };
+  }
 
-  const capabilities =
-    opts.sourceCapabilitiesByAccountId ??
-    (await repo.listSourceCapabilitiesByAccountIds(accountIds));
-  const missing = accountIds.filter((accountId) => capabilities[accountId] === undefined).sort();
+  const snapshots = await repo.listSourceCapabilitiesByAccountIds(accountIds);
+  const missing = accountIds.filter((accountId) => snapshots[accountId] === undefined).sort();
   if (missing.length > 0) {
     throw new Error(
       `Durable prioritization is missing CRM source capabilities for account(s): ${missing.join(", ")}.`,
     );
   }
-  return capabilities;
+
+  // CrmSourceCapabilitySnapshot extends CrmSourceCapabilities, so the same
+  // immutable object provides both feature authority and replay provenance.
+  return { capabilities: snapshots, snapshots };
 }
 
 async function mapWithConcurrency<T, R>(
@@ -141,6 +149,9 @@ async function applyApproval(
       action: "approve_action",
       decision: "approved",
       reason: `Human approved ${rec.nextBestAction.type} action.`,
+      evidence: rec.sourceCapabilitySnapshot
+        ? { sourceCapabilitySnapshot: rec.sourceCapabilitySnapshot }
+        : undefined,
       occurredAt: now,
     },
     repo,
@@ -217,6 +228,7 @@ async function auditDraftOutcome(
               : `Runtime draft held (${outcome.failureCode ?? "unknown"}).`,
       evidence: {
         recommendationId: outcome.recommendationId,
+        sourceCapabilitySnapshot: rec.sourceCapabilitySnapshot,
         draftSource: outcome.source,
         selectedSourceSignalIds: outcome.selectedSourceSignalIds,
         claimCitations: outcome.claimCitations,
@@ -257,7 +269,6 @@ export async function runDailyPrioritizationForOwner(
 
   await trackEvent({ name: "run_started", runId, userId: ownerId, occurredAt: now }, repo);
 
-  // --- DISCOVER ---
   const accounts = await readAccounts(ownerId, repo);
   const accountIds = accounts.map((a) => a.id);
   const [contacts, opportunities, activities] = await Promise.all([
@@ -265,23 +276,22 @@ export async function runDailyPrioritizationForOwner(
     readOpportunities(accountIds, repo),
     readActivities(accountIds, repo),
   ]);
-  const sourceCapabilitiesByAccountId = await resolveSourceCapabilities(accountIds, opts, repo);
+  const sourceAuthority = await resolveSourceAuthority(accountIds, opts, repo);
   const inputs: OrchestratorInputs = { accounts, contacts, opportunities, activities };
 
   let state = createInitialState({ runId, ownerId, startedAt: now, inputs });
   const contexts = buildContexts(inputs);
   const contextByAccount = new Map(contexts.map((c) => [c.account.id, c]));
 
-  // --- PLAN (deterministic scoring + ranking + action authority) ---
   const candidates = prioritizeAccounts({
     runId,
     contexts,
     createdAt: now,
-    sourceCapabilitiesByAccountId,
+    sourceCapabilitiesByAccountId: sourceAuthority.capabilities,
+    sourceCapabilitySnapshotsByAccountId: sourceAuthority.snapshots,
   });
   state = transition(state, "PLAN", { candidates });
 
-  // --- EXECUTE (bounded model drafting or deterministic template fallback) ---
   const draftingPolicy = normalizeRuntimeDraftingPolicy(
     opts.drafting?.policy ?? runtimeDraftingPolicyFromEnv(),
   );
@@ -293,9 +303,6 @@ export async function runDailyPrioritizationForOwner(
     runBudget,
     now,
     beforeModelInvoke: async (invocation) => {
-      // The built-in provider path must never treat the deterministic in-memory
-      // audit store as durable. Explicit injected model clients are a test seam
-      // and still execute only behind the caller's pre-invocation dependency.
       if (!opts.drafting?.modelClient && repo === inMemoryRepository) {
         throw new Error("Runtime drafting requires a durable audit repository.");
       }
@@ -329,9 +336,6 @@ export async function runDailyPrioritizationForOwner(
             },
           };
 
-      // Persist the outcome in the same worker immediately after drafting. If
-      // durable audit storage fails here, the worker rejects and verification /
-      // publication never begins for the run.
       await auditDraftOutcome(result.recommendation, result.outcome, runId, now, repo);
       return result;
     },
@@ -340,7 +344,6 @@ export async function runDailyPrioritizationForOwner(
   const withDrafts = draftResults.map((result) => result.recommendation);
   state = transition(state, "EXECUTE", { candidates: withDrafts });
 
-  // --- VERIFY (deterministic verification + human approval, fail-closed) ---
   const published: Recommendation[] = [];
   const blocked: OrchestratorBlocked[] = [];
 
@@ -362,6 +365,9 @@ export async function runDailyPrioritizationForOwner(
           action: "block_recommendation",
           decision: "blocked",
           reason: `Failed gates: ${failedGates.join(", ")}`,
+          evidence: candidate.sourceCapabilitySnapshot
+            ? { sourceCapabilitySnapshot: candidate.sourceCapabilitySnapshot }
+            : undefined,
           occurredAt: now,
         },
         repo,
@@ -383,7 +389,11 @@ export async function runDailyPrioritizationForOwner(
           action: "publish_recommendation",
           decision: "allowed",
           reason: "Passed schema, guardrails, source verification, and permission.",
-          evidence: { score: publishedRec.score, rank: publishedRec.rank },
+          evidence: {
+            score: publishedRec.score,
+            rank: publishedRec.rank,
+            sourceCapabilitySnapshot: publishedRec.sourceCapabilitySnapshot,
+          },
           occurredAt: now,
         },
         repo,
@@ -413,6 +423,9 @@ export async function runDailyPrioritizationForOwner(
           action: "block_recommendation",
           decision: "blocked",
           reason: `Failed gates: ${recommendation.verification.failedGates.join(", ")}`,
+          evidence: recommendation.sourceCapabilitySnapshot
+            ? { sourceCapabilitySnapshot: recommendation.sourceCapabilitySnapshot }
+            : undefined,
           occurredAt: now,
         },
         repo,
