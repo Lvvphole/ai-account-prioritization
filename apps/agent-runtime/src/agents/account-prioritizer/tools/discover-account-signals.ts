@@ -1,9 +1,11 @@
 import type { ReasonCode, SourceSignal } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../../config/runtime";
 import {
-  PIPELINE_DERIVATION_VERSION,
   contactEvidenceIsSupported,
+  deriveOpenPipelineEvidence,
   effectiveOpenPipelineUsd,
+  formatUsdAmount,
+  formatUsdMinorUnits,
   type AccountContext,
   type AccountFeatures,
 } from "../prioritizer.policy";
@@ -13,13 +15,7 @@ function compareOrdinal(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/**
- * discover-account-signals — builds the verified evidence set.
- *
- * Every authoritative reason must have at least one source signal that directly
- * supports its predicate. An unrelated verified signal cannot satisfy grounding
- * for another reason code.
- */
+/** Build verified, deterministic, record-traceable recommendation evidence. */
 export function discoverAccountSignals(
   ctx: AccountContext,
   features: AccountFeatures,
@@ -36,21 +32,28 @@ export function discoverAccountSignals(
     supportedReasons.add(reason);
   };
 
-  // A connector-aware derived pipeline influences score even when it is below a
-  // reason threshold. Preserve the versioned derivation in the pre-draft
-  // authority envelope for every such recommendation.
   if (ctx.featureModes?.pipeline === "derived" && features.availability.pipeline) {
+    const evidence = deriveOpenPipelineEvidence(ctx);
     signals.push({
       kind: "derived",
       refId: a.id,
-      description: `Derived open pipeline of $${openPipelineUsd.toLocaleString("en-US")} using ${PIPELINE_DERIVATION_VERSION}.`,
+      description: `Derived open pipeline totals ${formatUsdMinorUnits(evidence.totalMinorUnits)} using ${evidence.derivationVersion}.`,
       verified: true,
     });
-    if (
+
+    const highPipeline =
       reasonCodes.includes("high_open_pipeline") &&
-      openPipelineUsd >= cfg.highPipelineThresholdUsd
-    ) {
-      supportedReasons.add("high_open_pipeline");
+      evidence.totalUsd >= cfg.highPipelineThresholdUsd;
+
+    for (const contribution of evidence.contributions) {
+      const signal: SourceSignal = {
+        kind: "opportunity",
+        refId: contribution.opportunityId,
+        description: `Opportunity ${contribution.opportunityId} contributes ${formatUsdMinorUnits(contribution.amountMinorUnits)} to derived open pipeline using ${evidence.derivationVersion}.`,
+        verified: true,
+      };
+      if (highPipeline) addSignal("high_open_pipeline", signal);
+      else signals.push(signal);
     }
   } else if (
     reasonCodes.includes("high_open_pipeline") &&
@@ -60,7 +63,7 @@ export function discoverAccountSignals(
     addSignal("high_open_pipeline", {
       kind: "derived",
       refId: a.id,
-      description: `Open pipeline of $${openPipelineUsd.toLocaleString("en-US")}.`,
+      description: `Open pipeline is ${formatUsdAmount(openPipelineUsd, a.id)}.`,
       verified: true,
     });
   }
@@ -154,7 +157,7 @@ export function discoverAccountSignals(
       addSignal("stalled_opportunity", {
         kind: "opportunity",
         refId: opp.id,
-        description: `Open opportunity "${opp.name}" is in ${opp.stage} stage and is worth $${opp.amountUsd.toLocaleString("en-US")}.`,
+        description: `Open opportunity "${opp.name}" is in ${opp.stage} stage and is worth ${formatUsdAmount(opp.amountUsd, opp.id)}.`,
         verified: true,
       });
     }
