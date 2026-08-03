@@ -49,8 +49,8 @@ export interface RunOptions {
   /** Optional RLS context for durable Supabase-backed runs. */
   rlsContext?: RlsContext;
   /**
-   * Authoritative connector capabilities keyed by canonical account ID.
-   * Durable runs fail closed when any account is missing this evidence.
+   * Optional injected connector capabilities for tests or bounded callers.
+   * Durable runs load the authoritative snapshot from Supabase when omitted.
    */
   sourceCapabilitiesByAccountId?: Readonly<Record<string, CrmSourceCapabilities>>;
 }
@@ -64,26 +64,24 @@ function buildContexts(inputs: OrchestratorInputs): AccountContext[] {
   }));
 }
 
-function requireDurableSourceCapabilities(
+async function resolveSourceCapabilities(
   accountIds: readonly string[],
   opts: RunOptions,
   repo: RuntimeRepository,
-): void {
+): Promise<Readonly<Record<string, CrmSourceCapabilities>> | undefined> {
   // Offline/in-memory runs keep the current canonical-input regression contract.
-  // A durable run must not infer connector support from normalized defaults.
-  if (repo === inMemoryRepository) return;
+  if (repo === inMemoryRepository) return opts.sourceCapabilitiesByAccountId;
 
-  const capabilities = opts.sourceCapabilitiesByAccountId;
-  if (!capabilities) {
-    throw new Error("Durable prioritization requires authoritative CRM source capabilities.");
-  }
-
+  const capabilities =
+    opts.sourceCapabilitiesByAccountId ??
+    (await repo.listSourceCapabilitiesByAccountIds(accountIds));
   const missing = accountIds.filter((accountId) => capabilities[accountId] === undefined).sort();
   if (missing.length > 0) {
     throw new Error(
       `Durable prioritization is missing CRM source capabilities for account(s): ${missing.join(", ")}.`,
     );
   }
+  return capabilities;
 }
 
 async function mapWithConcurrency<T, R>(
@@ -267,20 +265,19 @@ export async function runDailyPrioritizationForOwner(
     readOpportunities(accountIds, repo),
     readActivities(accountIds, repo),
   ]);
+  const sourceCapabilitiesByAccountId = await resolveSourceCapabilities(accountIds, opts, repo);
   const inputs: OrchestratorInputs = { accounts, contacts, opportunities, activities };
 
   let state = createInitialState({ runId, ownerId, startedAt: now, inputs });
   const contexts = buildContexts(inputs);
   const contextByAccount = new Map(contexts.map((c) => [c.account.id, c]));
 
-  requireDurableSourceCapabilities(accountIds, opts, repo);
-
   // --- PLAN (deterministic scoring + ranking + action authority) ---
   const candidates = prioritizeAccounts({
     runId,
     contexts,
     createdAt: now,
-    sourceCapabilitiesByAccountId: opts.sourceCapabilitiesByAccountId,
+    sourceCapabilitiesByAccountId,
   });
   state = transition(state, "PLAN", { candidates });
 
