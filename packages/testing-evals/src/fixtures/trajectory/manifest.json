@@ -1,18 +1,15 @@
 {
-  "version": "trajectory-corpus-v1",
+  "version": "trajectory-corpus-v2",
   "corpusKind": "synthetic-canonical-state-policy-regression",
-  "inputContractVersion": "current-input-contract-v1",
+  "inputContractVersion": "current-input-contract-v2",
   "oracleClass": "policy-lock-regression-not-independent-ground-truth",
   "seed": 23,
   "caseCount": 500,
   "evaluationNow": "2026-08-03T12:00:00Z",
   "expectedMaxRecommendations": 25,
-  "oracleSha256": "b924c39cb58517cce077c0295756622d53b7291252422e4ae2d50f6803fbb51b",
-  "datasetProfileSha256": "2b94f9cd2824961da3a3fcfda66c6c907be79b21a9fb00f2035495e170daf0f0",
-  "scoreRoundingCorrections": {
-    "108": 67.98,
-    "89": 57.8
-  },
+  "oracleSha256": "e8859c8a39e589d0a02fb74bd91ebff743175b8a379daeba7573a6aa98626f73",
+  "datasetProfileSha256": "e150bf9afa1576bbada0ed0564cbfe3f716d84d18f3ed6bb1cefaa53ed3a5544",
+  "scoreRoundingCorrections": {},
   "sourceDataset": {
     "file": "sales_pipeline.csv",
     "records": 8800,
