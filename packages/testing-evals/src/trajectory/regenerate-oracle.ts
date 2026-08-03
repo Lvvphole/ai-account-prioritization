@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Recommendation } from "@repo/shared-schemas";
+import type {
+  NextBestActionType,
+  ReasonCode,
+  Recommendation,
+} from "@repo/shared-schemas";
 import { prioritizeAccounts, verifyRecommendation } from "agent-runtime";
 import { loadTrajectoryCorpus } from "./corpus";
 
-const REASON_CODES = [
+const REASON_CODES: readonly ReasonCode[] = [
   "high_open_pipeline",
   "verified_intent_signal",
   "stale_no_contact",
@@ -16,14 +20,14 @@ const REASON_CODES = [
   "new_executive_buyer",
   "no_qualifying_signal",
   "data_quality_blocked",
-] as const;
-const ACTIONS = [
+];
+const ACTIONS: readonly NextBestActionType[] = [
   "call",
   "send_email",
   "schedule_meeting",
   "log_research_note",
   "no_action_hold",
-] as const;
+];
 
 type OracleRow = [
   number,
