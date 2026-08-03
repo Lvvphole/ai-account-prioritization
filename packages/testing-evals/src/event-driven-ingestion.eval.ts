@@ -368,6 +368,65 @@ describe("event-driven CRM foundation", () => {
     expect(recommendation?.approvalStatus).toBe("not_required");
   });
 
+  it("does not let unavailable contacts raise confidence or create buyer reasons", () => {
+    const now = "2026-08-03T09:00:00.000Z";
+    const recommendation = prioritizeAccounts({
+      runId: "run_contact_provenance",
+      createdAt: now,
+      sourceCapabilitiesByAccountId: {
+        acc_contact: {
+          accounts: true,
+          contacts: false,
+          opportunities: false,
+          activities: false,
+          accountTier: true,
+          lifecycleStage: false,
+          emailEvents: false,
+          renewals: false,
+          healthScore: false,
+          intentSignals: false,
+        },
+      },
+      contexts: [
+        {
+          account: {
+            id: "acc_contact",
+            name: "Contact Account",
+            ownerId: "rep_1",
+            tier: "strategic",
+            lifecycleStage: "prospect",
+            openPipelineUsd: 0,
+            employeeCount: 100,
+            intentSignals: [],
+            dataQualityFlags: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+          contacts: [
+            {
+              id: "contact_default",
+              accountId: "acc_contact",
+              firstName: "Default",
+              lastName: "Buyer",
+              role: "economic_buyer",
+              isPrimary: true,
+              lastEngagedAt: now,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+          opportunities: [],
+          activities: [],
+        },
+      ],
+    })[0];
+
+    expect(recommendation?.confidence).toBeCloseTo(1 / 6, 8);
+    expect(recommendation?.reasonCodes).not.toContain("new_executive_buyer");
+    expect(recommendation?.nextBestAction.type).toBe("no_action_hold");
+    expect(recommendation?.approvalStatus).toBe("not_required");
+  });
+
   it("creates stable collision-safe delivery evidence without retry scheduling", () => {
     const input = {
       workspaceId: "ws_1",
