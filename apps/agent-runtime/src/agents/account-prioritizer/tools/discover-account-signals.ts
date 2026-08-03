@@ -1,6 +1,10 @@
 import type { ReasonCode, SourceSignal } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../../config/runtime";
-import type { AccountContext, AccountFeatures } from "../prioritizer.policy";
+import {
+  effectiveOpenPipelineUsd,
+  type AccountContext,
+  type AccountFeatures,
+} from "../prioritizer.policy";
 import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-observations";
 
 /**
@@ -18,15 +22,16 @@ export function discoverAccountSignals(
   const cfg = RUNTIME_CONFIG;
   const a = ctx.account;
   const signals: SourceSignal[] = [];
+  const openPipelineUsd = effectiveOpenPipelineUsd(ctx);
 
   if (
     features.availability.pipeline &&
-    a.openPipelineUsd >= cfg.highPipelineThresholdUsd
+    openPipelineUsd >= cfg.highPipelineThresholdUsd
   ) {
     signals.push({
       kind: "account",
       refId: a.id,
-      description: `Open pipeline of $${a.openPipelineUsd.toLocaleString("en-US")}.`,
+      description: `Open pipeline of $${openPipelineUsd.toLocaleString("en-US")}.`,
       verified: true,
     });
   }
