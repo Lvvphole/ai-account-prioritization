@@ -1,23 +1,28 @@
 import type { ReasonCode, SourceSignal } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../../config/runtime";
-import type { AccountContext } from "../prioritizer.policy";
+import type { AccountContext, AccountFeatures } from "../prioritizer.policy";
 import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-observations";
 
 /**
  * discover-account-signals — builds the verified evidence set.
  *
- * Every signal is derived ONLY from real records and marked `verified` based on
- * the source record's own verification flag. Nothing is invented (Rule #11).
+ * Every signal is derived only from source-supported records. Feature
+ * availability is authoritative. A normalized default must not become evidence
+ * when the connector declared that feature unavailable.
  */
 export function discoverAccountSignals(
   ctx: AccountContext,
+  features: AccountFeatures,
   reasonCodes: readonly ReasonCode[] = [],
 ): SourceSignal[] {
   const cfg = RUNTIME_CONFIG;
   const a = ctx.account;
   const signals: SourceSignal[] = [];
 
-  if (a.openPipelineUsd >= cfg.highPipelineThresholdUsd) {
+  if (
+    features.availability.pipeline &&
+    a.openPipelineUsd >= cfg.highPipelineThresholdUsd
+  ) {
     signals.push({
       kind: "account",
       refId: a.id,
@@ -26,16 +31,22 @@ export function discoverAccountSignals(
     });
   }
 
-  for (const { signalCode, activity } of resolveVerifiedIntentObservations(a, ctx.activities)) {
-    signals.push({
-      kind: "intent",
-      refId: activity.id,
-      description: `Verified intent signal: ${signalCode}.`,
-      verified: true,
-    });
+  if (features.availability.intent) {
+    for (const { signalCode, activity } of resolveVerifiedIntentObservations(a, ctx.activities)) {
+      signals.push({
+        kind: "intent",
+        refId: activity.id,
+        description: `Verified intent signal: ${signalCode}.`,
+        verified: true,
+      });
+    }
   }
 
-  if (a.daysSinceLastContact !== undefined && a.daysSinceLastContact >= cfg.staleContactThresholdDays) {
+  if (
+    features.availability.staleness &&
+    a.daysSinceLastContact !== undefined &&
+    a.daysSinceLastContact >= cfg.staleContactThresholdDays
+  ) {
     signals.push({
       kind: "derived",
       refId: a.id,
@@ -44,18 +55,24 @@ export function discoverAccountSignals(
     });
   }
 
-  for (const opp of ctx.opportunities) {
-    if (!opp.isClosed) {
-      signals.push({
-        kind: "opportunity",
-        refId: opp.id,
-        description: `Open opportunity "${opp.name}" in ${opp.stage} stage worth $${opp.amountUsd.toLocaleString("en-US")}.`,
-        verified: true,
-      });
+  if (features.availability.pipeline) {
+    for (const opp of ctx.opportunities) {
+      if (!opp.isClosed) {
+        signals.push({
+          kind: "opportunity",
+          refId: opp.id,
+          description: `Open opportunity "${opp.name}" in ${opp.stage} stage worth $${opp.amountUsd.toLocaleString("en-US")}.`,
+          verified: true,
+        });
+      }
     }
   }
 
-  if (a.healthScore !== undefined && a.healthScore < cfg.churnRiskHealthThreshold) {
+  if (
+    features.availability.healthRisk &&
+    a.healthScore !== undefined &&
+    a.healthScore < cfg.churnRiskHealthThreshold
+  ) {
     signals.push({
       kind: "account",
       refId: a.id,
@@ -64,8 +81,8 @@ export function discoverAccountSignals(
     });
   }
 
-  // Guarantee at least one verified signal. A neutral hold cites the deterministic
-  // policy result; other cases retain the existing verified account identity fact.
+  // Guarantee one verified signal. A neutral hold cites the deterministic policy
+  // result. Other cases cite only source-supported account identity facts.
   if (signals.length === 0) {
     if (reasonCodes.includes("no_qualifying_signal")) {
       signals.push({
@@ -78,7 +95,7 @@ export function discoverAccountSignals(
       signals.push({
         kind: "account",
         refId: a.id,
-        description: `Account ${a.name} is owned by ${a.ownerId} at tier ${a.tier}.`,
+        description: `Account ${a.name} is owned by ${a.ownerId}.`,
         verified: true,
       });
     }
