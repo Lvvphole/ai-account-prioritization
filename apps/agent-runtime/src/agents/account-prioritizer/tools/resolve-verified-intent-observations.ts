@@ -106,6 +106,9 @@ const fieldEncodesSignalRelationship = (value: string, signalCode: string): bool
   );
 };
 
+const compareOrdinal = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0;
+
 function activityMatchesSignal(activity: Activity, signalCode: string): boolean {
   // A complete intent relationship must be encoded within one source field.
   // Never combine unrelated subject/body tokens into a synthetic observation.
@@ -136,7 +139,7 @@ export function resolveVerifiedIntentObservations(
       .filter((activity) => activityMatchesSignal(activity, signalCode))
       .sort((left, right) => {
         const byTime = Date.parse(right.occurredAt) - Date.parse(left.occurredAt);
-        return byTime !== 0 ? byTime : left.id.localeCompare(right.id);
+        return byTime !== 0 ? byTime : compareOrdinal(left.id, right.id);
       });
     const activity = matching[0];
     return activity ? [{ signalCode, activity }] : [];
