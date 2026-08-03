@@ -1,12 +1,17 @@
 import type { ReasonCode, SourceSignal } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../../config/runtime";
 import {
+  PIPELINE_DERIVATION_VERSION,
   contactEvidenceIsSupported,
   effectiveOpenPipelineUsd,
   type AccountContext,
   type AccountFeatures,
 } from "../prioritizer.policy";
 import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-observations";
+
+function compareOrdinal(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 
 /**
  * discover-account-signals — builds the verified evidence set.
@@ -31,7 +36,23 @@ export function discoverAccountSignals(
     supportedReasons.add(reason);
   };
 
-  if (
+  // A connector-aware derived pipeline influences score even when it is below a
+  // reason threshold. Preserve the versioned derivation in the pre-draft
+  // authority envelope for every such recommendation.
+  if (ctx.featureModes?.pipeline === "derived" && features.availability.pipeline) {
+    signals.push({
+      kind: "derived",
+      refId: a.id,
+      description: `Derived open pipeline of $${openPipelineUsd.toLocaleString("en-US")} using ${PIPELINE_DERIVATION_VERSION}.`,
+      verified: true,
+    });
+    if (
+      reasonCodes.includes("high_open_pipeline") &&
+      openPipelineUsd >= cfg.highPipelineThresholdUsd
+    ) {
+      supportedReasons.add("high_open_pipeline");
+    }
+  } else if (
     reasonCodes.includes("high_open_pipeline") &&
     features.availability.pipeline &&
     openPipelineUsd >= cfg.highPipelineThresholdUsd
@@ -123,28 +144,36 @@ export function discoverAccountSignals(
   }
 
   if (reasonCodes.includes("stalled_opportunity") && features.availability.pipeline) {
-    for (const opp of ctx.opportunities) {
-      if (!opp.isClosed && (opp.stage === "proposal" || opp.stage === "negotiation")) {
-        addSignal("stalled_opportunity", {
-          kind: "opportunity",
-          refId: opp.id,
-          description: `Open opportunity "${opp.name}" is in ${opp.stage} stage and is worth $${opp.amountUsd.toLocaleString("en-US")}.`,
-          verified: true,
-        });
-      }
+    const stalled = ctx.opportunities
+      .filter(
+        (opp) => !opp.isClosed && (opp.stage === "proposal" || opp.stage === "negotiation"),
+      )
+      .slice()
+      .sort((left, right) => compareOrdinal(left.id, right.id));
+    for (const opp of stalled) {
+      addSignal("stalled_opportunity", {
+        kind: "opportunity",
+        refId: opp.id,
+        description: `Open opportunity "${opp.name}" is in ${opp.stage} stage and is worth $${opp.amountUsd.toLocaleString("en-US")}.`,
+        verified: true,
+      });
     }
   }
 
   if (reasonCodes.includes("new_executive_buyer") && contactEvidenceIsSupported(ctx)) {
-    for (const contact of ctx.contacts) {
-      if (contact.role === "economic_buyer" && contact.lastEngagedAt !== undefined) {
-        addSignal("new_executive_buyer", {
-          kind: "contact",
-          refId: contact.id,
-          description: `Economic buyer ${contact.firstName} ${contact.lastName} has recorded engagement.`,
-          verified: true,
-        });
-      }
+    const engagedEconomicBuyers = ctx.contacts
+      .filter(
+        (contact) => contact.role === "economic_buyer" && contact.lastEngagedAt !== undefined,
+      )
+      .slice()
+      .sort((left, right) => compareOrdinal(left.id, right.id));
+    for (const contact of engagedEconomicBuyers) {
+      addSignal("new_executive_buyer", {
+        kind: "contact",
+        refId: contact.id,
+        description: `Economic buyer ${contact.firstName} ${contact.lastName} has recorded engagement.`,
+        verified: true,
+      });
     }
   }
 
