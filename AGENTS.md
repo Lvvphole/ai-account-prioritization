@@ -11,9 +11,10 @@ reproducibility take priority over agent autonomy.
 
 ## 0. Product in one sentence
 
-Turn messy B2B CRM/account data into a **verified daily sales action plan** using
-a deterministic decision core and, when enabled, a constrained runtime LLM for
-grounded signal synthesis and action drafting.
+Turn messy B2B CRM/account data into a **verified event-driven sales decision and
+action-support system with scheduled reconciliation**, using a deterministic
+decision core and, when enabled, a constrained runtime LLM for grounded signal
+synthesis and action drafting.
 
 ## 1. Contract scope and precedence
 
@@ -101,11 +102,64 @@ Do not duplicate a second doctrine here. Machine-enforcement, removal, and repai
 decisions also follow ADR-002. Never invent numeric harness-value, complexity,
 cost, reliability, or drift scores when telemetry is absent.
 
-## 3. The runtime path is sacred
+## 3. The process and deterministic decision paths are sacred
+
+`docs/decisions/ADR-003-event-driven-crm-ingestion-and-notifications.md` is the
+canonical process-architecture decision. This root contract codifies its authority
+boundaries. ADR-002 still governs minimum-sufficient harness economics. Neither
+ADR may weaken the non-negotiable invariants in Section 2.
+
+### 3.1 Authority boundaries
+
+Use four separate authorities:
+
+- **Supabase** owns canonical CRM facts, feature provenance, recommendations,
+  approvals, delivery outcomes, and durable business audit evidence.
+- The **transactional outbox** owns the atomic publication boundary for accepted
+  CRM changes. Its retry state is limited to workflow publication.
+- **Vercel Workflow SDK**, when the durable workflow is implemented, owns process
+  progression, completed-step checkpoints, waits, timers, retries after
+  publication, suspension and resumption, workflow failure state, workflow-version
+  binding, and operational execution traces.
+- **Deterministic domain policy** owns feature availability, scoring, rank, reason
+  codes, next-best-action authority, verification, and publish/hold decisions.
+
+Do not move one authority into another subsystem. Workflow state is not business
+state. An event can wake a workflow, but it cannot authorize a side effect. An
+application table must not become a general workflow engine. Until the Workflow
+SDK delivery is implemented, do not emulate it with a custom process-state
+machine or retry scheduler.
+
+### 3.2 Production process path
+
+The event fast path and the scheduled reconciliation path must converge on the
+same deterministic domain policy:
 
 ```text
-orchestrator
-  → Zod input/state validation
+CRM webhook OR scheduled reconciliation
+  → source adapter + capability declaration
+  → canonical CRM write + transactional outbox event
+  → outbox relay starts durable account-action workflow
+  → load authoritative account snapshot
+  → coalesce relevant source events
+  → derive only supported features
+  → deterministic decision path
+  → hold, internal delivery, or human-approval wait
+  → re-read authoritative approval after resume
+  → idempotent external action
+  → persist outcome + durable audit evidence
+```
+
+The weekday daily run is the reconciliation and recovery path. Event processing
+is the fast path. Both paths must use the same domain policy. The current Phase 1
+foundation does not add the Workflow SDK dependency or a live CRM webhook.
+
+### 3.3 Deterministic decision path
+
+The decision path remains framework-independent and sacred:
+
+```text
+Zod input/state validation
   → deterministic feature extraction
   → deterministic scoring and stable ranking
   → deterministic reason codes and next-best-action selection
@@ -114,7 +168,7 @@ orchestrator
   → strict generated-output schema validation
   → deterministic claim-to-source grounding validation
   → deterministic guardrails
-  → permission and human-approval gate
+  → permission and human-approval evaluation
   → durable audit evidence
   → analytics/observability
   → publish or hold
@@ -129,6 +183,11 @@ model path is fully implemented and verified. Fallback use must be explicit,
 observable, auditable, and subject to the same publish gates. Never silently
 replace a required model-backed operation with a heuristic and report it as a
 model result.
+
+A customer-facing action can suspend in the process path while it waits for human
+approval. After resume, the process must re-read the authoritative approval from
+Supabase immediately before the side effect. Workflow resume state is not approval
+evidence.
 
 A failed gate must produce a held or blocked result with explicit failed-gate
 codes and audit evidence. It must never degrade into implicit approval, partial
@@ -323,11 +382,15 @@ Before completion:
 | System architecture | `docs/ARCHITECTURE.md` |
 | Architecture decisions | `docs/decisions/` |
 | Harness economics | `docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md` |
+| Event-driven process architecture | `docs/decisions/ADR-003-event-driven-crm-ingestion-and-notifications.md` |
 | Engineering workflow | `docs/CONTEXT.md`, `AGENTS.md` |
 | Schema source of truth | `packages/shared-schemas/src` |
+| CRM capability contract | `packages/shared-schemas/src/source-capabilities.ts` |
 | JSON Schema generation | `packages/shared-schemas/scripts/generate-json-schemas.ts` |
 | Generated JSON Schema | `packages/shared-schemas/generated`, `apps/api-python/src/schemas/generated` |
 | Hybrid runtime | `apps/agent-runtime/src` |
+| CRM capability resolution | `apps/agent-runtime/src/ingestion/source-capabilities.ts` |
+| Account-event routing/coalescing | `apps/agent-runtime/src/events/account-events.ts` |
 | Deterministic scoring | `apps/agent-runtime/src/agents/account-prioritizer` |
 | Runtime generation | `apps/agent-runtime/src/agents/sales-execution` |
 | Runtime model adapter | `apps/agent-runtime/src/inference` |
@@ -340,15 +403,19 @@ Before completion:
 | PII-safe observability | `packages/observability/src` |
 | MCP-compatible tools | `apps/agent-runtime/src/shared-tools/mcp` |
 | Supabase persistence/RLS | `supabase/`, `packages/supabase-client`, runtime repository adapters |
+| Transactional outbox and delivery ledger | `supabase/migrations/0017_event_outbox_and_notification_jobs.sql` |
+| Notification delivery contract | `apps/agent-runtime/src/notifications/notification-job.ts` |
+| Durable process authority | Vercel Workflow SDK, bounded by ADR-003; implementation is a later delivery |
 | Web UI | `apps/web/app` |
 | Python support service | `apps/api-python/src` |
 | Deterministic evals and async judge | `packages/testing-evals/src` |
+| Trajectory regression | `packages/testing-evals/src/trajectory-prioritization.eval.ts` |
 | Production verification | `scripts/verify-production.sh` |
 | CI/CD and deployment | `.github/workflows` |
 
 Do not introduce a second source of truth for schemas, scoring policy,
-permissions, reason codes, prompt identity, model policy, or environment
-configuration.
+permissions, reason codes, prompt identity, model policy, environment
+configuration, business state, approval state, or workflow process state.
 
 ## 9. Determinism and behavioral reliability contract
 
@@ -503,9 +570,21 @@ its origin or observation time cannot be established.
   registry.
 - Authorization, tenant scope, current approval, and kill-switch state must be
   checked immediately before each side effect.
+- A resumed workflow must re-read current approval from Supabase immediately
+  before a customer-facing send or CRM write-back. A hook, event, checkpoint, or
+  resume token is not approval authority.
 - Every external write requires durable audit evidence and an idempotency key.
 - Every external call requires a timeout.
 - Retries must be bounded and used only for retry-safe operations.
+- The transactional outbox can retry workflow publication only. After successful
+  publication, it must not own process progression or post-publication retries.
+- Application tables must not implement a general workflow engine, process-state
+  machine, wait scheduler, timer service, or post-publication retry scheduler.
+- Vercel Workflow SDK owns durable process waits, retries, resumption, and failure
+  state after the workflow implementation is delivered.
+- The notification delivery ledger records delivery evidence. It must not
+  schedule provider retries. Provider-call retry behavior belongs to the durable
+  workflow step.
 - Partial failure must return an explicit recoverable or blocked state, never
   false success.
 - Tool and model output are untrusted data and must be validated before use.
@@ -563,8 +642,8 @@ Runtime-generation changes must first run targeted tests for:
 ### Tier 2 — change-set verification
 
 For the affected workspaces, run applicable lint, build, typecheck, unit tests,
-deterministic evals, generative evals, schema drift, security, and migration
-checks.
+deterministic evals, trajectory regression, generative evals, schema drift,
+security, and migration checks.
 
 Database migration changes additionally require `pnpm db:lint`, but only through
 a repository-pinned Supabase CLI. Do not assume a globally installed CLI. Until
@@ -586,6 +665,7 @@ pnpm build
 pnpm typecheck
 pnpm test
 pnpm test:evals
+pnpm test:trajectory
 pnpm build:api-python
 pnpm check:no-prisma
 pnpm verify:security
