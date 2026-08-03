@@ -52,6 +52,14 @@ function compareOrdinal(a: string, b: string): number {
   return a === b ? 0 : a < b ? -1 : 1;
 }
 
+function normalizeOccurredAt(value: string): string {
+  const instant = Date.parse(value);
+  if (!Number.isFinite(instant)) {
+    throw new Error(`Invalid account event occurredAt timestamp: ${value}`);
+  }
+  return new Date(instant).toISOString();
+}
+
 function eventReferenceKey(reference: AccountEventReference): string {
   return JSON.stringify([reference.source, reference.sourceEventId]);
 }
@@ -81,6 +89,8 @@ export function affectedFeaturesForEvent(event: AccountEvent): AccountFeatureNam
 /**
  * Coalesce noisy webhook bursts into one account-level recomputation unit.
  * Source-qualified references remain attached for idempotency and audit evidence.
+ * Event timestamps are validated and normalized to canonical UTC before they
+ * enter durable first/last evidence.
  */
 export function coalesceAccountEvents(events: AccountEvent[]): AccountRecomputeWork[] {
   const byAccount = new Map<string, AccountRecomputeWork>();
@@ -88,6 +98,7 @@ export function coalesceAccountEvents(events: AccountEvent[]): AccountRecomputeW
   for (const event of events) {
     const key = JSON.stringify([event.workspaceId, event.accountId]);
     const reference = { source: event.source, sourceEventId: event.sourceEventId };
+    const occurredAt = normalizeOccurredAt(event.occurredAt);
     const existing = byAccount.get(key);
     const affected = affectedFeaturesForEvent(event);
     if (!existing) {
@@ -96,8 +107,8 @@ export function coalesceAccountEvents(events: AccountEvent[]): AccountRecomputeW
         accountId: event.accountId,
         eventReferences: [reference],
         affectedFeatures: affected,
-        firstOccurredAt: event.occurredAt,
-        lastOccurredAt: event.occurredAt,
+        firstOccurredAt: occurredAt,
+        lastOccurredAt: occurredAt,
       });
       continue;
     }
@@ -109,8 +120,8 @@ export function coalesceAccountEvents(events: AccountEvent[]): AccountRecomputeW
     existing.affectedFeatures = [
       ...new Set([...existing.affectedFeatures, ...affected]),
     ].sort(compareOrdinal);
-    if (event.occurredAt < existing.firstOccurredAt) existing.firstOccurredAt = event.occurredAt;
-    if (event.occurredAt > existing.lastOccurredAt) existing.lastOccurredAt = event.occurredAt;
+    if (occurredAt < existing.firstOccurredAt) existing.firstOccurredAt = occurredAt;
+    if (occurredAt > existing.lastOccurredAt) existing.lastOccurredAt = occurredAt;
   }
 
   return [...byAccount.values()]
