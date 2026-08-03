@@ -10,7 +10,27 @@ export interface VerifiedDraftSignal {
   description: string;
 }
 
+/**
+ * Not exported. `VerifiedDraftContext` carries no `verified` flag or timestamp
+ * of its own — by design, per the minimum-context requirement, it must not
+ * carry enough to let a consumer re-derive freshness from raw account data.
+ * That means the verified/fresh guarantee has nowhere to be rechecked once
+ * built; it can only be established once, here, and then trusted. This brand
+ * makes that literal: only this module can produce a value of the type, so a
+ * future caller cannot hand-construct a `VerifiedDraftContext` and skip
+ * `assertFreshSelectedEvidence`/the unverified-signal check below. Object
+ * spread (`{ ...verified, signals: subset }`, used to trim a context to a
+ * token budget) still works, since the brand travels with the spread.
+ *
+ * Type-only: `declare const` emits no runtime value, so the branded property
+ * is never actually constructed with a computed key — it exists only for the
+ * type checker. `buildVerifiedDraftContext` asserts it in with `as`, exactly
+ * once, at the single legitimate construction site.
+ */
+declare const VERIFIED_DRAFT_CONTEXT_BRAND: unique symbol;
+
 export interface VerifiedDraftContext {
+  readonly [VERIFIED_DRAFT_CONTEXT_BRAND]: true;
   recommendationId: string;
   accountId: string;
   accountName: string;
@@ -134,5 +154,5 @@ export function buildVerifiedDraftContext(
     actionType: rec.nextBestAction.type,
     objective: rec.nextBestAction.objective,
     signals,
-  };
+  } as VerifiedDraftContext;
 }

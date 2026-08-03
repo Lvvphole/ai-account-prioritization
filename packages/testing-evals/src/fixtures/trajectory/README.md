@@ -131,6 +131,49 @@ The manifest records the exact current-runtime corrections:
 
 The assertions remain exact; no score tolerance is used.
 
+## Updating the oracle for an intended policy change
+
+This suite is a **policy-lock regression gate**: it does not know the
+difference between an unintended regression and a deliberate, correct change
+to the scorer, confidence policy, reason-code policy, or next-best-action
+policy. Both fail the same way — potentially dozens of cases at once, all
+tripping the exact-equality checks above — because the oracle was built from
+"current policy," not from an independent specification (see "Scope and
+classification" above).
+
+There is no committed generator for `oracle.compact.json`
+(`dataset_profile.json`'s `generator_reproducible_from_committed_artifacts` is
+`false`). It cannot be regenerated from scratch. If a PR intentionally changes
+what the runtime outputs for these cases, do this in the **same PR**:
+
+1. Make the runtime change, then run `pnpm test:trajectory` (or
+   `pnpm --filter @repo/testing-evals exec vitest run
+   src/trajectory-prioritization.eval.ts`) and read the failures. Each mismatch
+   is reported per case as `field expected=<old> actual=<new>` against a
+   `caseId` like `account_0108` — `trajectory-runner.ts`'s assertions print
+   the new correct value directly, so there is no need to hand-compute it.
+2. Confirm every failing case is one you intended to move. A case you did not
+   expect to change is a real regression, not a case to patch — stop and fix
+   the runtime change instead of the fixture.
+3. For each intended case, edit only the corresponding row in
+   `oracle.compact.json` (rows are ordered by the account-number column,
+   matching the `NNNN` in `account_NNNN`) to the new `actual` value from step
+   1, and update `scoreRoundingCorrections` in `manifest.json` if the case is
+   one of the two half-cent boundary corrections.
+4. Recompute `oracleSha256` in `manifest.json` (sha256 of the committed
+   `oracle.compact.json` bytes — `provenance.ts` fails the suite on any
+   mismatch, so this step is self-checking: the suite will not silently pass
+   an unhashed edit).
+5. Name in the PR description exactly which case IDs moved, the old and new
+   values, and why. A diff to this fixture with no such explanation should be
+   treated as suspect during review — the diff alone cannot show whether it
+   reflects the intended change or someone silencing a real regression.
+
+Do not resolve a trajectory-suite failure by editing the fixture without
+completing steps 1–2 first. The fixture is the thing under version control
+precisely so that "the test was inconvenient" and "the policy genuinely
+changed" produce different, reviewable diffs.
+
 ## Run
 
 From a clean repository root after `pnpm install --frozen-lockfile`:

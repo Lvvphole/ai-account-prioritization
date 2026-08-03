@@ -1,8 +1,18 @@
-# Eval matrix — the suite registry and gate thresholds.
+# Eval matrix — suite documentation and gate thresholds.
 #
 # Deterministic and runtime-generation suites run in test:evals and are
 # deployment-blocking. The judge suite runs OUTSIDE the runtime (test:judge) and
 # is deployment-blocking only when EVAL_JUDGE_ENABLED=true.
+#
+# This file is documentation, not configuration: nothing in the repo parses or
+# consumes it. The actual gate is `pnpm test:evals`, which is
+# `vitest run --exclude '**/*.judge.eval.ts'` — every `*.eval.ts` file under
+# `src/` blocks CI whether or not it is listed here. Do not trust this file as
+# an exhaustive index of what is enforced; treat `ls src/*.eval.ts` as the
+# source of truth for that. It is also not yet exhaustive as documentation —
+# the ingestion (`csv-*`, `ingestion-*`, `import-template`), `observability`,
+# `workspace-isolation`, and `trajectory-prioritization` suites are real,
+# deployment-blocking, and not described below.
 
 suites:
   - id: scoring
@@ -40,6 +50,30 @@ suites:
     deployment_blocking: true
     runtime_path: true
     description: Strict schema, authority immutability, grounding, injection resistance, fallback, and hold behavior for bounded runtime drafting.
+
+  - id: runtime-drafting-pr31-remediation
+    file: runtime-drafting-pr31-remediation.eval.ts
+    kind: generative_contract
+    threshold: 1.0
+    deployment_blocking: true
+    runtime_path: true
+    description: Policy-injection rejection order, in-memory-audit fail-closed boundary, citation isolation on fallback, intent-source traceability, and production-entrypoint durability.
+
+  - id: runtime-drafting-review-regressions
+    file: runtime-drafting-review-regressions.eval.ts
+    kind: generative_contract
+    threshold: 1.0
+    deployment_blocking: true
+    runtime_path: true
+    description: Grounding edge cases (relationship/modality substitution, currency formatting, non-ASCII and symbol-bearing claims) and stale/future-dated evidence handling under template fallback.
+
+  - id: runtime-drafting-audit-freshness
+    file: runtime-drafting-audit-freshness.eval.ts
+    kind: generative_contract
+    threshold: 1.0
+    deployment_blocking: true
+    runtime_path: true
+    description: Default evidence-age policy behavior and the fail-closed boundary when durable invocation-start auditing is unavailable.
 
   - id: daily-prioritization-judge
     file: daily-prioritization.judge.eval.ts

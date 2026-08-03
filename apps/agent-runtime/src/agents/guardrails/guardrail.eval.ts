@@ -123,4 +123,55 @@ export const guardrailEvalCases: DeterministicEvalCase[] = [
       return { passed: allowed && recommendation.verification.status === "passed", details: recommendation.verification.failedGates.join(",") };
     },
   },
+  {
+    // Verification decides *publishable* (the `allowed` return value); it must
+    // never itself set, clear, or otherwise depend on `published`, which is
+    // the separate act of actually publishing. Starting from a recommendation
+    // that already passes every gate is the case that would catch a
+    // regression toward "guardrails passed, so mark it published": the
+    // tempting shortcut, and the one an empirical "publish didn't happen in
+    // this run" assertion cannot distinguish from the real guarantee.
+    id: "verification_never_sets_published_even_when_clean",
+    run: () => {
+      const clean = makeRec({ published: false });
+      const { allowed, recommendation } = verifyRecommendation(clean, ISO);
+      return {
+        passed: allowed && recommendation.published === false,
+        details: `allowed=${allowed} published=${recommendation.published}`,
+      };
+    },
+  },
+  {
+    // Symmetric direction: verification must not clear an already-published
+    // flag either. `verifyRecommendation` has no publish/unpublish authority
+    // in either direction — that belongs entirely to whatever calls it.
+    id: "verification_never_clears_published",
+    run: () => {
+      const alreadyPublished = makeRec({ published: true });
+      const { recommendation } = verifyRecommendation(alreadyPublished, ISO);
+      return {
+        passed: recommendation.published === true,
+        details: `published=${recommendation.published}`,
+      };
+    },
+  },
+  {
+    // Whole-object check beyond the single field above: verification's return
+    // is `{ ...rec, verification }`, so no field but `verification` should
+    // differ from the input. A structural check independent of `published`
+    // specifically, so a future change touching some other authoritative
+    // field (score, rank, approvalStatus, ownerId, ...) fails here too.
+    id: "verification_touches_only_the_verification_field",
+    run: () => {
+      const rec = makeRec({ published: true, approvalStatus: "approved" });
+      const { recommendation } = verifyRecommendation(rec, ISO);
+      const { verification: _before, ...beforeRest } = rec;
+      const { verification: _after, ...afterRest } = recommendation;
+      const unchanged = JSON.stringify(beforeRest) === JSON.stringify(afterRest);
+      return {
+        passed: unchanged,
+        details: unchanged ? "" : `before=${JSON.stringify(beforeRest)} after=${JSON.stringify(afterRest)}`,
+      };
+    },
+  },
 ];
