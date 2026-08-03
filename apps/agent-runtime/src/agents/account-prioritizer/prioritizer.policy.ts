@@ -18,6 +18,8 @@ import { resolveVerifiedIntentObservations } from "./tools/resolve-verified-inte
 export type AccountFeatureName = keyof ScoringWeights;
 export type AccountFeatureModes = Readonly<Record<AccountFeatureName, FeatureStatus>>;
 
+export const PIPELINE_DERIVATION_VERSION = "open-opportunity-sum-v1";
+
 export interface AccountContext {
   account: Account;
   contacts: Contact[];
@@ -25,7 +27,7 @@ export interface AccountContext {
   activities: Activity[];
   /**
    * Connector or record provenance for each scoring feature. When present,
-   * `unavailable` removes the feature from scoring and reason generation.
+   * `unavailable` removes the feature from scoring, confidence, and reason generation.
    */
   featureModes?: AccountFeatureModes;
 }
@@ -43,20 +45,41 @@ export interface AccountFeatures {
 
 export const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
+function featureModeAllows(ctx: AccountContext, featureName: AccountFeatureName): boolean {
+  return ctx.featureModes?.[featureName] !== "unavailable";
+}
+
 function featureIsSupported(
   ctx: AccountContext,
   featureName: AccountFeatureName,
   inferredAvailability: boolean,
 ): boolean {
-  const mode = ctx.featureModes?.[featureName];
-  return mode === undefined ? inferredAvailability : mode !== "unavailable" && inferredAvailability;
+  return featureModeAllows(ctx, featureName) && inferredAvailability;
+}
+
+/**
+ * Resolve the authoritative open-pipeline amount for this scoring context.
+ *
+ * A connector that declares pipeline as `derived` supplies opportunity records,
+ * not an authoritative account-level aggregate. In that mode, sum only open
+ * opportunities. Direct/current-contract contexts keep the canonical account
+ * aggregate so existing offline and regression inputs remain unchanged.
+ */
+export function effectiveOpenPipelineUsd(ctx: AccountContext): number {
+  if (ctx.featureModes?.pipeline === "derived") {
+    return ctx.opportunities
+      .filter((opportunity) => !opportunity.isClosed)
+      .reduce((sum, opportunity) => sum + opportunity.amountUsd, 0);
+  }
+  return ctx.account.openPipelineUsd;
 }
 
 export function extractFeatures(ctx: AccountContext): AccountFeatures {
   const cfg = RUNTIME_CONFIG;
   const a = ctx.account;
 
-  const pipeline = clamp01(a.openPipelineUsd / cfg.pipelineSaturationUsd);
+  const openPipelineUsd = effectiveOpenPipelineUsd(ctx);
+  const pipeline = clamp01(openPipelineUsd / cfg.pipelineSaturationUsd);
   // Account intent codes influence authority only when each code can be traced
   // back to a matching verified intent-event observation.
   const verifiedIntentCount = resolveVerifiedIntentObservations(a, ctx.activities).length;
@@ -103,21 +126,30 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
  * Confidence reflects how much we trust this recommendation given data
  * completeness and signal verification. Deterministic, bounded [0,1].
  *
- * Optional enrichment fields, such as an external health score, do not reduce
- * confidence merely because a CRM does not supply them. Core account evidence
- * remains fail-closed when contacts, activity, opportunity, and firmographic
- * context are too sparse.
+ * Optional or unsupported evidence cannot increase confidence. Current-contract
+ * contexts without an explicit capability map keep the existing completeness
+ * policy for deterministic regression compatibility. Connector-aware contexts
+ * gate each affected completeness check with the same feature availability used
+ * by scoring.
  */
 export function computeConfidence(ctx: AccountContext): number {
   const a = ctx.account;
   const hasVerifiedActivity = ctx.activities.some((x) => x.verified);
+  const connectorAware = ctx.featureModes !== undefined;
+  const stalenessAvailable = featureModeAllows(ctx, "staleness");
+  const intentAvailable = featureModeAllows(ctx, "intent");
+  const pipelineAvailable = featureModeAllows(ctx, "pipeline");
+
   const completenessChecks: boolean[] = [
     a.employeeCount !== undefined,
     a.annualRevenueUsd !== undefined,
-    a.daysSinceLastContact !== undefined || a.lastContactedAt !== undefined,
+    stalenessAvailable &&
+      (a.daysSinceLastContact !== undefined || a.lastContactedAt !== undefined),
     ctx.contacts.length > 0,
-    hasVerifiedActivity,
-    ctx.opportunities.length > 0 || hasVerifiedActivity,
+    (intentAvailable || stalenessAvailable) && hasVerifiedActivity,
+    connectorAware
+      ? pipelineAvailable && ctx.opportunities.length > 0
+      : ctx.opportunities.length > 0 || hasVerifiedActivity,
   ];
   const present = completenessChecks.filter(Boolean).length;
   let confidence = present / completenessChecks.length;
