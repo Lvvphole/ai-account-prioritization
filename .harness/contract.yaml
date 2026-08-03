@@ -1,0 +1,51 @@
+{
+  "version": 0,
+  "contracts": [
+    {
+      "id": "harness-kernel",
+      "paths": [
+        ".harness/**",
+        ".github/workflows/harness-kernel.yml",
+        "scripts/harness-kernel.mjs",
+        "scripts/harness-kernel.test.mjs",
+        "package.json"
+      ],
+      "gates": [
+        {
+          "id": "harness-kernel-tests",
+          "command": "pnpm test:harness-kernel"
+        }
+      ]
+    },
+    {
+      "id": "runtime-contract",
+      "paths": [
+        "apps/agent-runtime/**",
+        "packages/security/**",
+        "packages/shared-schemas/**"
+      ],
+      "gates": [
+        {
+          "id": "runtime-tests",
+          "command": "pnpm --filter agent-runtime test"
+        },
+        {
+          "id": "security-verification",
+          "command": "pnpm verify:security"
+        }
+      ]
+    },
+    {
+      "id": "trajectory-contract",
+      "paths": [
+        "packages/testing-evals/**"
+      ],
+      "gates": [
+        {
+          "id": "trajectory-evals",
+          "command": "pnpm test:trajectory"
+        }
+      ]
+    }
+  ]
+}
