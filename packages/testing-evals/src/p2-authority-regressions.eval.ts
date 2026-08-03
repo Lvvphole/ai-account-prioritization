@@ -115,6 +115,28 @@ describe("current-head P2 authority regressions", () => {
     expect(() =>
       assertCapabilitySnapshotFresh("2026-08-03T09:00:00.001Z", NOW),
     ).toThrow("newer than the injected decision clock");
+
+    const staleSnapshot = {
+      ...PIPELINE_CAPABILITIES,
+      source: "salesforce",
+      mappingVersion: "salesforce-account-v8",
+      observedAt: "2026-07-20T09:00:00.000Z",
+    };
+    expect(() =>
+      prioritizeAccounts({
+        runId: "run_stale_snapshot",
+        createdAt: NOW,
+        sourceCapabilitySnapshotsByAccountId: { acc_stale: staleSnapshot },
+        contexts: [
+          {
+            account: baseAccount("acc_stale"),
+            contacts: [],
+            opportunities: [],
+            activities: [],
+          },
+        ],
+      }),
+    ).toThrow("is stale under crm-source-capability-max-age-7d-v1");
   });
 
   it("rejects conflicting scoring capabilities and provenance snapshots", () => {
@@ -182,5 +204,10 @@ describe("current-head P2 authority regressions", () => {
 
     expect(recommendation?.reasonCodes).toContain("high_open_pipeline");
     expect(recommendation?.sourceCapabilitySnapshot).toEqual(snapshot);
+    expect(
+      recommendation?.sourceSignals.some((signal) =>
+        signal.description.includes(CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION),
+      ),
+    ).toBe(true);
   });
 });
