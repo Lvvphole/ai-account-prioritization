@@ -1,316 +1,207 @@
 # Architecture
 
-## Pattern
+Status: canonical
+Owner: architecture
+Verification: `docs/VERIFICATION.md`
 
-**Turborepo-based hybrid AI application** using a **co-located agent-module
-pattern**, supported by:
+## System purpose
 
-- deterministic pre-draft decision authority
-- bounded runtime LLM drafting and signal synthesis
-- deterministic template fallback
-- synchronous fail-closed post-draft verification
-- human approval before customer-facing or CRM-write actions
-- asynchronous LLM evaluation outside the runtime path
-- shared-schema contract pattern
-- eval-gated CI/CD
-- MCP-compatible tool registry
+The product is an event-driven decision and action-support system with bounded automation and scheduled reconciliation.
 
-The architecture deliberately separates **decision authority**, **language
-generation**, and **publication verification**. TypeScript decides who is
-prioritized, why, which action is allowed, and which permissions and approvals
-apply. The runtime LLM may only determine how a verified recommendation is
-expressed. A deterministic post-draft verifier decides whether the candidate may
-publish or must be held.
-
-## Minimum-sufficient harness architecture
-
-The canonical harness-economics doctrine is
-`docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`.
-This section records only the architectural consequences of that decision; it
-does not redefine component admission, repair economics, removal economics,
-simplicity precedence, or machine-enforcement rules.
-
-The product's mandatory runtime boundaries remain requirements. Harness economics
-applies to the implementation chosen for each boundary, not to whether a required
-boundary may be omitted.
-
-The runtime responsibility shape is:
+The architecture separates four authorities:
 
 ```text
-deterministic decision authority
-  -> bounded drafting
-       probabilistic generation when enabled
-       OR approved deterministic fallback
-  -> deterministic post-draft verification
-  -> human approval for customer-facing or side-effecting actions
+Supabase
+  -> canonical business facts and durable business evidence
+
+Transactional outbox
+  -> atomic publication boundary for accepted source changes
+
+Durable workflow runtime
+  -> process steps, waits, retries, resumption, and operational traces
+
+Deterministic domain policy
+  -> feature authority, score, rank, reasons, action authority, and verification
+```
+
+ADR-003 selects Vercel Workflow SDK for the durable workflow runtime. The dependency and workflow implementation belong to the next bounded delivery.
+
+## Process path
+
+The event fast path and scheduled reconciliation path converge on one deterministic domain policy.
+
+```text
+CRM webhook OR scheduled reconciliation
+  -> source adapter and capability declaration
+  -> canonical CRM write plus transactional outbox event
+  -> durable account-action workflow
+  -> authoritative account snapshot
+  -> supported feature derivation
+  -> deterministic decision path
+  -> bounded draft generation when permitted
+  -> deterministic verification
+  -> hold, internal delivery, or approval wait
+  -> re-read authoritative approval after resume
+  -> idempotent external action
+  -> outcome and audit evidence
+```
+
+Scheduled reconciliation is a recovery path. It must not implement a second scoring or action policy.
+
+## Deterministic decision path
+
+```text
+validated authoritative input
+  -> feature extraction
+  -> deterministic scoring
+  -> stable ranking
+  -> reason codes and next-best action
+  -> minimum verified context
+  -> bounded model draft OR deterministic template fallback
+  -> strict output-schema validation
+  -> claim-to-source grounding
+  -> deterministic guardrails
+  -> permission and approval evaluation
   -> publish or hold
 ```
 
-A probabilistic draft never bypasses deterministic post-draft verification.
-These sequential responsibilities are not substitutable control classes.
+The model can decide how to express a verified recommendation. It cannot decide who is prioritized, why the account is prioritized, which action is authorized, or whether a result can publish.
 
-For genuinely substitutable control implementations, the architectural preference
-is:
+## Authority boundaries
 
-```text
-simple local control
-  > stateful control
-  > orchestration
-  > autonomous control plane
-```
+### Supabase
 
-Movement toward a more complex substitutable control class follows ADR-002.
-Whole-system reliability remains the target: reducing model uncertainty while
-introducing greater harness uncertainty is an architectural regression.
+Supabase owns:
 
-## Implementation status
+- canonical CRM facts;
+- capability snapshots and source provenance;
+- persisted recommendations;
+- approval state;
+- delivery outcomes;
+- durable business audit evidence.
 
-This document defines the approved target architecture.
+Workflow state is not business authority.
 
-- **Implemented today:** deterministic scoring, stable ranking, closed-set reason
-  codes, deterministic template drafting, synchronous guardrails, approval,
-  audit, observability, and asynchronous judge evaluation.
-- **Approved next implementation:** constrained runtime LLM drafting and bounded
-  signal synthesis between deterministic recommendation creation and
-  deterministic verification.
-- **Not yet complete:** runtime model adapter, generated-draft schema, claim-level
-  grounding validator, model telemetry, runtime-generation evals, and
-  web-to-runtime production bridge.
+### Transactional outbox
 
-Until those components pass their gates, the deterministic template path remains
-the active runtime behavior.
+The outbox owns atomic event publication. A source adapter can create pending work. It cannot certify that a workflow started.
 
-## Monorepo layout
+The relay credential owns publication transitions. Producer credentials must not have equivalent authority.
 
-```text
-apps/agent-runtime       Hybrid runtime with deterministic decision authority
-apps/web                 Next.js UI (rep / manager / account / admin)
-apps/api-python          Isolated FastAPI support service
-packages/shared-schemas  TypeScript/Zod source of truth + JSON Schema generation
-packages/security        RBAC, approval, and security policy
-packages/observability   PII-safe events and measured runtime telemetry
-packages/testing-evals   Deterministic evals + planned generative evals + async judge
-packages/config-*        Shared TypeScript / ESLint configuration
-supabase/                Postgres persistence, RLS, audit, and observability
-```
+### Durable workflow runtime
 
-## Four boundaries
+The workflow runtime owns:
 
-### 1. Pre-draft deterministic authority boundary
+- process progression;
+- completed-step checkpoints;
+- waits and timers;
+- process retries after publication;
+- suspension and resumption;
+- workflow-version binding;
+- operational traces.
 
-The following values are authoritative, model-independent, and immutable before
-runtime generation begins:
+Application tables must not become a second workflow engine.
 
-- extracted features
-- priority score
-- rank
-- confidence
-- reason codes
-- verified source references
-- next-best-action type
-- permission and approval requirements
+### Deterministic domain policy
 
-No model call may create, replace, or mutate these values.
+Domain code owns:
 
-### 2. Runtime generation boundary
+- feature availability;
+- deterministic derivations;
+- scoring and ranking;
+- reason predicates;
+- next-best-action authority;
+- confidence;
+- post-draft verification;
+- publish or hold decisions.
 
-The runtime model is permitted only after the pre-draft authority envelope is
-complete. It may:
+## Temporal authority
 
-- synthesize verified signals into a concise account brief
-- personalize an email draft
-- generate a call objective
-- draft a CRM note
-- adapt wording to the verified account context and selected objective
+Time-bearing evidence is an authority input. `docs/RELIABILITY.md` defines the temporal contract.
 
-It may not:
-
-- score or rank accounts
-- create reason codes
-- change the selected action
-- assert facts without verified source references
-- use side-effecting tools
-- approve, verify, publish, send, or write to the CRM
-
-### 3. Post-draft deterministic verification boundary
-
-The candidate model draft or deterministic fallback draft is untrusted input to
-a deterministic verifier. TypeScript computes:
-
-- generated-output schema result
-- claim-grounding result
-- guardrail result
-- permission and approval result
-- verification outcome
-- publish or hold decision
-- explicit failed-gate codes
-
-The model cannot set or override these values. Different candidate drafts may
-legitimately produce different deterministic gate results.
-
-### 4. Evaluation boundary
-
-The LLM-as-a-judge remains asynchronous and outside the customer-facing runtime.
-It assesses system outputs and can block deployment, but it cannot alter a live
-recommendation or authorize publication.
-
-## Target runtime path
+The architecture requires these boundaries:
 
 ```text
-orchestrator.agent.ts
-  → orchestrator.state.ts
-      Zod-validated state machine
-  → account-prioritizer
-      deterministic features, score, rank, signals, reason codes, action type
-  → sales-execution/build-draft-context
-      minimum authorized verified context
-  → inference/runtime-model
-      constrained model call with fixed prompt, schema, timeout, and token cap
-        OR
-      deterministic template fallback
-  → GeneratedDraftSchema
-      strict parsing and pre-draft field reconciliation
-  → sales-execution/validate-draft-grounding
-      every factual claim mapped to verified source IDs
-  → orchestrator.guardrails.ts
-      schema, claims, source verification, confidence, permission
-  → human approval gate
-  → deterministic verification outcome and publish-or-hold decision
-  → audit log + analytics/observability
+source timestamp
+  -> canonical offset-bearing instant validation
+  -> ingestion admissibility
+  -> monotonic durable storage
+  -> per-account freshness classification
+  -> decision eligibility or held result
 ```
 
-A failed model call does not bypass verification. Policy selects exactly one of
-two outcomes:
+Ordinary stale or missing business evidence must not become an infrastructure exception that aborts unrelated account work.
 
-1. use the explicit deterministic template fallback and verify it normally; or
-2. hold the recommendation with a typed failure code.
+## Runtime generation boundary
 
-Silent provider switching, silent heuristic substitution, and model
-self-certification are forbidden.
+Runtime model use is optional and bounded.
 
-## Current runtime path
+Required controls:
 
-Until the hybrid implementation is complete, the current production behavior is:
+- immutable deterministic pre-draft authority;
+- minimum authorized context;
+- pinned provider/model and versioned prompt;
+- strict generated-output schema;
+- fixed timeout, token cap, and attempt bound;
+- no general tool registry;
+- no side-effecting model tools;
+- deterministic grounding and guardrails;
+- deterministic template fallback or explicit hold;
+- durable model and verification telemetry.
 
-```text
-orchestrator.agent.ts
-  → orchestrator.state.ts
-  → account-prioritizer
-  → sales-execution deterministic templates
-  → orchestrator.guardrails.ts
-  → human approval gate
-  → audit + analytics
-  → publish or hold
-```
+Model output remains untrusted until deterministic verification completes.
 
-This current path remains valid as the deterministic fallback and baseline.
+## Evaluation boundary
 
-## Evaluation path
+Code-based tests and deterministic evals verify machine-checkable authority, state, ordering, schema, security, and replay invariants.
 
-```text
-packages/testing-evals
-  → deterministic evals
-      scoring, ranking, guardrails, security, golden pre-draft authority envelope
-  → planned runtime-generation evals
-      schema, grounding, field immutability, injection, fallback, budgets
-  → historical and adversarial fixtures
-  → LLM-as-a-judge when enabled and keyed
-  → threshold check
-  → CI/CD deployment gate
-```
+LLM-as-a-judge remains asynchronous. It can be a deployment gate. It cannot alter live authority or certify deterministic behavior that executable tests can prove directly.
 
-The runtime-generation suites become deployment-blocking only after they are
-implemented and registered. The judge is runtime-nonblocking and becomes
-deployment-blocking when required by environment policy.
+## Schema boundary
 
-## Schema path
+TypeScript/Zod is the schema source of truth.
 
 ```text
 packages/shared-schemas/src
-  → pnpm generate:schemas
-    → packages/shared-schemas/generated/json-schema
-    → apps/api-python/src/schemas/generated
+  -> pnpm generate:schemas
+  -> packages/shared-schemas/generated
+  -> apps/api-python/src/schemas/generated
 ```
 
-TypeScript/Zod remains the only schema source of truth. Python consumes generated
-JSON Schema artifacts only and never imports TypeScript.
+Python consumes generated schemas. It does not define a competing runtime contract.
 
-The hybrid implementation adds a generated-draft contract that keeps model output
-separate from authoritative recommendation state. A model response must not be
-parsed directly into the recommendation schema without deterministic
-reconciliation.
+## Framework isolation
 
-## Runtime model contract
+Domain policy must remain independent of Vercel Workflow SDK, model providers, and UI frameworks.
 
-Each runtime generation call must record:
+Framework adapters call domain functions. Domain functions do not import workflow-specific state as business authority.
 
-- run and recommendation identifiers
-- provider and pinned model identifier
-- prompt identifier and hash
-- schema and policy versions
-- authorized source-signal identifiers
-- timeout and token caps
-- measured latency and token usage
-- parse, grounding, and guardrail outcomes
-- fallback or held-state outcome
+## Complexity rule
 
-The prompt must treat CRM fields, notes, emails, uploads, and retrieved text as
-untrusted data. The model receives no general tool registry and no side-effecting
-capabilities.
+Use the smallest sufficient mechanism that preserves mandatory invariants. ADR-002 governs harness economics.
 
-## Determinism guarantees
+Do not add Kafka, another workflow platform, a multi-agent runtime, or a custom process-state machine unless measured requirements prove that the existing architecture is insufficient.
 
-### Pre-draft authority determinism
+## Repository map
 
-Given the same source snapshot, policy, configuration, schema, injected clock,
-and code revision, the pre-draft authority envelope must be byte-identical. The
-golden eval covers this boundary.
+```text
+apps/agent-runtime        deterministic decision and bounded drafting runtime
+apps/web                  user and operator UI
+apps/api-python           isolated Python support service
+packages/shared-schemas   canonical schemas and generated artifacts
+packages/security         RBAC and approval policy
+packages/observability    PII-safe telemetry
+packages/testing-evals    deterministic evals and asynchronous judge
+supabase                  business persistence, RLS, audit, outbox, delivery ledger
+docs/decisions            accepted architecture decisions
+docs/design-docs          stable design knowledge
+docs/exec-plans           active and completed implementation plans
+```
 
-### Post-draft gate determinism
+## Related canonical documents
 
-Given the same pre-draft authority envelope, candidate draft or fallback draft,
-gate-policy versions, approval state, injected clock, and code revision, schema,
-grounding, guardrail, verification, and publish-or-hold outputs must be
-byte-identical.
-
-A different probabilistic candidate may legitimately produce a different gate
-result. The model still has no authority to set that result.
-
-### Generation reliability
-
-Generated wording is not claimed to be bit-identical. Pinned model, temperature
-zero, fixed prompt, and seed reduce variation but do not guarantee identical
-provider output.
-
-Accepted generated drafts must instead satisfy behavioral invariants:
-
-- valid strict schema
-- unchanged pre-draft authoritative fields
-- no unsupported or fabricated claims
-- complete claim-to-source grounding
-- no prompt-injection authority change
-- enforced latency, token, retry, and cost budgets
-- deterministic post-draft gate evaluation
-
-## Fail-closed behavior
-
-Any failed gate, including invalid schema, unverified signal, unsupported claim,
-missing source reference, stale evidence, model-authority mutation, missing
-approval, or sub-floor confidence, marks the recommendation unverified and
-prevents publication.
-
-Failures surface in the manager exception view with explicit failed-gate codes and
-append-only audit evidence.
-
-## Rollout path
-
-1. Connect the deterministic runtime to durable Supabase recommendations and the
-   web workspace.
-2. Add the generated-draft Zod schema and generated JSON Schema artifacts.
-3. Add the bounded runtime model adapter with no tools and no side effects.
-4. Add minimum-context construction and claim-level grounding validation.
-5. Preserve and test the deterministic template fallback.
-6. Add deterministic and model-backed generation evals.
-7. Enable the model path behind an environment policy and measured rollout.
-8. Promote only after the production verification and deployment judge gates
-   pass.
+- `docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`
+- `docs/decisions/ADR-003-event-driven-crm-ingestion-and-notifications.md`
+- `docs/RELIABILITY.md`
+- `docs/SECURITY.md`
+- `docs/VERIFICATION.md`
