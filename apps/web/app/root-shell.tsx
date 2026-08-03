@@ -21,7 +21,7 @@ export default function RootShell({
   demo: boolean;
 }) {
   const pathname = usePathname();
-  const useMarketingShell = pathname === "/" || !identity;
+  const useMarketingShell = pathname === "/" || pathname === "/login" || !identity;
 
   if (useMarketingShell) {
     return (
@@ -53,15 +53,17 @@ export default function RootShell({
   }
 
   return (
-    <div className="app-frame">
-      <nav className="nav">
-        <strong>
+    <div className="app-frame workspace-mobile-scope">
+      <nav className="nav workspace-nav" aria-label="Workspace navigation">
+        <strong className="workspace-brand">
           <span className="brand-dot" aria-hidden="true" />
           AI Account Prioritization
         </strong>
-        <a href="/dashboard">Rep Dashboard</a>
-        {identity.canViewTeamCoverage ? <a href="/manager">Manager</a> : null}
-        {identity.canEditScoringConfig ? <a href="/admin">Admin</a> : null}
+        <div className="workspace-links">
+          <a href="/dashboard">Rep Dashboard</a>
+          {identity.canViewTeamCoverage ? <a href="/manager">Manager</a> : null}
+          {identity.canEditScoringConfig ? <a href="/admin">Admin</a> : null}
+        </div>
         <span className="user-chip">
           <span className="avatar" aria-hidden="true">
             {(identity.email ?? "?").charAt(0).toUpperCase()}
@@ -71,12 +73,14 @@ export default function RootShell({
             <span className="user-role">{identity.role}</span>
           </span>
         </span>
-        <a className="btn-link" href="/login">
-          Switch Role
-        </a>
-        <form action="/auth/signout" method="post" style={{ display: "inline" }}>
-          <button type="submit">Sign Out</button>
-        </form>
+        <div className="workspace-actions">
+          <a className="btn-link" href="/login">
+            Switch Role
+          </a>
+          <form action="/auth/signout" method="post">
+            <button type="submit">Sign Out</button>
+          </form>
+        </div>
       </nav>
       <main className="container">{children}</main>
     </div>
