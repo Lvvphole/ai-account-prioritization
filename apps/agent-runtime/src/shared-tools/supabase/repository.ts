@@ -4,12 +4,14 @@ import type {
   AnalyticsEvent,
   AuditLogEntry,
   Contact,
+  CrmSourceCapabilities,
   Opportunity,
 } from "@repo/shared-schemas";
 import {
   AccountSchema,
   ActivitySchema,
   ContactSchema,
+  CrmSourceCapabilitiesSchema,
   OpportunitySchema,
 } from "@repo/shared-schemas";
 import type { Json, Tables, TypedSupabaseClient } from "@repo/supabase-client";
@@ -23,9 +25,10 @@ import type { RlsContext } from "./rls-context";
  *
  * Reads source signals through an RLS-aware client (user mode) or the
  * service-role client (background/service mode) and writes immutable audit
- * evidence to `audit_evidence` via the service role. DB rows (snake_case,
- * UUIDs, timestamptz) are mapped into the Zod application schemas, which remain
- * the runtime's DTO source of truth.
+ * evidence to `audit_evidence` via the service role. Connector capability
+ * evidence is server-only and is always read with the service role. DB rows
+ * (snake_case, UUIDs, timestamptz) are mapped into the Zod application schemas,
+ * which remain the runtime's DTO source of truth.
  *
  * This implementation is used ONLY when an RLS context is supplied AND Supabase
  * is configured; otherwise the runtime stays on the in-memory store. See
@@ -54,8 +57,8 @@ function toAccount(row: Tables<"accounts">, nowIso: string): Account {
     annualRevenueUsd: row.annual_revenue_usd ?? undefined,
     openPipelineUsd: row.open_pipeline_usd,
     lastContactedAt: row.last_contacted_at ? iso(row.last_contacted_at) : undefined,
-    // Derived staleness (not a stored column). Absent contact => left undefined
-    // so the scorer applies its worst-case default deterministically.
+    // Derived staleness (not a stored column). Absent contact stays undefined so
+    // connector-aware policy can remove the feature instead of inventing risk.
     daysSinceLastContact: row.last_contacted_at
       ? daysBetween(row.last_contacted_at, nowIso)
       : undefined,
@@ -133,6 +136,7 @@ function unwrap<T>(
  * server-side, return < PAGE_SIZE, and stop the loop before all rows are read.
  */
 const PAGE_SIZE = 1000;
+const FILTER_CHUNK_SIZE = 200;
 
 async function fetchAllRows<T>(
   what: string,
@@ -200,6 +204,42 @@ export function createSupabaseRepository(
         read.from("activities").select("*").eq("account_id", accountId).range(from, to),
       );
       return rows.map(toActivity);
+    },
+
+    async listSourceCapabilitiesByAccountIds(accountIds) {
+      if (accountIds.length === 0) return {};
+
+      // Capability evidence is a server-only authority input. Read it through
+      // the service role even when the account facts were read through user RLS.
+      const service = getServiceRoleClient();
+      const rows: Tables<"account_source_capabilities">[] = [];
+      for (let offset = 0; offset < accountIds.length; offset += FILTER_CHUNK_SIZE) {
+        const chunk = accountIds.slice(offset, offset + FILTER_CHUNK_SIZE);
+        rows.push(
+          ...(await fetchAllRows<Tables<"account_source_capabilities">>(
+            "read account source capabilities",
+            (from, to) =>
+              service
+                .from("account_source_capabilities")
+                .select("*")
+                .in("account_id", chunk)
+                .range(from, to),
+          )),
+        );
+      }
+
+      const capabilities: Record<string, CrmSourceCapabilities> = {};
+      for (const row of rows) {
+        try {
+          capabilities[row.account_id] = CrmSourceCapabilitiesSchema.parse(row.capabilities);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "unknown schema error";
+          throw new Error(
+            `Supabase account source capabilities invalid for ${row.account_id}: ${message}`,
+          );
+        }
+      }
+      return capabilities;
     },
 
     async appendAudit(entry: AuditLogEntry) {
