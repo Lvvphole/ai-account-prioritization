@@ -37,6 +37,10 @@ import {
   type RuntimeRepository,
 } from "../../shared-tools/runtime-repository";
 import type { RlsContext } from "../../shared-tools/supabase/rls-context";
+import {
+  CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION,
+  assessCapabilitySnapshotTemporalAuthority,
+} from "../../ingestion/source-capabilities";
 
 export interface RunOptions {
   /** Injected clock for deterministic runs/evals. Defaults to now. */
@@ -80,16 +84,53 @@ async function resolveSourceAuthority(
   }
 
   const snapshots = await repo.listSourceCapabilitiesByAccountIds(accountIds);
-  const missing = accountIds.filter((accountId) => snapshots[accountId] === undefined).sort();
-  if (missing.length > 0) {
-    throw new Error(
-      `Durable prioritization is missing CRM source capabilities for account(s): ${missing.join(", ")}.`,
-    );
-  }
 
   // CrmSourceCapabilitySnapshot extends CrmSourceCapabilities, so the same
   // immutable object provides both feature authority and replay provenance.
   return { capabilities: snapshots, snapshots };
+}
+
+async function recordSourceAuthorityHold(
+  accountId: string,
+  ownerId: string,
+  snapshot: CrmSourceCapabilitySnapshot | undefined,
+  failedGate: string,
+  runId: string,
+  now: string,
+  repo: RuntimeRepository,
+): Promise<OrchestratorBlocked> {
+  await writeAuditLog(
+    {
+      runId,
+      accountId,
+      actorId: "orchestrator",
+      action: "block_recommendation",
+      decision: "blocked",
+      reason: `Failed gates: ${failedGate}`,
+      evidence: {
+        sourceCapabilitySnapshot: snapshot,
+        freshnessPolicyVersion: CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION,
+      },
+      occurredAt: now,
+    },
+    repo,
+  );
+  await trackEvent(
+    {
+      name: "recommendation_blocked",
+      runId,
+      accountId,
+      userId: ownerId,
+      occurredAt: now,
+      properties: { failedGates: [failedGate] },
+    },
+    repo,
+  );
+  return {
+    recommendationId: `rec_${runId}_${accountId}`,
+    accountId,
+    failedGates: [failedGate],
+  };
 }
 
 async function mapWithConcurrency<T, R>(
@@ -284,10 +325,52 @@ export async function runDailyPrioritizationForOwner(
   let state = createInitialState({ runId, ownerId, startedAt: now, inputs });
   const contexts = buildContexts(inputs);
   const contextByAccount = new Map(contexts.map((c) => [c.account.id, c]));
+  const blocked: OrchestratorBlocked[] = [];
+  const eligibleContexts: AccountContext[] = [];
+
+  if (repo === inMemoryRepository) {
+    eligibleContexts.push(...contexts);
+  } else {
+    for (const context of contexts) {
+      const snapshot = sourceAuthority.snapshots?.[context.account.id];
+      if (!snapshot) {
+        blocked.push(
+          await recordSourceAuthorityHold(
+            context.account.id,
+            ownerId,
+            undefined,
+            "CAPABILITY_SNAPSHOT_MISSING",
+            runId,
+            now,
+            repo,
+          ),
+        );
+        continue;
+      }
+
+      const temporal = assessCapabilitySnapshotTemporalAuthority(snapshot.observedAt, now);
+      if (temporal.status !== "fresh") {
+        blocked.push(
+          await recordSourceAuthorityHold(
+            context.account.id,
+            ownerId,
+            snapshot,
+            temporal.failedGate ?? "CAPABILITY_SNAPSHOT_INVALID",
+            runId,
+            now,
+            repo,
+          ),
+        );
+        continue;
+      }
+
+      eligibleContexts.push(context);
+    }
+  }
 
   const candidates = prioritizeAccounts({
     runId,
-    contexts,
+    contexts: eligibleContexts,
     createdAt: now,
     sourceCapabilitiesByAccountId: sourceAuthority.capabilities,
     sourceCapabilitySnapshotsByAccountId: sourceAuthority.snapshots,
@@ -347,7 +430,6 @@ export async function runDailyPrioritizationForOwner(
   state = transition(state, "EXECUTE", { candidates: withDrafts });
 
   const published: Recommendation[] = [];
-  const blocked: OrchestratorBlocked[] = [];
 
   for (const result of draftResults) {
     const candidate = result.recommendation;
