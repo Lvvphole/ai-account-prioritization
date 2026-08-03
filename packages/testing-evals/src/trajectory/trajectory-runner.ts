@@ -1,5 +1,6 @@
 import type { Recommendation } from "@repo/shared-schemas";
 import {
+  RUNTIME_CONFIG,
   attachHybridActionDraft,
   prioritizeAccounts,
   verifyRecommendation,
@@ -16,6 +17,8 @@ export interface TrajectoryEvalSummary {
   corpusVersion: string;
   totalCases: number;
   authorityCasesPassed: number;
+  topRankingCasesExpected: number;
+  topRankingCasesPassed: number;
   templateDraftCasesPassed: number;
   verificationCasesPassed: number;
   promptInjectionCases: number;
@@ -101,34 +104,33 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
     ]),
   );
 
-  const candidates = prioritizeAccounts({
-    runId: "trajectory_corpus_v1",
-    contexts,
-    createdAt: manifest.evaluationNow,
-  });
-
-  if (candidates.length !== cases.length) {
-    failures.push(
-      `corpus: expected ${cases.length} candidates, got ${candidates.length}`,
-    );
-  }
-
   let authorityCasesPassed = 0;
   let templateDraftCasesPassed = 0;
   let verificationCasesPassed = 0;
   let publishableCases = 0;
   let heldCases = 0;
+  const perCaseCandidates: Recommendation[] = [];
 
-  for (const candidate of candidates) {
-    const trajectoryCase = expectedByAccountId.get(candidate.accountId);
-    if (!trajectoryCase) {
+  // Exercise all 500 account states independently. The production prioritizer
+  // intentionally caps one run at maxRecommendations, so single-account runs
+  // let the corpus evaluate every score/confidence/reason/action trajectory
+  // without weakening that production limit.
+  for (const trajectoryCase of cases) {
+    const candidate = prioritizeAccounts({
+      runId: `trajectory_${trajectoryCase.caseId}`,
+      contexts: [trajectoryCase.context],
+      createdAt: manifest.evaluationNow,
+    })[0];
+
+    if (!candidate) {
       pushFailure(
         failures,
-        candidate.accountId,
-        "candidate account is not present in the trajectory oracle",
+        trajectoryCase.caseId,
+        "single-account prioritization returned no candidate",
       );
       continue;
     }
+    perCaseCandidates.push(candidate);
 
     const expected = trajectoryCase.expected;
     const authorityErrors: string[] = [];
@@ -143,9 +145,9 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
         `confidence expected=${expected.confidence} actual=${candidate.confidence}`,
       );
     }
-    if (candidate.rank !== expected.rank) {
+    if (candidate.rank !== 1) {
       authorityErrors.push(
-        `rank expected=${expected.rank} actual=${candidate.rank}`,
+        `single-account rank expected=1 actual=${candidate.rank}`,
       );
     }
     if (!sameJson(candidate.reasonCodes, expected.reasonCodes)) {
@@ -250,19 +252,65 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
     else heldCases += 1;
   }
 
+  // Exercise the real production run limit and stable global ordering against
+  // the oracle's top-N accounts. We do not raise maxRecommendations for tests.
+  const rankedCandidates = prioritizeAccounts({
+    runId: "trajectory_corpus_global_rank",
+    contexts,
+    createdAt: manifest.evaluationNow,
+  });
+  const expectedTop = cases
+    .filter(
+      (trajectoryCase) =>
+        trajectoryCase.expected.rank <= RUNTIME_CONFIG.maxRecommendations,
+    )
+    .sort((left, right) => left.expected.rank - right.expected.rank);
+  let topRankingCasesPassed = 0;
+
+  if (rankedCandidates.length !== expectedTop.length) {
+    failures.push(
+      `global ranking: expected ${expectedTop.length} selected accounts, got ${rankedCandidates.length}`,
+    );
+  }
+
+  const rankingChecks = Math.max(rankedCandidates.length, expectedTop.length);
+  for (let index = 0; index < rankingChecks; index += 1) {
+    const actual = rankedCandidates[index];
+    const expected = expectedTop[index];
+    if (!actual || !expected) {
+      failures.push(
+        `global ranking: missing ${actual ? "oracle" : "candidate"} at position ${index + 1}`,
+      );
+      continue;
+    }
+
+    const expectedAccountId = expected.context.account.id;
+    if (
+      actual.accountId === expectedAccountId &&
+      actual.rank === expected.expected.rank &&
+      actual.score === expected.expected.score
+    ) {
+      topRankingCasesPassed += 1;
+    } else {
+      failures.push(
+        `global ranking position ${index + 1}: expected account=${expectedAccountId} rank=${expected.expected.rank} score=${expected.expected.score}; actual account=${actual.accountId} rank=${actual.rank} score=${actual.score}`,
+      );
+    }
+  }
+
   const reversedCandidates = prioritizeAccounts({
-    runId: "trajectory_corpus_v1_reversed",
+    runId: "trajectory_corpus_global_rank_reversed",
     contexts: [...contexts].reverse(),
     createdAt: manifest.evaluationNow,
   });
   if (
     !sameJson(
-      candidates.map(authorityEnvelope),
+      rankedCandidates.map(authorityEnvelope),
       reversedCandidates.map(authorityEnvelope),
     )
   ) {
     failures.push(
-      "determinism: reversing input order changed the authoritative ranked output",
+      "determinism: reversing input order changed the authoritative top-N ranked output",
     );
   }
 
@@ -302,7 +350,7 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
     }
   }
 
-  const guardrailBase = candidates.find(
+  const guardrailBase = perCaseCandidates.find(
     (candidate) => candidate.confidence >= 0.2,
   );
   let guardrailCasesPassed = 0;
@@ -352,7 +400,7 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
 
   let hybridDraftCases = 0;
   let hybridDraftCasesPassed = 0;
-  const hybridBase = candidates.find(
+  const hybridBase = perCaseCandidates.find(
     (candidate) =>
       candidate.confidence >= 0.2 &&
       candidate.nextBestAction.type !== "no_action_hold",
@@ -379,16 +427,22 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
   }
 
   const reasonCodeCoverage = [
-    ...new Set(candidates.flatMap((candidate) => candidate.reasonCodes)),
+    ...new Set(
+      perCaseCandidates.flatMap((candidate) => candidate.reasonCodes),
+    ),
   ].sort();
   const actionCoverage = [
-    ...new Set(candidates.map((candidate) => candidate.nextBestAction.type)),
+    ...new Set(
+      perCaseCandidates.map((candidate) => candidate.nextBestAction.type),
+    ),
   ].sort();
 
   return {
     corpusVersion: manifest.version,
     totalCases: cases.length,
     authorityCasesPassed,
+    topRankingCasesExpected: expectedTop.length,
+    topRankingCasesPassed,
     templateDraftCasesPassed,
     verificationCasesPassed,
     promptInjectionCases: injectionCases.length,
