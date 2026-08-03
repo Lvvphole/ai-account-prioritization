@@ -157,7 +157,7 @@ export function discoverAccountSignals(
       addSignal("stalled_opportunity", {
         kind: "opportunity",
         refId: opp.id,
-        description: `Open opportunity "${opp.name}" is in ${opp.stage} stage and is worth ${formatUsdAmount(opp.amountUsd, opp.id)}.`,
+        description: `Open opportunity "${opp.name}" is in ${opp.stage} stage and is worth ${formatUsdAmount(opp.amountUsd, opp.id, opp.amountUsdExact)}.`,
         verified: true,
       });
     }
