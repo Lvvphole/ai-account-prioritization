@@ -1,6 +1,10 @@
 import type { ReasonCode } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../../config/runtime";
-import type { AccountContext, AccountFeatures } from "../prioritizer.policy";
+import {
+  effectiveOpenPipelineUsd,
+  type AccountContext,
+  type AccountFeatures,
+} from "../prioritizer.policy";
 import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-observations";
 
 /**
@@ -15,10 +19,11 @@ export function generateReasonCodes(
   const cfg = RUNTIME_CONFIG;
   const a = ctx.account;
   const codes = new Set<ReasonCode>();
+  const openPipelineUsd = effectiveOpenPipelineUsd(ctx);
 
   if (
     features.availability.pipeline &&
-    a.openPipelineUsd >= cfg.highPipelineThresholdUsd
+    openPipelineUsd >= cfg.highPipelineThresholdUsd
   ) {
     codes.add("high_open_pipeline");
   }
