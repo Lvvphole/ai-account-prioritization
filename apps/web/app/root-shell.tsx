@@ -25,7 +25,7 @@ export default function RootShell({
 
   if (useMarketingShell) {
     return (
-      <div className={marketing.frame}>
+      <div className={`${marketing.frame} marketing-mobile-scope`}>
         <nav className={marketing.nav} aria-label="Marketing navigation">
           <a className={marketing.brand} href="/" aria-label="AI Account Prioritization home">
             <span className={marketing.brandMark} aria-hidden="true">
