@@ -46,16 +46,17 @@ export function generateReasonCodes(
   }
   if (a.dataQualityFlags.length > 0) codes.add("data_quality_blocked");
 
-  // Fallback: never return an empty set. Pick the strongest feature's code.
+  // Fallback: never return an empty set. Select only from available evidence.
   if (codes.size === 0) {
-    const ranked: [keyof AccountFeatures, ReasonCode][] = [
+    const ranked: [keyof Omit<AccountFeatures, "availability">, ReasonCode][] = [
       ["pipeline", "high_open_pipeline"],
       ["healthRisk", "churn_risk_detected"],
       ["staleness", "stale_no_contact"],
       ["tier", "strategic_tier_account"],
     ];
     const best = ranked
-      .map(([f, code]) => ({ value: features[f], code }))
+      .filter(([featureName]) => features.availability[featureName])
+      .map(([featureName, code]) => ({ value: features[featureName], code }))
       .sort((x, y) => y.value - x.value)[0];
     codes.add(best ? best.code : "stale_no_contact");
   }
