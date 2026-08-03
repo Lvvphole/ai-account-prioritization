@@ -109,6 +109,10 @@ export function formatUsdMinorUnits(amountMinorUnits: bigint): string {
   return fraction === "00" ? `$${grouped}` : `$${grouped}.${fraction}`;
 }
 
+export function formatUsdAmount(amountUsd: number, evidenceId: string): string {
+  return formatUsdMinorUnits(toUsdMinorUnits(amountUsd, evidenceId));
+}
+
 /**
  * Compute derived pipeline and preserve the exact ordered opportunity references
  * that supplied the authoritative amount.
