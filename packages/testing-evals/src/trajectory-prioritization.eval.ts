@@ -26,6 +26,14 @@ describe("trajectory-prioritization corpus", () => {
     ).toBe(summary.totalCases);
   });
 
+  it("selects the oracle top accounts within the production run limit", () => {
+    expect(summary.topRankingCasesExpected).toBeGreaterThan(0);
+    expect(
+      summary.topRankingCasesPassed,
+      summary.failures.slice(0, 20).join("\n"),
+    ).toBe(summary.topRankingCasesExpected);
+  });
+
   it("preserves authority through deterministic template drafting", () => {
     expect(
       summary.templateDraftCasesPassed,
