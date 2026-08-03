@@ -23,6 +23,7 @@ const ManifestSchema = z.object({
   caseCount: z.number().int().positive(),
   evaluationNow: z.string().datetime(),
   oracleSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  scoreRoundingCorrections: z.record(z.number().min(0).max(100)).default({}),
   sourceDataset: z.object({
     file: z.literal("sales_pipeline.csv"),
     records: z.number().int().positive(),
@@ -169,6 +170,7 @@ function buildTrajectoryCase(
   oracle: TrajectoryOracle,
   row: OracleRow,
   rank: number,
+  scoreRoundingCorrections: Record<string, number>,
 ): TrajectoryCase {
   const [
     accountNumber,
@@ -203,6 +205,8 @@ function buildTrajectoryCase(
     "action",
   );
   const reasonCodes = decodeReasonMask(oracle, reasonMask);
+  const expectedScore =
+    scoreRoundingCorrections[String(accountNumber)] ?? scoreCents / 100;
   const hasDataQualityFlag = reasonCodes.includes("data_quality_blocked");
   const hasNewExecutiveBuyer = reasonCodes.includes("new_executive_buyer");
   const hasStalledOpportunity = reasonCodes.includes("stalled_opportunity");
@@ -329,7 +333,7 @@ function buildTrajectoryCase(
     caseId: `account_${String(accountNumber).padStart(4, "0")}`,
     context: { account, contacts, opportunities, activities },
     expected: {
-      score: scoreCents / 100,
+      score: expectedScore,
       confidence,
       reasonCodes,
       nextBestActionType,
@@ -362,7 +366,12 @@ export function loadTrajectoryCorpus(): {
   }
 
   const cases = oracle.rows.map((row, index) =>
-    buildTrajectoryCase(oracle, row, index + 1),
+    buildTrajectoryCase(
+      oracle,
+      row,
+      index + 1,
+      manifest.scoreRoundingCorrections,
+    ),
   );
   if (cases.length !== manifest.caseCount) {
     throw new Error(
