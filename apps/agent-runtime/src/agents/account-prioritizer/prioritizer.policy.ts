@@ -21,10 +21,19 @@ export type AccountFeatureModes = Readonly<Record<AccountFeatureName, FeatureSta
 export const PIPELINE_DERIVATION_VERSION = "open-opportunity-sum-usd-cents-v2";
 const USD_MINOR_UNITS_PER_DOLLAR = 100n;
 
+/**
+ * Runtime-only exact transport evidence for database numeric values. Durable
+ * Supabase reads populate amountUsdExact before JavaScript number conversion can
+ * erase sub-cent source precision.
+ */
+export type ExactOpportunity = Opportunity & {
+  amountUsdExact?: string;
+};
+
 export interface AccountContext {
   account: Account;
   contacts: Contact[];
-  opportunities: Opportunity[];
+  opportunities: ExactOpportunity[];
   activities: Activity[];
   sourceCapabilities?: CrmSourceCapabilities;
   featureModes?: AccountFeatureModes;
@@ -74,12 +83,18 @@ function compareOrdinal(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function toUsdMinorUnits(amountUsd: number, evidenceId: string): bigint {
+function toUsdMinorUnits(
+  amountUsd: number,
+  evidenceId: string,
+  amountUsdExact?: string,
+): bigint {
   if (!Number.isFinite(amountUsd) || amountUsd < 0) {
     throw new Error(`Pipeline amount for ${evidenceId} must be a finite non-negative USD value.`);
   }
 
-  const decimal = amountUsd.toString();
+  // Prefer source-preserved decimal text. A JavaScript number is only the
+  // compatibility fallback for non-durable fixtures and legacy callers.
+  const decimal = amountUsdExact ?? amountUsd.toString();
   const match = /^(\d+)(?:\.(\d+))?$/.exec(decimal);
   if (!match) {
     throw new Error(`Pipeline amount for ${evidenceId} must use plain decimal USD notation.`);
@@ -109,8 +124,12 @@ export function formatUsdMinorUnits(amountMinorUnits: bigint): string {
   return fraction === "00" ? `$${grouped}` : `$${grouped}.${fraction}`;
 }
 
-export function formatUsdAmount(amountUsd: number, evidenceId: string): string {
-  return formatUsdMinorUnits(toUsdMinorUnits(amountUsd, evidenceId));
+export function formatUsdAmount(
+  amountUsd: number,
+  evidenceId: string,
+  amountUsdExact?: string,
+): string {
+  return formatUsdMinorUnits(toUsdMinorUnits(amountUsd, evidenceId, amountUsdExact));
 }
 
 /**
@@ -125,7 +144,11 @@ export function deriveOpenPipelineEvidence(ctx: AccountContext): DerivedPipeline
 
   const contributions = openOpportunities.map((opportunity) => ({
     opportunityId: opportunity.id,
-    amountMinorUnits: toUsdMinorUnits(opportunity.amountUsd, opportunity.id),
+    amountMinorUnits: toUsdMinorUnits(
+      opportunity.amountUsd,
+      opportunity.id,
+      opportunity.amountUsdExact,
+    ),
   }));
 
   let totalMinorUnits = 0n;
