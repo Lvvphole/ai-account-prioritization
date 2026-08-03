@@ -317,6 +317,100 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["observability_events"]["Insert"]>;
         Relationships: [];
       };
+      integration_event_outbox: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          source: string;
+          source_event_id: string;
+          aggregate_type: string;
+          aggregate_id: string;
+          event_type: string;
+          payload: Json;
+          status: string;
+          publication_attempt_count: number;
+          available_at: string;
+          locked_at: string | null;
+          locked_by: string | null;
+          workflow_run_id: string | null;
+          published_at: string | null;
+          last_error_code: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          source: string;
+          source_event_id: string;
+          aggregate_type?: string;
+          aggregate_id: string;
+          event_type: string;
+          payload?: Json;
+          status?: string;
+          publication_attempt_count?: number;
+          available_at?: string;
+          locked_at?: string | null;
+          locked_by?: string | null;
+          workflow_run_id?: string | null;
+          published_at?: string | null;
+          last_error_code?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["integration_event_outbox"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "integration_event_outbox_workspace_id_fkey";
+            columns: ["workspace_id"];
+            referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      notification_deliveries: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          recipient_id: string;
+          recommendation_id: string;
+          channel: string;
+          idempotency_key: string;
+          workflow_run_id: string | null;
+          status: string;
+          provider_message_id: string | null;
+          requested_at: string;
+          sent_at: string | null;
+          failed_at: string | null;
+          failure_code: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          recipient_id: string;
+          recommendation_id: string;
+          channel: string;
+          idempotency_key: string;
+          workflow_run_id?: string | null;
+          status?: string;
+          provider_message_id?: string | null;
+          requested_at?: string;
+          sent_at?: string | null;
+          failed_at?: string | null;
+          failure_code?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["notification_deliveries"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "notification_deliveries_workspace_id_fkey";
+            columns: ["workspace_id"];
+            referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {
