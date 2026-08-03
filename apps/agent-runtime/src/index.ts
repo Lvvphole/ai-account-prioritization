@@ -127,6 +127,9 @@ export {
 export {
   CrmSourceCapabilitiesSchema,
   FeatureStatusSchema,
+  CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION,
+  CAPABILITY_SNAPSHOT_MAX_AGE_MS,
+  assertCapabilitySnapshotFresh,
   resolveFeatureModes,
   unavailableFeature,
   type CrmSourceCapabilities,
