@@ -79,7 +79,7 @@ describe("event-driven CRM foundation", () => {
     expect(work.map((item) => item.accountId)).toEqual(["A", "z"]);
   });
 
-  it("keeps health unavailable until a versioned derivation exists", () => {
+  it("keeps unimplemented derived features unavailable", () => {
     const modes = resolveFeatureModes({
       accounts: true,
       contacts: true,
@@ -94,8 +94,9 @@ describe("event-driven CRM foundation", () => {
     });
 
     expect(modes.healthRisk).toBe("unavailable");
-    expect(modes.intent).toBe("derived");
+    expect(modes.intent).toBe("unavailable");
     expect(modes.pipeline).toBe("derived");
+    expect(modes.staleness).toBe("derived");
   });
 
   it("keeps renewal-only lifecycle unavailable until a derivation exists", () => {
@@ -115,7 +116,7 @@ describe("event-driven CRM foundation", () => {
     expect(modes.lifecycle).toBe("unavailable");
   });
 
-  it("threads connector availability into scoring and reason authority", () => {
+  it("threads connector availability into score, reasons, and evidence", () => {
     const now = "2026-08-03T09:00:00.000Z";
     const capabilities = {
       accounts: true as const,
@@ -187,6 +188,9 @@ describe("event-driven CRM foundation", () => {
     expect(high?.reasonCodes).not.toContain("churn_risk_detected");
     expect(high?.reasonCodes).not.toContain("stale_no_contact");
     expect(high?.reasonCodes).not.toContain("verified_intent_signal");
+    expect(high?.sourceSignals.some((signal) => signal.description.includes("health score"))).toBe(false);
+    expect(high?.sourceSignals.some((signal) => signal.description.includes("No logged contact"))).toBe(false);
+    expect(high?.sourceSignals.some((signal) => signal.description.includes("tier strategic"))).toBe(false);
   });
 
   it("creates stable collision-safe delivery evidence without retry scheduling", () => {
