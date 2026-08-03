@@ -1,5 +1,6 @@
 import type {
   CrmSourceCapabilities,
+  CrmSourceCapabilitySnapshot,
   FeatureStatus,
 } from "@repo/shared-schemas";
 import type { AccountFeatureName } from "../agents/account-prioritizer/prioritizer.policy";
@@ -24,6 +25,20 @@ export interface CapabilityTemporalAssessment {
   status: CapabilityTemporalStatus;
   failedGate: "CAPABILITY_SNAPSHOT_STALE" | "CAPABILITY_SNAPSHOT_FUTURE" | null;
   ageMs: number;
+}
+
+export interface CapabilityAuthorityHold {
+  accountId: string;
+  snapshot?: CrmSourceCapabilitySnapshot;
+  failedGate:
+    | "CAPABILITY_SNAPSHOT_MISSING"
+    | "CAPABILITY_SNAPSHOT_STALE"
+    | "CAPABILITY_SNAPSHOT_FUTURE";
+}
+
+export interface CapabilityAuthorityPartition {
+  eligibleAccountIds: string[];
+  holds: CapabilityAuthorityHold[];
 }
 
 /** A decision feature together with its source and derivation evidence. */
@@ -87,6 +102,51 @@ export function assessCapabilitySnapshotTemporalAuthority(
     };
   }
   return { status: "fresh", failedGate: null, ageMs };
+}
+
+/**
+ * Partition durable account authority before scoring. One invalid account does
+ * not abort unrelated work. Returned order is explicit ordinal account-ID order.
+ */
+export function partitionCapabilityAuthority(
+  accountIds: readonly string[],
+  snapshots: Readonly<Record<string, CrmSourceCapabilitySnapshot>>,
+  nowIso: string,
+): CapabilityAuthorityPartition {
+  // Validate the decision clock even when there are no snapshots.
+  parseAuthorityInstant(nowIso, "Decision clock");
+
+  const eligibleAccountIds: string[] = [];
+  const holds: CapabilityAuthorityHold[] = [];
+  const orderedAccountIds = [...accountIds].sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0,
+  );
+
+  for (const accountId of orderedAccountIds) {
+    const snapshot = snapshots[accountId];
+    if (!snapshot) {
+      holds.push({ accountId, failedGate: "CAPABILITY_SNAPSHOT_MISSING" });
+      continue;
+    }
+
+    const assessment = assessCapabilitySnapshotTemporalAuthority(snapshot.observedAt, nowIso);
+    if (assessment.status === "fresh") {
+      eligibleAccountIds.push(accountId);
+      continue;
+    }
+
+    holds.push({
+      accountId,
+      snapshot,
+      failedGate:
+        assessment.failedGate ??
+        (assessment.status === "future"
+          ? "CAPABILITY_SNAPSHOT_FUTURE"
+          : "CAPABILITY_SNAPSHOT_STALE"),
+    });
+  }
+
+  return { eligibleAccountIds, holds };
 }
 
 /**
