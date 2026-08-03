@@ -1,4 +1,10 @@
-import type { Account, Activity, Contact, Opportunity } from "@repo/shared-schemas";
+import type {
+  Account,
+  Activity,
+  Contact,
+  FeatureStatus,
+  Opportunity,
+} from "@repo/shared-schemas";
 import { RUNTIME_CONFIG, type ScoringWeights } from "../../config/runtime";
 import { resolveVerifiedIntentObservations } from "./tools/resolve-verified-intent-observations";
 
@@ -9,14 +15,20 @@ import { resolveVerifiedIntentObservations } from "./tools/resolve-verified-inte
  * the scorer consumes. NO LLM, NO randomness, NO clock reads. Everything is a
  * deterministic function of the inputs and the runtime config.
  */
+export type AccountFeatureName = keyof ScoringWeights;
+export type AccountFeatureModes = Readonly<Record<AccountFeatureName, FeatureStatus>>;
+
 export interface AccountContext {
   account: Account;
   contacts: Contact[];
   opportunities: Opportunity[];
   activities: Activity[];
+  /**
+   * Connector or record provenance for each scoring feature. When present,
+   * `unavailable` removes the feature from scoring and reason generation.
+   */
+  featureModes?: AccountFeatureModes;
 }
-
-export type AccountFeatureName = keyof ScoringWeights;
 
 export interface AccountFeatures {
   pipeline: number;
@@ -31,6 +43,15 @@ export interface AccountFeatures {
 
 export const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
+function featureIsSupported(
+  ctx: AccountContext,
+  featureName: AccountFeatureName,
+  inferredAvailability: boolean,
+): boolean {
+  const mode = ctx.featureModes?.[featureName];
+  return mode === undefined ? inferredAvailability : mode !== "unavailable" && inferredAvailability;
+}
+
 export function extractFeatures(ctx: AccountContext): AccountFeatures {
   const cfg = RUNTIME_CONFIG;
   const a = ctx.account;
@@ -43,7 +64,6 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
 
   // Missing contact history is unavailable evidence. It is not maximal staleness.
   const daysSinceLastContact = a.daysSinceLastContact;
-  const stalenessAvailable = daysSinceLastContact !== undefined;
   const staleness =
     daysSinceLastContact === undefined
       ? 0
@@ -55,7 +75,6 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
   // Health is not a common CRM field. Missing health is unavailable evidence,
   // not an invented neutral score. The scorer removes its weight for this row.
   const healthScore = a.healthScore;
-  const healthAvailable = healthScore !== undefined;
   const healthRisk = healthScore === undefined ? 0 : clamp01((100 - healthScore) / 100);
 
   return {
@@ -66,12 +85,16 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
     lifecycle,
     healthRisk,
     availability: {
-      pipeline: true,
-      intent: true,
-      staleness: stalenessAvailable,
-      tier: true,
-      lifecycle: true,
-      healthRisk: healthAvailable,
+      pipeline: featureIsSupported(ctx, "pipeline", true),
+      intent: featureIsSupported(ctx, "intent", true),
+      staleness: featureIsSupported(
+        ctx,
+        "staleness",
+        daysSinceLastContact !== undefined,
+      ),
+      tier: featureIsSupported(ctx, "tier", true),
+      lifecycle: featureIsSupported(ctx, "lifecycle", true),
+      healthRisk: featureIsSupported(ctx, "healthRisk", healthScore !== undefined),
     },
   };
 }
