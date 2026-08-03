@@ -24,6 +24,8 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Clean-checkout trajectory command
+        run: pnpm test:trajectory
       - run: pnpm generate:schemas
       - run: pnpm build
       - name: Deterministic eval gate
