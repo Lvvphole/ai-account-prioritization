@@ -42,18 +42,21 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
   const intent = clamp01(verifiedIntentCount / cfg.intentSaturationCount);
 
   // Missing contact history is unavailable evidence. It is not maximal staleness.
-  const stalenessAvailable = a.daysSinceLastContact !== undefined;
-  const staleness = stalenessAvailable
-    ? clamp01(a.daysSinceLastContact / cfg.stalenessSaturationDays)
-    : 0;
+  const daysSinceLastContact = a.daysSinceLastContact;
+  const stalenessAvailable = daysSinceLastContact !== undefined;
+  const staleness =
+    daysSinceLastContact === undefined
+      ? 0
+      : clamp01(daysSinceLastContact / cfg.stalenessSaturationDays);
 
   const tier = cfg.tierWeights[a.tier] ?? 0.3;
   const lifecycle = cfg.lifecycleWeights[a.lifecycleStage] ?? 0.4;
 
   // Health is not a common CRM field. Missing health is unavailable evidence,
   // not an invented neutral score. The scorer removes its weight for this row.
-  const healthAvailable = a.healthScore !== undefined;
-  const healthRisk = healthAvailable ? clamp01((100 - a.healthScore) / 100) : 0;
+  const healthScore = a.healthScore;
+  const healthAvailable = healthScore !== undefined;
+  const healthRisk = healthScore === undefined ? 0 : clamp01((100 - healthScore) / 100);
 
   return {
     pipeline,
