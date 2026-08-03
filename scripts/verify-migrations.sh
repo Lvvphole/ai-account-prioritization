@@ -102,7 +102,8 @@ echo "    $applied migrations applied to an empty database"
 # every check.
 
 total=0
-for suite in "$TESTS"/0[1-9]_*.sql; do
+for suite in "$TESTS"/0[1-9]_*.sql "$TESTS"/[1-9][0-9]_*.sql; do
+  [ -e "$suite" ] || continue
   name="$(basename "$suite" .sql)"
   output="$("${PSQL[@]}" -q -f "$suite" 2>&1)" || {
     echo "$output" | sed 's/^/    /' >&2
