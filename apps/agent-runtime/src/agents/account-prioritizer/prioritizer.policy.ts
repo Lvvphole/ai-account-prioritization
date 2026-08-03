@@ -21,8 +21,7 @@ export type AccountFeatureModes = Readonly<Record<AccountFeatureName, FeatureSta
 
 export const PIPELINE_DERIVATION_VERSION = "open-opportunity-sum-usd-cents-v2";
 
-const USD_MINOR_UNITS_PER_DOLLAR = 100;
-const MONEY_PRECISION_TOLERANCE_MULTIPLIER = 8;
+const USD_MINOR_UNITS_PER_DOLLAR = 100n;
 
 export interface AccountContext {
   account: Account;
@@ -72,28 +71,32 @@ function compareOrdinal(left: string, right: string): number {
 }
 
 /**
- * Convert an authoritative USD amount to integer cents without silently
- * accepting precision finer than the domain contract. Decimal currency values
- * such as 0.29 can have a tiny binary representation error after scaling, so a
- * machine-epsilon tolerance is used only to recognize the intended cent value.
+ * Convert the canonical decimal spelling of an authoritative USD amount to
+ * exact integer cents. This boundary is magnitude-independent: values with more
+ * than two decimal places fail closed regardless of how large the amount is.
  */
-function toUsdMinorUnits(amountUsd: number, evidenceId: string): number {
+function toUsdMinorUnits(amountUsd: number, evidenceId: string): bigint {
   if (!Number.isFinite(amountUsd) || amountUsd < 0) {
     throw new Error(`Pipeline amount for ${evidenceId} must be a finite non-negative USD value.`);
   }
 
-  const scaled = amountUsd * USD_MINOR_UNITS_PER_DOLLAR;
-  const minorUnits = Math.round(scaled);
-  const tolerance =
-    Number.EPSILON *
-    Math.max(1, Math.abs(scaled)) *
-    MONEY_PRECISION_TOLERANCE_MULTIPLIER;
+  const decimal = amountUsd.toString();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(decimal);
+  if (!match) {
+    throw new Error(`Pipeline amount for ${evidenceId} must use plain decimal USD notation.`);
+  }
 
-  if (!Number.isSafeInteger(minorUnits) || Math.abs(scaled - minorUnits) > tolerance) {
+  const whole = match[1] ?? "0";
+  const fraction = match[2] ?? "";
+  if (fraction.length > 2) {
     throw new Error(`Pipeline amount for ${evidenceId} must have at most two decimal places.`);
   }
 
-  return minorUnits;
+  const cents = BigInt(whole) * USD_MINOR_UNITS_PER_DOLLAR + BigInt(fraction.padEnd(2, "0") || "0");
+  if (cents > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("Derived open pipeline exceeds safe integer minor-unit precision.");
+  }
+  return cents;
 }
 
 /**
@@ -101,9 +104,9 @@ function toUsdMinorUnits(amountUsd: number, evidenceId: string): number {
  *
  * A connector that declares pipeline as `derived` supplies opportunity records,
  * not an authoritative account-level aggregate. In that mode, sort by the stable
- * opportunity id, convert each USD amount to integer cents, and sum only open
- * opportunities. Integer minor-unit aggregation makes the result independent of
- * database row order and floating-point addition order. Direct/current-contract
+ * opportunity id, convert each USD amount to exact integer cents, and sum only
+ * open opportunities. Integer minor-unit aggregation makes the result independent
+ * of database row order and floating-point addition order. Direct/current-contract
  * contexts keep the canonical account aggregate so existing offline and regression
  * inputs remain unchanged.
  */
@@ -114,15 +117,15 @@ export function effectiveOpenPipelineUsd(ctx: AccountContext): number {
       .slice()
       .sort((left, right) => compareOrdinal(left.id, right.id));
 
-    const totalMinorUnits = openOpportunities.reduce((sum, opportunity) => {
-      const next = sum + toUsdMinorUnits(opportunity.amountUsd, opportunity.id);
-      if (!Number.isSafeInteger(next)) {
+    let totalMinorUnits = 0n;
+    for (const opportunity of openOpportunities) {
+      totalMinorUnits += toUsdMinorUnits(opportunity.amountUsd, opportunity.id);
+      if (totalMinorUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw new Error("Derived open pipeline exceeds safe integer minor-unit precision.");
       }
-      return next;
-    }, 0);
+    }
 
-    return totalMinorUnits / USD_MINOR_UNITS_PER_DOLLAR;
+    return Number(totalMinorUnits) / Number(USD_MINOR_UNITS_PER_DOLLAR);
   }
   return ctx.account.openPipelineUsd;
 }
