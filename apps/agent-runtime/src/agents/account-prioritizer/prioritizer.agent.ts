@@ -1,7 +1,8 @@
-import type {
-  CrmSourceCapabilities,
-  CrmSourceCapabilitySnapshot,
-  Recommendation,
+import {
+  CrmSourceCapabilitySnapshotSchema,
+  type CrmSourceCapabilities,
+  type CrmSourceCapabilitySnapshot,
+  type Recommendation,
 } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../config/runtime";
 import { resolveFeatureModes } from "../../ingestion/source-capabilities";
@@ -13,18 +14,6 @@ import { generateReasonCodes } from "./tools/generate-reason-codes";
 import { selectNextBestAction } from "./tools/select-next-best-action";
 import { REASON_CODE_PHRASES } from "./prioritizer.prompt";
 
-/**
- * Account Prioritizer agent.
- *
- * Pipeline: score -> rank -> (per account) discover signals -> reason codes ->
- * next best action -> deterministic narrative. Produces CANDIDATE
- * recommendations with verification left pending; the orchestrator runs the
- * guardrail verification and decides publish/block.
- *
- * The narrative here is template-built from reason codes + verified signals only
- * (no free-form LLM text in the runtime path), guaranteeing it never contains
- * fabricated or unsupported claims.
- */
 function buildNarrative(ranked: RankedAccount, reasonCodes: string[]): string {
   const phrases = reasonCodes
     .map((c) => REASON_CODE_PHRASES[c])
@@ -43,13 +32,18 @@ export interface PrioritizeArgs {
   createdAt: string;
   /** Connector capability declarations keyed by canonical account ID. */
   sourceCapabilitiesByAccountId?: Readonly<Record<string, CrmSourceCapabilities>>;
-  /**
-   * Immutable provenance for the capability declaration used by each durable
-   * account decision. Offline/current-contract evaluations can omit this field.
-   */
+  /** Explicit provenance override for tests or bounded callers. */
   sourceCapabilitySnapshotsByAccountId?: Readonly<
     Record<string, CrmSourceCapabilitySnapshot>
   >;
+}
+
+function snapshotFromCapabilityDeclaration(
+  value: CrmSourceCapabilities | undefined,
+): CrmSourceCapabilitySnapshot | undefined {
+  if (!value) return undefined;
+  const parsed = CrmSourceCapabilitySnapshotSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
@@ -76,7 +70,8 @@ export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
       RUNTIME_CONFIG.minPublishableConfidence,
     );
     const sourceCapabilitySnapshot =
-      args.sourceCapabilitySnapshotsByAccountId?.[r.accountId];
+      args.sourceCapabilitySnapshotsByAccountId?.[r.accountId] ??
+      snapshotFromCapabilityDeclaration(args.sourceCapabilitiesByAccountId?.[r.accountId]);
 
     const rec: Recommendation = {
       id: `rec_${args.runId}_${r.accountId}`,
