@@ -81,16 +81,20 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
  * completeness and signal verification. Deterministic, bounded [0,1].
  *
  * Optional enrichment fields, such as an external health score, do not reduce
- * confidence merely because a CRM does not supply them.
+ * confidence merely because a CRM does not supply them. Core account evidence
+ * remains fail-closed when contacts, activity, opportunity, and firmographic
+ * context are too sparse.
  */
 export function computeConfidence(ctx: AccountContext): number {
   const a = ctx.account;
+  const hasVerifiedActivity = ctx.activities.some((x) => x.verified);
   const completenessChecks: boolean[] = [
     a.employeeCount !== undefined,
     a.annualRevenueUsd !== undefined,
     a.daysSinceLastContact !== undefined || a.lastContactedAt !== undefined,
     ctx.contacts.length > 0,
-    ctx.activities.some((x) => x.verified),
+    hasVerifiedActivity,
+    ctx.opportunities.length > 0 || hasVerifiedActivity,
   ];
   const present = completenessChecks.filter(Boolean).length;
   let confidence = present / completenessChecks.length;
