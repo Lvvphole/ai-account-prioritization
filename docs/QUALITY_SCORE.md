@@ -20,14 +20,14 @@ Use three states:
 | --- | --- | --- |
 | Deterministic scoring and ranking | green | Maintain trajectory and authority regressions. |
 | Bounded model authority | green | Runtime generation remains constrained to candidate language. |
-| CRM capability provenance | yellow | Temporal authority must be repaired as one coherent invariant. |
-| Temporal authority | red | Stale evidence must hold per account; future timestamps must be rejected before durable authority; decision clocks require explicit zones. |
+| CRM capability provenance | green | Preserve one provenance-bearing capability authority for scoring and audit. |
+| Temporal authority | yellow | Coherent repair and deterministic/migration gates pass; independent review of the stable head remains. |
 | Transactional outbox authority | green | Keep producer and relay credentials separate. |
 | Delivery authority and idempotency | green | Keep creator and provider-result credentials separate. |
 | Tenant reference integrity | green | Preserve same-workspace database constraints. |
 | Durable workflow implementation | yellow | Selected by ADR-003; implementation belongs to the next bounded delivery. |
-| Knowledge-base legibility | yellow | Root `AGENTS.md` is being reduced to a map and mechanical knowledge verification is being added. |
-| Verification discipline | yellow | Replace finding-by-finding repair with class-level design repair and one final review gate. |
+| Knowledge-base legibility | green | Root `AGENTS.md` is a bounded map and `pnpm verify:knowledge` is enforced in CI. |
+| Verification discipline | yellow | Class-level repair is enforced; one independent review of the stable head remains. |
 
 ## Scoring rule
 
