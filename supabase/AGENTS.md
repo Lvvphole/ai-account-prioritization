@@ -1,104 +1,63 @@
-# Supabase Authority Contract
+# Supabase Authority Map
 
-This file applies to `supabase/**`. The root `AGENTS.md` and accepted ADRs remain authoritative. This file makes their database boundary rules executable and local.
+This file applies to `supabase/**`. Read the root `AGENTS.md` first.
 
-## Non-negotiable authority boundaries
+Use these canonical sources:
 
-- `service_role` is a producer credential for this Phase 1 path. It can create canonical source evidence, pending outbox work, and requested delivery work. It must not own relay publication transitions or terminal provider-result transitions.
-- `integration_outbox_relay` is the only database capability role that can advance outbox publication state. `service_role` must not be a member of this role and must not have equivalent `UPDATE` privileges.
-- `notification_delivery_worker` is the only database capability role that can record provider delivery results. `service_role` must not be a member of this role and must not have equivalent `UPDATE` privileges.
-- Do not bypass these separations with a `SECURITY DEFINER` function that is executable by `service_role` or another producer credential.
-- Dedicated capability roles are `NOLOGIN`. Production runtime credentials that need these capabilities must be provisioned separately. Do not grant the capability roles to shared backend credentials.
+- Architecture and ownership: `docs/ARCHITECTURE.md`
+- Reliability and temporal authority: `docs/RELIABILITY.md`
+- Security and least privilege: `docs/SECURITY.md`
+- Verification: `docs/VERIFICATION.md`
+- Event-driven process decision: `docs/decisions/ADR-003-event-driven-crm-ingestion-and-notifications.md`
 
-## Tenant reference integrity
+## Local database invariants
 
-A `workspace_id` column is not sufficient tenant isolation. Every tenant-owned reference that can affect authority must be enforced with a same-workspace database constraint.
+### Credential separation
 
-Required Phase 1 bindings:
+- `service_role` is a producer credential for Phase 1. It can create canonical source evidence, pending outbox work, and requested delivery work.
+- `integration_outbox_relay` alone owns outbox publication transitions.
+- `notification_delivery_worker` alone owns provider-result transitions.
+- `service_role` must not be a member of either capability role and must not receive equivalent update authority.
+- Do not restore forbidden authority through a producer-accessible `SECURITY DEFINER` function.
 
-```text
-account_source_capabilities(account_id, workspace_id)
-  -> accounts(id, workspace_id)
+### Tenant reference integrity
 
-recommendations(account_id, workspace_id)
-  -> accounts(id, workspace_id)
+Authority-bearing tenant references require same-workspace database constraints. A `workspace_id` column alone is not sufficient.
 
-integration_event_outbox(aggregate_id, workspace_id)
-  -> accounts(id, workspace_id)
-
-notification_deliveries(recommendation_id, workspace_id)
-  -> recommendations(id, workspace_id)
-```
-
-Cross-workspace and nonexistent references must fail at the database boundary, including under backend roles.
-
-## Capability snapshot freshness
-
-`account_source_capabilities` is the current authoritative snapshot.
-
-- `observed_at` must never move backward.
-- An equal-time replay may be idempotent only when source, mapping version, and capability content are unchanged.
-- An older or conflicting equal-time observation must not replace current authority.
-- Enforce freshness in PostgreSQL. Do not rely on event arrival order in application code.
-
-## Outbox state contract
-
-Insert state:
+Preserve these bindings:
 
 ```text
-status = pending
-publication_attempt_count = 0
-no lock evidence
-no workflow evidence
-no publication evidence
-no error evidence
+account_source_capabilities(account_id, workspace_id) -> accounts(id, workspace_id)
+integration_event_outbox(aggregate_id, workspace_id) -> accounts(id, workspace_id)
+recommendations(account_id, workspace_id) -> accounts(id, workspace_id)
+notification_deliveries(recommendation_id, workspace_id) -> recommendations(id, workspace_id)
 ```
 
-Transition state:
+### Capability temporal authority
 
-```text
-pending -> publishing -> published | failed
-failed  -> publishing -> dead
-```
+- Reject a future `observed_at` before it becomes current durable authority.
+- Do not allow observation time to move backward.
+- Equal-time replay is idempotent only when source, mapping version, and capability content are unchanged.
+- Past snapshots remain readable. The runtime classifies decision-age freshness per account.
+- Do not delete or rewrite current authority merely to bypass freshness policy.
 
-Rules:
+### Outbox
 
-- `published` and `dead` are terminal.
-- Entering `publishing` from `pending` or `failed` increments `publication_attempt_count` by exactly one.
-- The attempt count must not change on any other transition.
-- `published` requires workflow-run and publication-time evidence.
-- `failed` and `dead` require stable error evidence.
-- Source-adapter credentials can insert pending rows but cannot claim, publish, fail, or kill them.
+- Insert only `pending` work with attempt count zero and no publication evidence.
+- Producer credentials cannot claim or publish work.
+- Legal transition: `pending -> publishing -> published|failed`, then `failed -> publishing -> dead`.
+- Entering `publishing` increments attempt count exactly once.
+- `published` and `dead` cannot reopen.
 
-## Delivery state contract
+### Delivery ledger
 
-Insert state:
-
-```text
-status = requested
-no provider result
-no sent evidence
-no failure evidence
-```
-
-Rules:
-
-- Delivery creation authority is separate from provider-result authority.
-- Only the delivery worker can transition a requested row to a terminal result.
+- Insert only `requested` work with no provider-result evidence.
+- Delivery creation authority is separate from terminal-result authority.
 - Terminal rows cannot return to `requested`.
-- Delivery identity and idempotency identity are immutable.
-- A delivery must reference an existing recommendation in the same workspace.
+- Delivery and idempotency identity are immutable.
 
-## Verification requirement
+## Verification
 
-Database claims require behavioral migration tests. Structural DDL inspection alone is insufficient.
+Database authority claims require behavioral migration tests, including permitted paths, forbidden privileges, invalid tenant references, invalid transitions, and temporal replay/admission cases.
 
-For each authority boundary, test at least:
-
-- one permitted path;
-- one forbidden role/privilege path;
-- one cross-tenant or invalid-reference path when applicable;
-- one invalid state transition;
-- one replay/order/freshness case when applicable.
-
-Run `scripts/verify-migrations.sh` before declaring the database change complete.
+Run `pnpm verify:migrations` and all affected gates in `docs/VERIFICATION.md` before completion.
