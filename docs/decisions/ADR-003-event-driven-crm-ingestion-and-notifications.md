@@ -61,7 +61,7 @@ Classify input fields as follows:
 
 1. Native CRM facts, such as accounts, contacts, opportunities, and activities.
 2. Configured CRM facts, such as account tier and lifecycle stage.
-3. Deterministically derived features, such as staleness and pipeline totals.
+3. Deterministically derived features with an implemented and versioned formula, such as pipeline totals.
 4. Optional external enrichment, such as intent or account health.
 
 Each connector declares its capabilities. A feature can be `observed`, `derived`, or `unavailable`.
@@ -70,7 +70,33 @@ Persist the current authoritative declaration per canonical account in `account_
 
 The scorer removes unavailable feature weights and renormalizes the remaining weights. It does not create a neutral health score. It does not treat missing contact history as maximal staleness.
 
-A feature can be `derived` only when the repository contains a versioned deterministic derivation. Pipeline derivation version `open-opportunity-sum-usd-cents-v2` sorts open canonical opportunities by stable opportunity ID, validates each amount to USD cent precision, sums integer cents, and only then converts the exact minor-unit total to dollars. Values with precision finer than one cent fail closed. This prevents database row order or floating-point addition order from changing score, reasons, or action authority.
+A feature can be `derived` only when the repository contains a versioned deterministic derivation that actually produces the authoritative value. Activity or email availability alone does not define account staleness, so connector-aware staleness remains `unavailable` until a versioned last-contact derivation exists. The same rule applies to intent, renewal-derived lifecycle, and health.
+
+Pipeline derivation version `open-opportunity-sum-usd-cents-v2` sorts open canonical opportunities by stable opportunity ID, validates each canonical USD amount from its decimal representation to at most two fractional digits, converts it to exact integer cents, sums exact minor units, and only then converts the total to dollars. The precision rule is independent of amount magnitude. Values finer than one cent and unsafe totals fail closed. Database row order and floating-point addition order therefore cannot change score, reasons, or action authority.
+
+Every connector-aware recommendation whose pipeline feature is derived must carry the pipeline derivation version in its pre-draft source evidence. Durable audit evidence must preserve the recommendation source evidence or the explicit derivation version so a replay can identify the formula that authorized the decision.
+
+## Tenant reference integrity
+
+A `workspace_id` column does not by itself prove tenant ownership. Every tenant-owned reference that can affect authority must be bound at the database boundary to the referenced object's workspace.
+
+For this Phase 1 path, the required reference chain is:
+
+```text
+account_source_capabilities(account_id, workspace_id)
+  → accounts(id, workspace_id)
+
+recommendations(account_id, workspace_id)
+  → accounts(id, workspace_id)
+
+integration_event_outbox(aggregate_id, workspace_id)
+  → accounts(id, workspace_id)
+
+notification_deliveries(recommendation_id, workspace_id)
+  → recommendations(id, workspace_id)
+```
+
+Cross-workspace and nonexistent references must fail at the database constraint boundary, including when `service_role` is used.
 
 ## Process contract
 
@@ -127,14 +153,15 @@ Every external side effect requires a deterministic idempotency key. Retry must 
 
 ### Version binding
 
-Each process execution must record the applicable workflow deployment, policy version, scoring version, schema version, source mapping version, and model or prompt identity when model drafting occurs.
+Each process execution must record the applicable workflow deployment, policy version, scoring version, schema version, source mapping version, deterministic derivation versions that affected authority, and model or prompt identity when model drafting occurs.
 
 ## Outbox controls
 
 - Use `(workspace_id, source, source_event_id)` as the source-event idempotency boundary.
+- Bind `(aggregate_id, workspace_id)` to the canonical account `(id, workspace_id)`.
 - Keep source-qualified event identifiers as audit evidence.
 - Coalesce webhook bursts by workspace and account before recomputation.
-- Use ordinal ordering for durable event evidence.
+- Use explicit ordinal ordering for durable event and evidence collections.
 - Keep bounded retry and terminal failure state only for outbox publication.
 - Permit only `pending → publishing → published|failed` and `failed → publishing|dead` progression.
 - Never reopen `published` or `dead` rows.
@@ -159,6 +186,8 @@ The delivery ledger records:
 - provider message identifier when available;
 - request, success, and failure timestamps;
 - stable failure code when delivery fails.
+
+Bind `(recommendation_id, workspace_id)` to the authoritative recommendation `(id, workspace_id)`. A delivery cannot cite a recommendation from another tenant or a recommendation that does not exist.
 
 Delivery identity and idempotency columns are immutable to application code. Terminal delivery rows are immutable and cannot return to `requested`.
 
@@ -191,6 +220,7 @@ Do not add another orchestration platform unless Vercel Workflow SDK fails a doc
 - Common CRM data can enter the product without vendor-specific health fields.
 - Missing evidence remains explicit.
 - Durable runs cannot silently treat normalized defaults as connector evidence.
+- Tenant-owned authority references cannot cross workspace boundaries silently.
 - Webhook events can update affected accounts without full-book recomputation.
 - Daily reconciliation can detect missed events and repair drift.
 - The outbox preserves atomic publication without becoming the process engine.
@@ -204,7 +234,7 @@ Do not add another orchestration platform unless Vercel Workflow SDK fails a doc
 - The outbox relay still requires a small publication component.
 - Source adapters must maintain field mappings and durable capability declarations.
 - Existing durable accounts need valid capability snapshots before connector-aware prioritization can run; absence fails closed rather than guessing.
-- Derived health requires a separate versioned formula before it can be enabled.
+- Staleness, derived health, renewal-derived lifecycle, and activity-derived intent require separate versioned formulas before they can be enabled.
 - Workflow SDK becomes an infrastructure dependency when the durable process is implemented.
 - Operators still need business audit views in Supabase and workflow execution views in Vercel.
 
@@ -213,12 +243,13 @@ Do not add another orchestration platform unless Vercel Workflow SDK fails a doc
 This PR must deliver only the foundation:
 
 1. Explicit optional-feature availability.
-2. Connector capability, provenance, and durable capability-snapshot contracts.
-3. Transactional outbox persistence with retry-safe publication-state controls.
-4. Delivery-ledger persistence without generic retry scheduling.
-5. Deterministic event routing, coalescing, and idempotency.
-6. Reconciliation of trajectory eval contracts with the intentional scoring change.
-7. Passing CI, security, migration, build, schema, and eval gates.
+2. Connector capability, provenance, durable capability-snapshot, and same-workspace authority contracts.
+3. Transactional outbox persistence with retry-safe publication-state and account-reference controls.
+4. Delivery-ledger persistence with same-workspace recommendation binding and without generic retry scheduling.
+5. Deterministic event routing, evidence ordering, coalescing, and idempotency.
+6. Versioned deterministic pipeline derivation with exact minor-unit aggregation and durable provenance.
+7. Reconciliation of trajectory eval contracts with the intentional scoring change.
+8. Passing CI, security, migration, build, schema, and eval gates.
 
 This PR must not add a live CRM webhook, Workflow SDK dependency, provider-specific email adapter, Kafka, or another orchestration framework.
 
@@ -229,5 +260,9 @@ The next PR will implement one `accountActionWorkflow` with Vercel Workflow SDK.
 ## References
 
 - Bernd Ruecker, *Practical Process Automation*, O'Reilly Media. See the sections on orchestration, event-driven architecture, workflow engines, human tasks, and reliable distributed communication.
+- Dimitri Fontaine, *The Art of PostgreSQL*. See SQL-as-code, constraints, transactions, regression testing, and concurrency control.
+- Martin Fowler et al., *Patterns of Enterprise Application Architecture*. See persistence, transaction, repository, and enterprise data boundaries.
+- Chris Richardson, *Microservices Patterns*. See transactional outbox, transactional messaging, duplicate-message handling, and audit logging.
+- Bill Karwin, *SQL Antipatterns*. See Keyless Entry and Rounding Errors.
 - Vercel Workflow SDK: https://vercel.com/docs/workflow
 - Vercel guidance for durable workflows and human approval: https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk
