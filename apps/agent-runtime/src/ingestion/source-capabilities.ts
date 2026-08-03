@@ -11,6 +11,10 @@ export {
   type FeatureStatus,
 } from "@repo/shared-schemas";
 
+export const CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION =
+  "crm-source-capability-max-age-7d-v1";
+export const CAPABILITY_SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** A decision feature together with its source and derivation evidence. */
 export interface FeatureValue<T> {
   value: T | null;
@@ -30,6 +34,30 @@ export function unavailableFeature<T>(): FeatureValue<T> {
     confidence: null,
     derivationVersion: null,
   };
+}
+
+/**
+ * Reject capability authority that is too old or is observed after the injected
+ * decision clock. The policy version changes when the maximum age changes.
+ */
+export function assertCapabilitySnapshotFresh(observedAt: string, nowIso: string): void {
+  const observedMs = Date.parse(observedAt);
+  const nowMs = Date.parse(nowIso);
+  if (!Number.isFinite(observedMs) || !Number.isFinite(nowMs)) {
+    throw new Error("Capability snapshot freshness requires valid ISO timestamps.");
+  }
+
+  const ageMs = nowMs - observedMs;
+  if (ageMs < 0) {
+    throw new Error(
+      `Capability snapshot is newer than the injected decision clock under ${CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION}.`,
+    );
+  }
+  if (ageMs > CAPABILITY_SNAPSHOT_MAX_AGE_MS) {
+    throw new Error(
+      `Capability snapshot is stale under ${CAPABILITY_SNAPSHOT_FRESHNESS_POLICY_VERSION}.`,
+    );
+  }
 }
 
 /**
