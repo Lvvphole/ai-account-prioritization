@@ -20,7 +20,7 @@ Use four explicit authorities:
 
 ```text
 Supabase
-  → canonical business facts, approvals, outcomes, and audit evidence
+  → canonical business facts, source-capability evidence, approvals, outcomes, and audit evidence
 
 Transactional outbox
   → atomic publication boundary for accepted CRM changes
@@ -37,9 +37,9 @@ Use this runtime path after the workflow implementation is delivered:
 ```text
 CRM webhook or scheduled reconciliation
   → source adapter and capability declaration
-  → canonical CRM write + transactional outbox event
+  → canonical CRM write + capability snapshot + transactional outbox event
   → outbox relay starts one durable account-action workflow
-  → load authoritative account snapshot
+  → load authoritative account snapshot and capability evidence
   → coalesce relevant source events
   → derive only supported features
   → deterministic score, rank, reasons, and action
@@ -51,7 +51,7 @@ CRM webhook or scheduled reconciliation
   → persist outcome and audit evidence
 ```
 
-Keep the weekday daily run as the reconciliation path. Event processing is the fast path. Both paths must use the same domain policy.
+Keep the weekday daily run as the reconciliation path. Event processing is the fast path. Both paths must use the same domain policy and the same authoritative capability evidence.
 
 Do not add the Workflow SDK dependency in this PR. This PR defines the boundary and persistence foundation. A later PR implements the durable process.
 
@@ -66,9 +66,11 @@ Classify input fields as follows:
 
 Each connector declares its capabilities. A feature can be `observed`, `derived`, or `unavailable`.
 
+Persist the current authoritative declaration per canonical account in `account_source_capabilities`. Store the source, capability object, source-mapping version, and observation time. Durable prioritization loads this evidence from Supabase and fails closed when any account has no valid declaration.
+
 The scorer removes unavailable feature weights and renormalizes the remaining weights. It does not create a neutral health score. It does not treat missing contact history as maximal staleness.
 
-A feature can be `derived` only when the repository contains a versioned deterministic derivation.
+A feature can be `derived` only when the repository contains a versioned deterministic derivation. Pipeline derivation version `open-opportunity-sum-v1` sums only open canonical opportunity records.
 
 ## Process contract
 
@@ -77,7 +79,7 @@ A feature can be `derived` only when the repository contains a versioned determi
 Supabase is the source of truth for:
 
 - canonical CRM records;
-- feature provenance;
+- source capability and feature provenance;
 - recommendations;
 - approvals;
 - delivery outcomes;
@@ -109,7 +111,7 @@ An event can wake a workflow. It cannot authorize a customer-facing side effect.
 
 ### Transactional publication
 
-Store an accepted canonical CRM change and its outbox event in one database transaction.
+Store an accepted canonical CRM change, its current capability evidence, and its outbox event in the same ingestion transaction when those records change together.
 
 The outbox relay can retry publication to the workflow runtime. It does not own the account-action process after publication succeeds.
 
@@ -134,7 +136,11 @@ Each process execution must record the applicable workflow deployment, policy ve
 - Coalesce webhook bursts by workspace and account before recomputation.
 - Use ordinal ordering for durable event evidence.
 - Keep bounded retry and terminal failure state only for outbox publication.
-- Record the workflow run identifier after publication succeeds.
+- Permit only `pending → publishing → published|failed` and `failed → publishing|dead` progression.
+- Never reopen `published` or `dead` rows.
+- Never decrease the publication-attempt count.
+- Require a workflow run identifier and publication timestamp before `published` is valid.
+- Record a stable error code for `failed` and `dead` states.
 
 ## Delivery ledger controls
 
@@ -152,6 +158,8 @@ The delivery ledger records:
 - provider message identifier when available;
 - request, success, and failure timestamps;
 - stable failure code when delivery fails.
+
+Delivery identity and idempotency columns are immutable to application code. Terminal delivery rows are immutable and cannot return to `requested`.
 
 The Workflow SDK step owns retry behavior for the provider call.
 
@@ -179,6 +187,7 @@ Do not add another orchestration platform unless Vercel Workflow SDK fails a doc
 
 - Common CRM data can enter the product without vendor-specific health fields.
 - Missing evidence remains explicit.
+- Durable runs cannot silently treat normalized defaults as connector evidence.
 - Webhook events can update affected accounts without full-book recomputation.
 - Daily reconciliation can detect missed events and repair drift.
 - The outbox preserves atomic publication without becoming the process engine.
@@ -190,7 +199,8 @@ Do not add another orchestration platform unless Vercel Workflow SDK fails a doc
 ### Costs and risks
 
 - The outbox relay still requires a small publication component.
-- Source adapters must maintain field mappings and capability declarations.
+- Source adapters must maintain field mappings and durable capability declarations.
+- Existing durable accounts need valid capability snapshots before connector-aware prioritization can run; absence fails closed rather than guessing.
 - Derived health requires a separate versioned formula before it can be enabled.
 - Workflow SDK becomes an infrastructure dependency when the durable process is implemented.
 - Operators still need business audit views in Supabase and workflow execution views in Vercel.
@@ -200,8 +210,8 @@ Do not add another orchestration platform unless Vercel Workflow SDK fails a doc
 This PR must deliver only the foundation:
 
 1. Explicit optional-feature availability.
-2. Connector capability and provenance contracts.
-3. Transactional outbox persistence.
+2. Connector capability, provenance, and durable capability-snapshot contracts.
+3. Transactional outbox persistence with retry-safe publication-state controls.
 4. Delivery-ledger persistence without generic retry scheduling.
 5. Deterministic event routing, coalescing, and idempotency.
 6. Reconciliation of trajectory eval contracts with the intentional scoring change.
