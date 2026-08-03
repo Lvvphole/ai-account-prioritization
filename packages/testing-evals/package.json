@@ -6,10 +6,11 @@
   "scripts": {
     "test:evals": "vitest run --exclude '**/*.judge.eval.ts'",
     "test:trajectory": "vitest run src/trajectory-prioritization.eval.ts",
+    "generate:trajectory-oracle": "tsx src/trajectory/regenerate-oracle.ts",
     "test:judge": "vitest run daily-prioritization.judge.eval",
     "test": "vitest run --exclude '**/*.judge.eval.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf eval-results/*.json"
+    "clean": "rm -rf eval-results/*.json trajectory-generated"
   },
   "dependencies": {
     "@repo/observability": "workspace:*",
