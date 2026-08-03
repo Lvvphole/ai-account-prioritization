@@ -3,15 +3,15 @@ import type { AccountContext } from "./prioritizer.policy";
 import { scoreAccount, scoreAccounts } from "./tools/score-accounts";
 import { rankAccounts } from "./tools/rank-accounts";
 import { generateReasonCodes } from "./tools/generate-reason-codes";
-import { extractFeatures } from "./prioritizer.policy";
+import { computeConfidence, extractFeatures } from "./prioritizer.policy";
 
 /**
  * Deterministic eval cases for the prioritizer (Sprint 3 exit gate).
  *
  * These are plain functions (NO vitest dependency) so they can be imported and
  * executed by @repo/testing-evals while living co-located with the agent. They
- * assert the hard invariants: determinism, monotonicity, stable ranking, and
- * "the LLM cannot rank" (ranking is a pure function of deterministic scores).
+ * assert the hard invariants: determinism, evidence availability, monotonicity,
+ * stable ranking, and "the LLM cannot rank".
  */
 export interface DeterministicEvalCase {
   id: string;
@@ -56,6 +56,55 @@ export const prioritizerEvalCases: DeterministicEvalCase[] = [
       const low = scoreAccount(ctx({ id: "a1", openPipelineUsd: 10_000 })).score;
       const high = scoreAccount(ctx({ id: "a1", openPipelineUsd: 200_000 })).score;
       return { passed: high > low, details: `low=${low} high=${high}` };
+    },
+  },
+  {
+    id: "missing_health_is_unavailable_not_neutral",
+    run: () => {
+      const base = {
+        id: "a1",
+        tier: "strategic" as const,
+        lifecycleStage: "churn_risk" as const,
+        openPipelineUsd: 250_000,
+        daysSinceLastContact: 30,
+      };
+      const missing = scoreAccount(ctx(base));
+      const inventedNeutral = scoreAccount(ctx({ ...base, healthScore: 50 }));
+      return {
+        passed:
+          missing.features.availability.healthRisk === false &&
+          missing.features.healthRisk === 0 &&
+          missing.score > inventedNeutral.score,
+        details: `missing=${missing.score} neutral=${inventedNeutral.score}`,
+      };
+    },
+  },
+  {
+    id: "missing_contact_history_is_not_maximal_staleness",
+    run: () => {
+      const features = extractFeatures(ctx({ id: "a1" }));
+      return {
+        passed: features.availability.staleness === false && features.staleness === 0,
+        details: `available=${features.availability.staleness} value=${features.staleness}`,
+      };
+    },
+  },
+  {
+    id: "optional_health_does_not_reduce_confidence",
+    run: () => {
+      const base = ctx({
+        id: "a1",
+        employeeCount: 100,
+        annualRevenueUsd: 1_000_000,
+        daysSinceLastContact: 5,
+      });
+      const withHealth = {
+        ...base,
+        account: { ...base.account, healthScore: 70 },
+      };
+      const without = computeConfidence(base);
+      const present = computeConfidence(withHealth);
+      return { passed: without === present, details: `without=${without} with=${present}` };
     },
   },
   {
