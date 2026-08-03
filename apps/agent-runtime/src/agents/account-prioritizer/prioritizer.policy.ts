@@ -12,15 +12,13 @@ import { resolveVerifiedIntentObservations } from "./tools/resolve-verified-inte
 /**
  * Prioritizer policy — pure, deterministic feature extraction.
  *
- * This module is the boundary between messy CRM facts and the numeric features
- * the scorer consumes. NO LLM, NO randomness, NO clock reads. Everything is a
- * deterministic function of the inputs and the runtime config.
+ * This module is the boundary between CRM facts and numeric decision features.
+ * NO LLM, NO randomness, NO clock reads.
  */
 export type AccountFeatureName = keyof ScoringWeights;
 export type AccountFeatureModes = Readonly<Record<AccountFeatureName, FeatureStatus>>;
 
 export const PIPELINE_DERIVATION_VERSION = "open-opportunity-sum-usd-cents-v2";
-
 const USD_MINOR_UNITS_PER_DOLLAR = 100n;
 
 export interface AccountContext {
@@ -28,12 +26,7 @@ export interface AccountContext {
   contacts: Contact[];
   opportunities: Opportunity[];
   activities: Activity[];
-  /** Full connector declaration retains non-score evidence such as contacts. */
   sourceCapabilities?: CrmSourceCapabilities;
-  /**
-   * Connector or record provenance for each scoring feature. When present,
-   * `unavailable` removes the feature from scoring, confidence, and reason generation.
-   */
   featureModes?: AccountFeatureModes;
 }
 
@@ -44,8 +37,19 @@ export interface AccountFeatures {
   tier: number;
   lifecycle: number;
   healthRisk: number;
-  /** False means that the source did not provide enough evidence for the feature. */
   availability: Record<AccountFeatureName, boolean>;
+}
+
+export interface DerivedPipelineContribution {
+  opportunityId: string;
+  amountMinorUnits: bigint;
+}
+
+export interface DerivedPipelineEvidence {
+  derivationVersion: typeof PIPELINE_DERIVATION_VERSION;
+  totalMinorUnits: bigint;
+  totalUsd: number;
+  contributions: DerivedPipelineContribution[];
 }
 
 export const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
@@ -70,11 +74,6 @@ function compareOrdinal(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/**
- * Convert the canonical decimal spelling of an authoritative USD amount to
- * exact integer cents. This boundary is magnitude-independent: values with more
- * than two decimal places fail closed regardless of how large the amount is.
- */
 function toUsdMinorUnits(amountUsd: number, evidenceId: string): bigint {
   if (!Number.isFinite(amountUsd) || amountUsd < 0) {
     throw new Error(`Pipeline amount for ${evidenceId} must be a finite non-negative USD value.`);
@@ -92,67 +91,75 @@ function toUsdMinorUnits(amountUsd: number, evidenceId: string): bigint {
     throw new Error(`Pipeline amount for ${evidenceId} must have at most two decimal places.`);
   }
 
-  const cents = BigInt(whole) * USD_MINOR_UNITS_PER_DOLLAR + BigInt(fraction.padEnd(2, "0") || "0");
+  const cents =
+    BigInt(whole) * USD_MINOR_UNITS_PER_DOLLAR +
+    BigInt(fraction.padEnd(2, "0") || "0");
   if (cents > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new Error("Derived open pipeline exceeds safe integer minor-unit precision.");
   }
   return cents;
 }
 
+/** Locale-independent display for authoritative USD evidence. */
+export function formatUsdMinorUnits(amountMinorUnits: bigint): string {
+  if (amountMinorUnits < 0n) throw new Error("USD evidence amount must be non-negative.");
+  const whole = (amountMinorUnits / USD_MINOR_UNITS_PER_DOLLAR).toString();
+  const fraction = (amountMinorUnits % USD_MINOR_UNITS_PER_DOLLAR).toString().padStart(2, "0");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return fraction === "00" ? `$${grouped}` : `$${grouped}.${fraction}`;
+}
+
 /**
- * Resolve the authoritative open-pipeline amount for this scoring context.
- *
- * A connector that declares pipeline as `derived` supplies opportunity records,
- * not an authoritative account-level aggregate. In that mode, sort by the stable
- * opportunity id, convert each USD amount to exact integer cents, and sum only
- * open opportunities. Integer minor-unit aggregation makes the result independent
- * of database row order and floating-point addition order. Direct/current-contract
- * contexts keep the canonical account aggregate so existing offline and regression
- * inputs remain unchanged.
+ * Compute derived pipeline and preserve the exact ordered opportunity references
+ * that supplied the authoritative amount.
  */
-export function effectiveOpenPipelineUsd(ctx: AccountContext): number {
-  if (ctx.featureModes?.pipeline === "derived") {
-    const openOpportunities = ctx.opportunities
-      .filter((opportunity) => !opportunity.isClosed)
-      .slice()
-      .sort((left, right) => compareOrdinal(left.id, right.id));
+export function deriveOpenPipelineEvidence(ctx: AccountContext): DerivedPipelineEvidence {
+  const openOpportunities = ctx.opportunities
+    .filter((opportunity) => !opportunity.isClosed)
+    .slice()
+    .sort((left, right) => compareOrdinal(left.id, right.id));
 
-    let totalMinorUnits = 0n;
-    for (const opportunity of openOpportunities) {
-      totalMinorUnits += toUsdMinorUnits(opportunity.amountUsd, opportunity.id);
-      if (totalMinorUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new Error("Derived open pipeline exceeds safe integer minor-unit precision.");
-      }
+  const contributions = openOpportunities.map((opportunity) => ({
+    opportunityId: opportunity.id,
+    amountMinorUnits: toUsdMinorUnits(opportunity.amountUsd, opportunity.id),
+  }));
+
+  let totalMinorUnits = 0n;
+  for (const contribution of contributions) {
+    totalMinorUnits += contribution.amountMinorUnits;
+    if (totalMinorUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("Derived open pipeline exceeds safe integer minor-unit precision.");
     }
-
-    return Number(totalMinorUnits) / Number(USD_MINOR_UNITS_PER_DOLLAR);
   }
-  return ctx.account.openPipelineUsd;
+
+  return {
+    derivationVersion: PIPELINE_DERIVATION_VERSION,
+    totalMinorUnits,
+    totalUsd: Number(totalMinorUnits) / Number(USD_MINOR_UNITS_PER_DOLLAR),
+    contributions,
+  };
+}
+
+export function effectiveOpenPipelineUsd(ctx: AccountContext): number {
+  return ctx.featureModes?.pipeline === "derived"
+    ? deriveOpenPipelineEvidence(ctx).totalUsd
+    : ctx.account.openPipelineUsd;
 }
 
 export function extractFeatures(ctx: AccountContext): AccountFeatures {
   const cfg = RUNTIME_CONFIG;
   const a = ctx.account;
-
   const openPipelineUsd = effectiveOpenPipelineUsd(ctx);
   const pipeline = clamp01(openPipelineUsd / cfg.pipelineSaturationUsd);
-  // Account intent codes influence authority only when each code can be traced
-  // back to a matching verified intent-event observation.
   const verifiedIntentCount = resolveVerifiedIntentObservations(a, ctx.activities).length;
   const intent = clamp01(verifiedIntentCount / cfg.intentSaturationCount);
-
-  // Missing contact history is unavailable evidence. It is not maximal staleness.
   const daysSinceLastContact = a.daysSinceLastContact;
   const staleness =
     daysSinceLastContact === undefined
       ? 0
       : clamp01(daysSinceLastContact / cfg.stalenessSaturationDays);
-
   const tier = cfg.tierWeights[a.tier] ?? 0.3;
   const lifecycle = cfg.lifecycleWeights[a.lifecycleStage] ?? 0.4;
-
-  // Health is not a common CRM field. Missing health is unavailable evidence,
-  // not an invented neutral score. The scorer removes its weight for this row.
   const healthScore = a.healthScore;
   const healthRisk = healthScore === undefined ? 0 : clamp01((100 - healthScore) / 100);
 
@@ -166,11 +173,7 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
     availability: {
       pipeline: featureIsSupported(ctx, "pipeline", true),
       intent: featureIsSupported(ctx, "intent", true),
-      staleness: featureIsSupported(
-        ctx,
-        "staleness",
-        daysSinceLastContact !== undefined,
-      ),
+      staleness: featureIsSupported(ctx, "staleness", daysSinceLastContact !== undefined),
       tier: featureIsSupported(ctx, "tier", true),
       lifecycle: featureIsSupported(ctx, "lifecycle", true),
       healthRisk: featureIsSupported(ctx, "healthRisk", healthScore !== undefined),
@@ -178,16 +181,6 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
   };
 }
 
-/**
- * Confidence reflects how much we trust this recommendation given data
- * completeness and signal verification. Deterministic, bounded [0,1].
- *
- * Optional or unsupported evidence cannot increase confidence. Current-contract
- * contexts without an explicit capability map keep the existing completeness
- * policy for deterministic regression compatibility. Connector-aware contexts
- * gate each affected completeness check with the same source authority used by
- * scoring and reason generation.
- */
 export function computeConfidence(ctx: AccountContext): number {
   const a = ctx.account;
   const hasVerifiedActivity = ctx.activities.some((x) => x.verified);
@@ -210,8 +203,6 @@ export function computeConfidence(ctx: AccountContext): number {
   ];
   const present = completenessChecks.filter(Boolean).length;
   let confidence = present / completenessChecks.length;
-
-  // Each data-quality flag erodes confidence; never below a small floor.
   confidence -= a.dataQualityFlags.length * 0.15;
   return clamp01(Math.max(0.05, confidence));
 }
