@@ -1,0 +1,71 @@
+{
+  "$ref": "#/definitions/CrmSourceCapabilitySnapshot",
+  "definitions": {
+    "CrmSourceCapabilitySnapshot": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "boolean",
+          "const": true
+        },
+        "contacts": {
+          "type": "boolean"
+        },
+        "opportunities": {
+          "type": "boolean"
+        },
+        "activities": {
+          "type": "boolean"
+        },
+        "accountTier": {
+          "type": "boolean"
+        },
+        "lifecycleStage": {
+          "type": "boolean"
+        },
+        "emailEvents": {
+          "type": "boolean"
+        },
+        "renewals": {
+          "type": "boolean"
+        },
+        "healthScore": {
+          "type": "boolean"
+        },
+        "intentSignals": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mappingVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "accounts",
+        "contacts",
+        "opportunities",
+        "activities",
+        "accountTier",
+        "lifecycleStage",
+        "emailEvents",
+        "renewals",
+        "healthScore",
+        "intentSignals",
+        "source",
+        "mappingVersion",
+        "observedAt"
+      ],
+      "additionalProperties": false,
+      "description": "Immutable connector capability evidence used by durable connector-aware scoring."
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
