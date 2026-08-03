@@ -103,6 +103,17 @@ const INTENT_SUBJECT: Record<(typeof INTENT_CODES)[number], string> = {
   competitor_research: "Competitor research",
   review_site_visit: "Visited review site",
 };
+const RUNTIME_REASON_ORDER: z.infer<typeof ReasonCode>[] = [
+  "high_open_pipeline",
+  "verified_intent_signal",
+  "stale_no_contact",
+  "renewal_approaching",
+  "churn_risk_detected",
+  "strategic_tier_account",
+  "stalled_opportunity",
+  "new_executive_buyer",
+  "data_quality_blocked",
+];
 
 function fixtureRoot(): string {
   const packageRoot = resolve(process.cwd(), "src/fixtures/trajectory");
@@ -147,8 +158,12 @@ const requireIndex = <T>(
 const decodeReasonMask = (
   oracle: TrajectoryOracle,
   mask: number,
-): z.infer<typeof ReasonCode>[] =>
-  oracle.reasonCodes.filter((_, index) => (mask & (1 << index)) !== 0);
+): z.infer<typeof ReasonCode>[] => {
+  const selected = new Set(
+    oracle.reasonCodes.filter((_, index) => (mask & (1 << index)) !== 0),
+  );
+  return RUNTIME_REASON_ORDER.filter((reasonCode) => selected.has(reasonCode));
+};
 
 function buildTrajectoryCase(
   oracle: TrajectoryOracle,
@@ -202,7 +217,7 @@ function buildTrajectoryCase(
 
   const selectedIntentCodes = Array.from(
     { length: intentCount },
-    (_, index) => INTENT_CODES[index % INTENT_CODES.length],
+    (_, index) => INTENT_CODES[index % INTENT_CODES.length]!,
   );
 
   const account = AccountSchema.parse({
