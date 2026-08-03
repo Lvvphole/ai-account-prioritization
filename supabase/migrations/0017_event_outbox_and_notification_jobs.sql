@@ -50,7 +50,12 @@ create table if not exists public.integration_event_outbox (
   published_at timestamptz,
   last_error_code text,
   created_at timestamptz not null default now(),
-  unique (workspace_id, source, source_event_id)
+  unique (workspace_id, source, source_event_id),
+  constraint integration_event_outbox_terminal_evidence check (
+    (status = 'published' and workflow_run_id is not null and published_at is not null and last_error_code is null)
+    or (status in ('failed', 'dead') and published_at is null and last_error_code is not null)
+    or (status in ('pending', 'publishing') and published_at is null)
+  )
 );
 
 create index if not exists integration_event_outbox_claim_idx
@@ -59,6 +64,43 @@ create index if not exists integration_event_outbox_claim_idx
 
 create index if not exists integration_event_outbox_account_idx
   on public.integration_event_outbox (workspace_id, aggregate_id, created_at);
+
+create or replace function public.enforce_integration_event_outbox_transition()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.status in ('published', 'dead') then
+    raise exception 'integration event outbox terminal state is immutable'
+      using errcode = '23514';
+  end if;
+
+  if new.publication_attempt_count < old.publication_attempt_count then
+    raise exception 'integration event outbox attempt count cannot decrease'
+      using errcode = '23514';
+  end if;
+
+  if old.status = 'pending' and new.status not in ('pending', 'publishing') then
+    raise exception 'invalid integration event outbox transition: % -> %', old.status, new.status
+      using errcode = '23514';
+  end if;
+  if old.status = 'publishing' and new.status not in ('publishing', 'published', 'failed') then
+    raise exception 'invalid integration event outbox transition: % -> %', old.status, new.status
+      using errcode = '23514';
+  end if;
+  if old.status = 'failed' and new.status not in ('failed', 'publishing', 'dead') then
+    raise exception 'invalid integration event outbox transition: % -> %', old.status, new.status
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_integration_event_outbox_transition on public.integration_event_outbox;
+create trigger enforce_integration_event_outbox_transition
+  before update on public.integration_event_outbox
+  for each row execute function public.enforce_integration_event_outbox_transition();
 
 create table if not exists public.notification_deliveries (
   id uuid primary key default gen_random_uuid(),
