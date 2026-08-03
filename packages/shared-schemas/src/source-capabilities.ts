@@ -26,15 +26,12 @@ export type CrmSourceCapabilities = z.infer<typeof CrmSourceCapabilitiesSchema>;
 
 /**
  * Durable evidence for the capability declaration that authorized one decision.
- * The snapshot is immutable inside a Recommendation authority envelope even if
- * the account's current connector mapping changes later.
+ * This extends the capability declaration so it can flow through existing
+ * connector-aware policy while retaining its source and version provenance.
  */
-export const CrmSourceCapabilitySnapshotSchema = z
-  .object({
-    source: z.string().min(1),
-    mappingVersion: z.string().min(1),
-    observedAt: z.string().datetime(),
-    capabilities: CrmSourceCapabilitiesSchema,
-  })
-  .strict();
+export const CrmSourceCapabilitySnapshotSchema = CrmSourceCapabilitiesSchema.extend({
+  source: z.string().min(1),
+  mappingVersion: z.string().min(1),
+  observedAt: z.string().datetime(),
+}).strict();
 export type CrmSourceCapabilitySnapshot = z.infer<typeof CrmSourceCapabilitySnapshotSchema>;
