@@ -7,6 +7,9 @@ import RootShell from "./root-shell";
 import "./globals.css";
 import "./public-shell.css";
 import "./mobile-marketing.css";
+import "./workspace-mobile.css";
+import "./workspace-mobile-corrections.css";
+import "./workspace-brand-theme.css";
 
 export const metadata: Metadata = {
   title: "AI Account Prioritization | Verified Sales Priorities",
