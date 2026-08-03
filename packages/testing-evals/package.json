@@ -5,6 +5,7 @@
   "license": "MIT",
   "scripts": {
     "test:evals": "vitest run --exclude '**/*.judge.eval.ts'",
+    "test:trajectory": "vitest run src/trajectory-prioritization.eval.ts",
     "test:judge": "vitest run daily-prioritization.judge.eval",
     "test": "vitest run --exclude '**/*.judge.eval.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
