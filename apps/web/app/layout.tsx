@@ -6,6 +6,7 @@ import { isSupabaseConfigured } from "./lib/supabase/config";
 import RootShell from "./root-shell";
 import "./globals.css";
 import "./public-shell.css";
+import "./mobile-marketing.css";
 
 export const metadata: Metadata = {
   title: "AI Account Prioritization | Verified Sales Priorities",
