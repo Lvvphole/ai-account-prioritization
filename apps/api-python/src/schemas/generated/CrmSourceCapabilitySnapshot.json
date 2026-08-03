@@ -63,8 +63,7 @@
         "mappingVersion",
         "observedAt"
       ],
-      "additionalProperties": false,
-      "description": "Immutable connector capability evidence used by durable connector-aware scoring."
+      "additionalProperties": false
     }
   },
   "$schema": "http://json-schema.org/draft-07/schema#"
