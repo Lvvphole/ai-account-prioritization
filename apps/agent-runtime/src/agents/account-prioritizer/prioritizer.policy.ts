@@ -1,5 +1,5 @@
 import type { Account, Activity, Contact, Opportunity } from "@repo/shared-schemas";
-import { RUNTIME_CONFIG } from "../../config/runtime";
+import { RUNTIME_CONFIG, type ScoringWeights } from "../../config/runtime";
 import { resolveVerifiedIntentObservations } from "./tools/resolve-verified-intent-observations";
 
 /**
@@ -16,6 +16,8 @@ export interface AccountContext {
   activities: Activity[];
 }
 
+export type AccountFeatureName = keyof ScoringWeights;
+
 export interface AccountFeatures {
   pipeline: number;
   intent: number;
@@ -23,6 +25,8 @@ export interface AccountFeatures {
   tier: number;
   lifecycle: number;
   healthRisk: number;
+  /** False means that the source did not provide enough evidence for the feature. */
+  availability: Record<AccountFeatureName, boolean>;
 }
 
 export const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
@@ -37,32 +41,51 @@ export function extractFeatures(ctx: AccountContext): AccountFeatures {
   const verifiedIntentCount = resolveVerifiedIntentObservations(a, ctx.activities).length;
   const intent = clamp01(verifiedIntentCount / cfg.intentSaturationCount);
 
-  // Missing contact data is treated as maximally stale (worst case) by design.
-  const days =
-    a.daysSinceLastContact ?? cfg.stalenessSaturationDays;
-  const staleness = clamp01(days / cfg.stalenessSaturationDays);
+  // Missing contact history is unavailable evidence. It is not maximal staleness.
+  const stalenessAvailable = a.daysSinceLastContact !== undefined;
+  const staleness = stalenessAvailable
+    ? clamp01(a.daysSinceLastContact / cfg.stalenessSaturationDays)
+    : 0;
 
   const tier = cfg.tierWeights[a.tier] ?? 0.3;
   const lifecycle = cfg.lifecycleWeights[a.lifecycleStage] ?? 0.4;
 
-  // Lower health => higher priority. Unknown health is neutral (0.5).
-  const healthRisk =
-    a.healthScore === undefined ? 0.5 : clamp01((100 - a.healthScore) / 100);
+  // Health is not a common CRM field. Missing health is unavailable evidence,
+  // not an invented neutral score. The scorer removes its weight for this row.
+  const healthAvailable = a.healthScore !== undefined;
+  const healthRisk = healthAvailable ? clamp01((100 - a.healthScore) / 100) : 0;
 
-  return { pipeline, intent, staleness, tier, lifecycle, healthRisk };
+  return {
+    pipeline,
+    intent,
+    staleness,
+    tier,
+    lifecycle,
+    healthRisk,
+    availability: {
+      pipeline: true,
+      intent: true,
+      staleness: stalenessAvailable,
+      tier: true,
+      lifecycle: true,
+      healthRisk: healthAvailable,
+    },
+  };
 }
 
 /**
  * Confidence reflects how much we trust this recommendation given data
  * completeness and signal verification. Deterministic, bounded [0,1].
+ *
+ * Optional enrichment fields, such as an external health score, do not reduce
+ * confidence merely because a CRM does not supply them.
  */
 export function computeConfidence(ctx: AccountContext): number {
   const a = ctx.account;
   const completenessChecks: boolean[] = [
     a.employeeCount !== undefined,
     a.annualRevenueUsd !== undefined,
-    a.lastContactedAt !== undefined,
-    a.healthScore !== undefined,
+    a.daysSinceLastContact !== undefined || a.lastContactedAt !== undefined,
     ctx.contacts.length > 0,
     ctx.activities.some((x) => x.verified),
   ];
