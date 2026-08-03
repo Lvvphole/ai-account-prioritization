@@ -1,16 +1,27 @@
 -- Event-driven CRM processing foundation.
 --
 -- Source adapters write canonical CRM changes, authoritative capability evidence,
--- and outbox rows as one ingestion transaction. The outbox relay only starts
--- durable account-action workflows. It does not own the process after
--- publication succeeds.
---
--- Notification rows are delivery evidence. They do not schedule retries. The
--- durable workflow runtime owns provider-call retry behavior.
+-- and pending outbox rows. Dedicated non-login roles own publication and delivery
+-- result transitions. The future runtime must provision separate credentials that
+-- map to those roles; shared service_role credentials cannot assume them.
+
+-- Roles are capability boundaries, not application users. No membership is
+-- granted to service_role.
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'integration_outbox_relay') then
+    create role integration_outbox_relay nologin noinherit;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'notification_delivery_worker') then
+    create role notification_delivery_worker nologin noinherit;
+  end if;
+end
+$$;
+
+grant usage on schema public to integration_outbox_relay, notification_delivery_worker;
 
 -- Complete the tenant-owned recommendation reference chain before new tables
--- depend on it. A recommendation must belong to the same workspace as its
--- canonical account, and `(id, workspace_id)` is the target for delivery evidence.
+-- depend on it.
 do $$
 begin
   if not exists (
@@ -51,10 +62,38 @@ create table if not exists public.account_source_capabilities (
 );
 
 comment on table public.account_source_capabilities is
-  'Authoritative per-account CRM capability snapshot, bound to the same workspace as its account. The runtime parses capabilities through CrmSourceCapabilitiesSchema and fails closed on missing or invalid evidence.';
+  'Authoritative current per-account CRM capability snapshot, tenant-bound to its account. Older observations cannot replace newer authority.';
 
 create index if not exists account_source_capabilities_source_idx
   on public.account_source_capabilities (workspace_id, source, observed_at);
+
+create or replace function public.enforce_account_source_capability_freshness()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.observed_at < old.observed_at then
+    raise exception 'account source capability observation time cannot move backward'
+      using errcode = '23514';
+  end if;
+
+  if new.observed_at = old.observed_at and (
+    new.source is distinct from old.source
+    or new.mapping_version is distinct from old.mapping_version
+    or new.capabilities is distinct from old.capabilities
+  ) then
+    raise exception 'equal-time capability replay cannot replace authoritative content'
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_account_source_capability_freshness on public.account_source_capabilities;
+create trigger enforce_account_source_capability_freshness
+  before update on public.account_source_capabilities
+  for each row execute function public.enforce_account_source_capability_freshness();
 
 drop trigger if exists set_account_source_capabilities_updated_at on public.account_source_capabilities;
 create trigger set_account_source_capabilities_updated_at
@@ -133,11 +172,6 @@ begin
       using errcode = '23514';
   end if;
 
-  if new.publication_attempt_count < old.publication_attempt_count then
-    raise exception 'integration event outbox attempt count cannot decrease'
-      using errcode = '23514';
-  end if;
-
   if old.status = 'pending' and new.status not in ('pending', 'publishing') then
     raise exception 'invalid integration event outbox transition: % -> %', old.status, new.status
       using errcode = '23514';
@@ -148,6 +182,16 @@ begin
   end if;
   if old.status = 'failed' and new.status not in ('failed', 'publishing', 'dead') then
     raise exception 'invalid integration event outbox transition: % -> %', old.status, new.status
+      using errcode = '23514';
+  end if;
+
+  if new.status = 'publishing' and old.status in ('pending', 'failed') then
+    if new.publication_attempt_count <> old.publication_attempt_count + 1 then
+      raise exception 'entering publishing must increment publication attempt count exactly once'
+        using errcode = '23514';
+    end if;
+  elsif new.publication_attempt_count <> old.publication_attempt_count then
+    raise exception 'publication attempt count can change only when entering publishing'
       using errcode = '23514';
   end if;
 
@@ -223,7 +267,6 @@ begin
     raise exception 'notification delivery terminal state is immutable'
       using errcode = '23514';
   end if;
-
   return new;
 end;
 $$;
@@ -242,73 +285,66 @@ alter table public.account_source_capabilities enable row level security;
 alter table public.integration_event_outbox enable row level security;
 alter table public.notification_deliveries enable row level security;
 
-revoke all on table public.account_source_capabilities from anon, authenticated;
-revoke all on table public.integration_event_outbox from anon, authenticated;
-revoke all on table public.notification_deliveries from anon, authenticated;
+revoke all on table public.account_source_capabilities from anon, authenticated, service_role;
+revoke all on table public.integration_event_outbox from anon, authenticated, service_role, integration_outbox_relay;
+revoke all on table public.notification_deliveries from anon, authenticated, service_role, notification_delivery_worker;
 
-revoke all on table public.account_source_capabilities from service_role;
-revoke all on table public.integration_event_outbox from service_role;
-revoke all on table public.notification_deliveries from service_role;
-
--- Capability authority is tenant-bound by the composite account/workspace FK.
--- Database-owned timestamps cannot be forged by source-adapter inserts.
+-- Capability snapshots are source-adapter authority. Freshness guards prevent an
+-- older event from overwriting a newer current snapshot.
 grant select on table public.account_source_capabilities to service_role;
 grant insert (
-  account_id,
-  workspace_id,
-  source,
-  capabilities,
-  mapping_version,
-  observed_at
+  account_id, workspace_id, source, capabilities, mapping_version, observed_at
 ) on table public.account_source_capabilities to service_role;
 grant update (source, capabilities, mapping_version, observed_at)
   on table public.account_source_capabilities to service_role;
 
--- The source adapter can insert only event identity/content. Publication-state
--- columns keep their database defaults and are also protected by the insert trigger.
+-- Shared backend/service_role credentials are producer-only for outbox rows.
 grant select on table public.integration_event_outbox to service_role;
 grant insert (
-  workspace_id,
-  source,
-  source_event_id,
-  aggregate_type,
-  aggregate_id,
-  event_type,
-  payload,
-  available_at
-) on table public.integration_event_outbox to service_role;
-grant update (
-  status,
-  publication_attempt_count,
-  available_at,
-  locked_at,
-  locked_by,
-  workflow_run_id,
-  published_at,
-  last_error_code
+  workspace_id, source, source_event_id, aggregate_type, aggregate_id,
+  event_type, payload, available_at
 ) on table public.integration_event_outbox to service_role;
 
--- A workflow can create only a requested delivery identity. Terminal state and
--- provider evidence can be written only through the guarded UPDATE path.
+-- Only a separately provisioned relay credential may claim or complete
+-- publication attempts. service_role is deliberately not a member of this role.
+grant select on table public.integration_event_outbox to integration_outbox_relay;
+grant update (
+  status, publication_attempt_count, available_at, locked_at, locked_by,
+  workflow_run_id, published_at, last_error_code
+) on table public.integration_event_outbox to integration_outbox_relay;
+
+drop policy if exists integration_event_outbox_relay_select on public.integration_event_outbox;
+create policy integration_event_outbox_relay_select
+  on public.integration_event_outbox for select
+  to integration_outbox_relay using (true);
+drop policy if exists integration_event_outbox_relay_update on public.integration_event_outbox;
+create policy integration_event_outbox_relay_update
+  on public.integration_event_outbox for update
+  to integration_outbox_relay using (true) with check (true);
+
+-- Shared backend/service_role credentials may reserve only a requested delivery.
 grant select on table public.notification_deliveries to service_role;
 grant insert (
-  workspace_id,
-  recipient_id,
-  recommendation_id,
-  channel,
-  idempotency_key,
-  workflow_run_id
-) on table public.notification_deliveries to service_role;
-grant update (
-  workflow_run_id,
-  status,
-  provider_message_id,
-  sent_at,
-  failed_at,
-  failure_code
+  workspace_id, recipient_id, recommendation_id, channel, idempotency_key, workflow_run_id
 ) on table public.notification_deliveries to service_role;
 
+-- Terminal provider-result authority is a separate capability role. service_role
+-- cannot assume it and cannot UPDATE delivery outcomes.
+grant select on table public.notification_deliveries to notification_delivery_worker;
+grant update (
+  workflow_run_id, status, provider_message_id, sent_at, failed_at, failure_code
+) on table public.notification_deliveries to notification_delivery_worker;
+
+drop policy if exists notification_delivery_worker_select on public.notification_deliveries;
+create policy notification_delivery_worker_select
+  on public.notification_deliveries for select
+  to notification_delivery_worker using (true);
+drop policy if exists notification_delivery_worker_update on public.notification_deliveries;
+create policy notification_delivery_worker_update
+  on public.notification_deliveries for update
+  to notification_delivery_worker using (true) with check (true);
+
 comment on table public.integration_event_outbox is
-  'Transactional outbox for account events. Aggregate account identity is bound to the same workspace; inserts always start pending and the relay alone advances publication state.';
+  'Transactional outbox for account events. service_role can create pending work only; integration_outbox_relay alone advances publication state.';
 comment on table public.notification_deliveries is
-  'Idempotent notification delivery ledger. Recommendation identity is bound to the same workspace; inserts always start requested; workflow steps own provider retry behavior and terminal evidence; customer-facing sends remain approval-gated.';
+  'Idempotent delivery ledger. service_role can reserve requested work only; notification_delivery_worker alone records terminal provider outcomes.';
