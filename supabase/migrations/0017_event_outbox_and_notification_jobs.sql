@@ -60,6 +60,11 @@ create table if not exists public.notification_deliveries (
 create index if not exists notification_deliveries_recommendation_idx
   on public.notification_deliveries (workspace_id, recommendation_id, requested_at);
 
+drop trigger if exists set_notification_deliveries_updated_at on public.notification_deliveries;
+create trigger set_notification_deliveries_updated_at
+  before update on public.notification_deliveries
+  for each row execute function public.set_updated_at();
+
 alter table public.integration_event_outbox enable row level security;
 alter table public.notification_deliveries enable row level security;
 
@@ -67,7 +72,9 @@ alter table public.notification_deliveries enable row level security;
 revoke all on table public.integration_event_outbox from anon, authenticated;
 revoke all on table public.notification_deliveries from anon, authenticated;
 grant select, insert, update, delete on table public.integration_event_outbox to service_role;
-grant select, insert, update, delete on table public.notification_deliveries to service_role;
+-- Delivery evidence and its idempotency key are durable. Application paths can
+-- append and update the ledger, but they cannot delete it and reopen a send key.
+grant select, insert, update on table public.notification_deliveries to service_role;
 
 comment on table public.integration_event_outbox is
   'Transactional outbox for CRM events. The relay publishes durable workflow starts and records the workflow run id.';
