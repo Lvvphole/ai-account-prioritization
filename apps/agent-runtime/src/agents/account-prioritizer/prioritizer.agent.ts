@@ -38,8 +38,9 @@ export interface PrioritizeArgs {
   contexts: AccountContext[];
   createdAt: string;
   /**
-   * Connector capability declarations keyed by canonical account ID. The
-   * declaration is converted to feature modes before scoring.
+   * Connector capability declarations keyed by canonical account ID. The full
+   * declaration is retained because contacts and other evidence can influence
+   * confidence/reasons even when they are not score dimensions.
    */
   sourceCapabilitiesByAccountId?: Readonly<Record<string, CrmSourceCapabilities>>;
 }
@@ -48,7 +49,11 @@ export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
   const contexts = args.contexts.map((context) => {
     const capabilities = args.sourceCapabilitiesByAccountId?.[context.account.id];
     return capabilities
-      ? { ...context, featureModes: resolveFeatureModes(capabilities) }
+      ? {
+          ...context,
+          sourceCapabilities: capabilities,
+          featureModes: resolveFeatureModes(capabilities),
+        }
       : context;
   });
   const scored = scoreAccounts(contexts);
