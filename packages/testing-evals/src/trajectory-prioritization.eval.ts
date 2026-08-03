@@ -7,7 +7,7 @@ import {
   type TrajectoryEvalSummary,
 } from "./trajectory/trajectory-runner";
 
-describe("current-input-contract-v1 trajectory policy regression", () => {
+describe("current-input-contract-v2 trajectory policy regression", () => {
   let summary: TrajectoryEvalSummary;
 
   beforeAll(async () => {
@@ -25,7 +25,7 @@ describe("current-input-contract-v1 trajectory policy regression", () => {
       "synthetic-canonical-state-policy-regression",
     );
     expect(provenance.manifest.inputContractVersion).toBe(
-      "current-input-contract-v1",
+      "current-input-contract-v2",
     );
     expect(provenance.manifest.oracleClass).toBe(
       "policy-lock-regression-not-independent-ground-truth",
@@ -91,6 +91,7 @@ describe("current-input-contract-v1 trajectory policy regression", () => {
         "new_executive_buyer",
         "strategic_tier_account",
         "stalled_opportunity",
+        "no_qualifying_signal",
         "data_quality_blocked",
       ]),
     );
