@@ -3,8 +3,7 @@
   "seed": 23,
   "caseCount": 500,
   "evaluationNow": "2026-08-03T12:00:00Z",
-  "rawSha256": "37f550f598d76fa937c7b9694f1ad229c3f86e4d5b536a7098cdfc34a917de46",
-  "gzipSha256": "63c8295a550527c00f8ed7aff33bb4bb068f9d1dd09af3e0b0051f803416cf1b",
+  "oracleSha256": "b924c39cb58517cce077c0295756622d53b7291252422e4ae2d50f6803fbb51b",
   "sourceDataset": {
     "file": "sales_pipeline.csv",
     "records": 8800,
