@@ -19,7 +19,10 @@ import { resolveVerifiedIntentObservations } from "./tools/resolve-verified-inte
 export type AccountFeatureName = keyof ScoringWeights;
 export type AccountFeatureModes = Readonly<Record<AccountFeatureName, FeatureStatus>>;
 
-export const PIPELINE_DERIVATION_VERSION = "open-opportunity-sum-v1";
+export const PIPELINE_DERIVATION_VERSION = "open-opportunity-sum-usd-cents-v2";
+
+const USD_MINOR_UNITS_PER_DOLLAR = 100;
+const MONEY_PRECISION_TOLERANCE_MULTIPLIER = 8;
 
 export interface AccountContext {
   account: Account;
@@ -64,19 +67,62 @@ function featureIsSupported(
   return featureModeAllows(ctx, featureName) && inferredAvailability;
 }
 
+function compareOrdinal(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * Convert an authoritative USD amount to integer cents without silently
+ * accepting precision finer than the domain contract. Decimal currency values
+ * such as 0.29 can have a tiny binary representation error after scaling, so a
+ * machine-epsilon tolerance is used only to recognize the intended cent value.
+ */
+function toUsdMinorUnits(amountUsd: number, evidenceId: string): number {
+  if (!Number.isFinite(amountUsd) || amountUsd < 0) {
+    throw new Error(`Pipeline amount for ${evidenceId} must be a finite non-negative USD value.`);
+  }
+
+  const scaled = amountUsd * USD_MINOR_UNITS_PER_DOLLAR;
+  const minorUnits = Math.round(scaled);
+  const tolerance =
+    Number.EPSILON *
+    Math.max(1, Math.abs(scaled)) *
+    MONEY_PRECISION_TOLERANCE_MULTIPLIER;
+
+  if (!Number.isSafeInteger(minorUnits) || Math.abs(scaled - minorUnits) > tolerance) {
+    throw new Error(`Pipeline amount for ${evidenceId} must have at most two decimal places.`);
+  }
+
+  return minorUnits;
+}
+
 /**
  * Resolve the authoritative open-pipeline amount for this scoring context.
  *
  * A connector that declares pipeline as `derived` supplies opportunity records,
- * not an authoritative account-level aggregate. In that mode, sum only open
- * opportunities. Direct/current-contract contexts keep the canonical account
- * aggregate so existing offline and regression inputs remain unchanged.
+ * not an authoritative account-level aggregate. In that mode, sort by the stable
+ * opportunity id, convert each USD amount to integer cents, and sum only open
+ * opportunities. Integer minor-unit aggregation makes the result independent of
+ * database row order and floating-point addition order. Direct/current-contract
+ * contexts keep the canonical account aggregate so existing offline and regression
+ * inputs remain unchanged.
  */
 export function effectiveOpenPipelineUsd(ctx: AccountContext): number {
   if (ctx.featureModes?.pipeline === "derived") {
-    return ctx.opportunities
+    const openOpportunities = ctx.opportunities
       .filter((opportunity) => !opportunity.isClosed)
-      .reduce((sum, opportunity) => sum + opportunity.amountUsd, 0);
+      .slice()
+      .sort((left, right) => compareOrdinal(left.id, right.id));
+
+    const totalMinorUnits = openOpportunities.reduce((sum, opportunity) => {
+      const next = sum + toUsdMinorUnits(opportunity.amountUsd, opportunity.id);
+      if (!Number.isSafeInteger(next)) {
+        throw new Error("Derived open pipeline exceeds safe integer minor-unit precision.");
+      }
+      return next;
+    }, 0);
+
+    return totalMinorUnits / USD_MINOR_UNITS_PER_DOLLAR;
   }
   return ctx.account.openPipelineUsd;
 }
