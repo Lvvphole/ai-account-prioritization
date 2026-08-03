@@ -94,6 +94,7 @@ export interface Database {
       account_source_capabilities: {
         Row: {
           account_id: string;
+          workspace_id: string;
           source: string;
           capabilities: Json;
           mapping_version: string;
@@ -103,6 +104,7 @@ export interface Database {
         };
         Insert: {
           account_id: string;
+          workspace_id: string;
           source: string;
           capabilities: Json;
           mapping_version: string;
@@ -113,9 +115,15 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["account_source_capabilities"]["Insert"]>;
         Relationships: [
           {
-            foreignKeyName: "account_source_capabilities_account_id_fkey";
-            columns: ["account_id"];
+            foreignKeyName: "account_source_capabilities_account_same_workspace_fk";
+            columns: ["account_id", "workspace_id"];
             referencedRelation: "accounts";
+            referencedColumns: ["id", "workspace_id"];
+          },
+          {
+            foreignKeyName: "account_source_capabilities_workspace_id_fkey";
+            columns: ["workspace_id"];
+            referencedRelation: "workspaces";
             referencedColumns: ["id"];
           },
         ];
