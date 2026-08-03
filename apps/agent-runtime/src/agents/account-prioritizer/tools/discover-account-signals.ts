@@ -39,7 +39,7 @@ export function discoverAccountSignals(
     addSignal("high_open_pipeline", {
       kind: "derived",
       refId: a.id,
-      description: `Open pipeline is $${openPipelineUsd.toLocaleString("en-US")}.`,
+      description: `Open pipeline of $${openPipelineUsd.toLocaleString("en-US")}.`,
       verified: true,
     });
   }
