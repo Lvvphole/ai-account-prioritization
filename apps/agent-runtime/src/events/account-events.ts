@@ -18,10 +18,15 @@ export interface AccountEvent {
   occurredAt: string;
 }
 
+export interface AccountEventReference {
+  source: string;
+  sourceEventId: string;
+}
+
 export interface AccountRecomputeWork {
   workspaceId: string;
   accountId: string;
-  eventIds: string[];
+  eventReferences: AccountEventReference[];
   affectedFeatures: AccountFeatureName[];
   firstOccurredAt: string;
   lastOccurredAt: string;
@@ -43,6 +48,14 @@ const FIELD_TO_FEATURES: Record<string, AccountFeatureName[]> = {
   healthScore: ["healthRisk"],
 };
 
+function compareOrdinal(a: string, b: string): number {
+  return a === b ? 0 : a < b ? -1 : 1;
+}
+
+function eventReferenceKey(reference: AccountEventReference): string {
+  return JSON.stringify([reference.source, reference.sourceEventId]);
+}
+
 export function affectedFeaturesForEvent(event: AccountEvent): AccountFeatureName[] {
   if (event.type === "schedule.reconciliation.requested") {
     return ["pipeline", "intent", "staleness", "tier", "lifecycle", "healthRisk"];
@@ -57,25 +70,26 @@ export function affectedFeaturesForEvent(event: AccountEvent): AccountFeatureNam
     features.add("intent");
     features.add("staleness");
   }
-  return [...features].sort();
+  return [...features].sort(compareOrdinal);
 }
 
 /**
  * Coalesce noisy webhook bursts into one account-level recomputation unit.
- * The source event ids remain attached for idempotency and audit evidence.
+ * Source-qualified references remain attached for idempotency and audit evidence.
  */
 export function coalesceAccountEvents(events: AccountEvent[]): AccountRecomputeWork[] {
   const byAccount = new Map<string, AccountRecomputeWork>();
 
   for (const event of events) {
-    const key = `${event.workspaceId}:${event.accountId}`;
+    const key = JSON.stringify([event.workspaceId, event.accountId]);
+    const reference = { source: event.source, sourceEventId: event.sourceEventId };
     const existing = byAccount.get(key);
     const affected = affectedFeaturesForEvent(event);
     if (!existing) {
       byAccount.set(key, {
         workspaceId: event.workspaceId,
         accountId: event.accountId,
-        eventIds: [event.sourceEventId],
+        eventReferences: [reference],
         affectedFeatures: affected,
         firstOccurredAt: event.occurredAt,
         lastOccurredAt: event.occurredAt,
@@ -83,14 +97,19 @@ export function coalesceAccountEvents(events: AccountEvent[]): AccountRecomputeW
       continue;
     }
 
-    if (!existing.eventIds.includes(event.sourceEventId)) existing.eventIds.push(event.sourceEventId);
-    existing.affectedFeatures = [...new Set([...existing.affectedFeatures, ...affected])].sort();
+    const referenceKey = eventReferenceKey(reference);
+    if (!existing.eventReferences.some((item) => eventReferenceKey(item) === referenceKey)) {
+      existing.eventReferences.push(reference);
+    }
+    existing.affectedFeatures = [
+      ...new Set([...existing.affectedFeatures, ...affected]),
+    ].sort(compareOrdinal);
     if (event.occurredAt < existing.firstOccurredAt) existing.firstOccurredAt = event.occurredAt;
     if (event.occurredAt > existing.lastOccurredAt) existing.lastOccurredAt = event.occurredAt;
   }
 
   return [...byAccount.values()].sort((a, b) => {
-    const workspaceOrder = a.workspaceId.localeCompare(b.workspaceId);
-    return workspaceOrder !== 0 ? workspaceOrder : a.accountId.localeCompare(b.accountId);
+    const workspaceOrder = compareOrdinal(a.workspaceId, b.workspaceId);
+    return workspaceOrder !== 0 ? workspaceOrder : compareOrdinal(a.accountId, b.accountId);
   });
 }
