@@ -1,6 +1,7 @@
 import type { ReasonCode } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../../config/runtime";
 import {
+  contactEvidenceIsSupported,
   effectiveOpenPipelineUsd,
   type AccountContext,
   type AccountFeatures,
@@ -65,6 +66,7 @@ export function generateReasonCodes(
     codes.add("stalled_opportunity");
   }
   if (
+    contactEvidenceIsSupported(ctx) &&
     ctx.contacts.some((c) => c.role === "economic_buyer" && c.lastEngagedAt !== undefined)
   ) {
     codes.add("new_executive_buyer");
