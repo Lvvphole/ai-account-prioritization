@@ -1,20 +1,26 @@
 import { createHash } from "node:crypto";
+import { z } from "zod";
 
 export type NotificationChannel = "email" | "in_app";
 export type NotificationDeliveryStatus = "requested" | "sent" | "failed" | "cancelled";
 
-/**
- * Durable business evidence for one notification delivery.
- *
- * This record does not schedule work and does not own retry state. The durable
- * workflow runtime owns provider-call retries. Supabase owns the delivery
- * evidence and idempotency boundary.
- */
+declare const durableRecommendationIdBrand: unique symbol;
+export type DurableRecommendationId = string & {
+  readonly [durableRecommendationIdBrand]: "DurableRecommendationId";
+};
+
+const DurableRecommendationIdSchema = z.string().uuid();
+
+/** Distinguish persisted recommendation UUIDs from deterministic candidate IDs. */
+export function parseDurableRecommendationId(value: string): DurableRecommendationId {
+  return DurableRecommendationIdSchema.parse(value) as DurableRecommendationId;
+}
+
 export interface NotificationDeliveryRecord {
   idempotencyKey: string;
   workspaceId: string;
   recipientId: string;
-  recommendationId: string;
+  recommendationId: DurableRecommendationId;
   channel: NotificationChannel;
   workflowRunId: string | null;
   status: NotificationDeliveryStatus;
@@ -28,7 +34,7 @@ export interface NotificationDeliveryRecord {
 export interface CreateNotificationDeliveryInput {
   workspaceId: string;
   recipientId: string;
-  recommendationId: string;
+  recommendationId: DurableRecommendationId;
   channel: NotificationChannel;
   workflowRunId?: string | null;
   now: string;
@@ -37,11 +43,11 @@ export interface CreateNotificationDeliveryInput {
 export function notificationIdempotencyKey(
   input: Omit<CreateNotificationDeliveryInput, "now" | "workflowRunId">,
 ): string {
-  // A JSON array gives one unambiguous encoding for the ordered fields.
+  const recommendationId = parseDurableRecommendationId(input.recommendationId);
   const canonical = JSON.stringify([
     input.workspaceId,
     input.recipientId,
-    input.recommendationId,
+    recommendationId,
     input.channel,
   ]);
   return createHash("sha256").update(canonical, "utf8").digest("hex");
@@ -50,11 +56,12 @@ export function notificationIdempotencyKey(
 export function createNotificationDelivery(
   input: CreateNotificationDeliveryInput,
 ): NotificationDeliveryRecord {
+  const recommendationId = parseDurableRecommendationId(input.recommendationId);
   return {
-    idempotencyKey: notificationIdempotencyKey(input),
+    idempotencyKey: notificationIdempotencyKey({ ...input, recommendationId }),
     workspaceId: input.workspaceId,
     recipientId: input.recipientId,
-    recommendationId: input.recommendationId,
+    recommendationId,
     channel: input.channel,
     workflowRunId: input.workflowRunId ?? null,
     status: "requested",
