@@ -1,8 +1,15 @@
-import { z } from "zod";
+import type {
+  CrmSourceCapabilities,
+  FeatureStatus,
+} from "@repo/shared-schemas";
 import type { AccountFeatureName } from "../agents/account-prioritizer/prioritizer.policy";
 
-export const FeatureStatusSchema = z.enum(["observed", "derived", "unavailable"]);
-export type FeatureStatus = z.infer<typeof FeatureStatusSchema>;
+export {
+  CrmSourceCapabilitiesSchema,
+  FeatureStatusSchema,
+  type CrmSourceCapabilities,
+  type FeatureStatus,
+} from "@repo/shared-schemas";
 
 /** A decision feature together with its source and derivation evidence. */
 export interface FeatureValue<T> {
@@ -24,24 +31,6 @@ export function unavailableFeature<T>(): FeatureValue<T> {
     derivationVersion: null,
   };
 }
-
-/**
- * Capabilities describe facts a connector can supply. They prevent the mapper
- * from requesting vendor-specific enrichment fields as universal CRM inputs.
- */
-export const CrmSourceCapabilitiesSchema = z.object({
-  accounts: z.literal(true),
-  contacts: z.boolean().default(false),
-  opportunities: z.boolean().default(false),
-  activities: z.boolean().default(false),
-  accountTier: z.boolean().default(false),
-  lifecycleStage: z.boolean().default(false),
-  emailEvents: z.boolean().default(false),
-  renewals: z.boolean().default(false),
-  healthScore: z.boolean().default(false),
-  intentSignals: z.boolean().default(false),
-});
-export type CrmSourceCapabilities = z.infer<typeof CrmSourceCapabilitiesSchema>;
 
 /**
  * Resolve how each prioritization feature can be obtained for one connection.
