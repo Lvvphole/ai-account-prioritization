@@ -39,6 +39,7 @@ import {
 } from "./source";
 import {
   CrmSourceCapabilitiesSchema,
+  CrmSourceCapabilitySnapshotSchema,
   FeatureStatusSchema,
 } from "./source-capabilities";
 import {
@@ -127,6 +128,7 @@ export const SCHEMA_REGISTRY = {
   McpSourceConfig: McpSourceConfigSchema,
   ToolPolicy: ToolPolicySchema,
   CrmSourceCapabilities: CrmSourceCapabilitiesSchema,
+  CrmSourceCapabilitySnapshot: CrmSourceCapabilitySnapshotSchema,
   FeatureStatus: FeatureStatusSchema,
 
   // Ingestion pipeline.
