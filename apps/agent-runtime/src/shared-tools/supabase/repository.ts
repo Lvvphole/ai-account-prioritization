@@ -20,25 +20,9 @@ import { createRuntimeClient } from "./client";
 import { getServiceRoleClient } from "./service-role-client";
 import type { RlsContext } from "./rls-context";
 
-/**
- * Supabase-backed runtime repository.
- *
- * Reads source signals through an RLS-aware client (user mode) or the
- * service-role client (background/service mode) and writes immutable audit
- * evidence to `audit_evidence` via the service role. Connector capability
- * evidence is server-only and is always read with the service role. DB rows
- * (snake_case, UUIDs, timestamptz) are mapped into the Zod application schemas,
- * which remain the runtime's DTO source of truth.
- *
- * This implementation is used ONLY when an RLS context is supplied AND Supabase
- * is configured; otherwise the runtime stays on the in-memory store. See
- * `resolveRepository`.
- */
-
-/** Normalize a Postgres timestamptz (e.g. `+00:00`) to a Zod `.datetime()` (Z). */
+/** Normalize a Postgres timestamptz to canonical UTC. */
 const iso = (s: string): string => new Date(s).toISOString();
 
-/** Whole days elapsed between two timestamps, clamped non-negative. */
 function daysBetween(from: string, nowIso: string): number {
   const ms = Date.parse(nowIso) - Date.parse(from);
   return Math.max(0, Math.floor(ms / 86_400_000));
@@ -115,7 +99,6 @@ function toActivity(row: Tables<"activities">): Activity {
   } satisfies Activity);
 }
 
-/** Throw a contextual error on a Postgrest failure; otherwise return rows. */
 function unwrap<T>(
   what: string,
   res: { data: T[] | null; error: { message: string } | null },
@@ -193,7 +176,7 @@ export function createSupabaseRepository(
       return rows.map(toActivity);
     },
 
-    async listSourceCapabilitySnapshotsByAccountIds(accountIds) {
+    async listSourceCapabilitiesByAccountIds(accountIds) {
       if (accountIds.length === 0) return {};
 
       const service = getServiceRoleClient();
@@ -217,10 +200,10 @@ export function createSupabaseRepository(
       for (const row of rows) {
         try {
           snapshots[row.account_id] = CrmSourceCapabilitySnapshotSchema.parse({
+            ...(row.capabilities as Record<string, unknown>),
             source: row.source,
             mappingVersion: row.mapping_version,
             observedAt: iso(row.observed_at),
-            capabilities: row.capabilities,
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : "unknown schema error";
