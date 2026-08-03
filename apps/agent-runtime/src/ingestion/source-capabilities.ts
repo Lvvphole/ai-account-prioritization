@@ -41,11 +41,10 @@ export function resolveFeatureModes(
 ): Record<AccountFeatureName, FeatureStatus> {
   return {
     pipeline: capabilities.opportunities ? "derived" : "unavailable",
-    intent: capabilities.intentSignals
-      ? "observed"
-      : capabilities.activities || capabilities.emailEvents
-        ? "derived"
-        : "unavailable",
+    // Activity and email data do not become intent automatically. The current
+    // scorer requires authoritative intent signal codes that map to verified
+    // observations. Keep intent unavailable until a versioned derivation exists.
+    intent: capabilities.intentSignals ? "observed" : "unavailable",
     staleness: capabilities.activities || capabilities.emailEvents ? "derived" : "unavailable",
     tier: capabilities.accountTier ? "observed" : "unavailable",
     // A renewal-to-lifecycle derivation is not implemented or versioned yet.
