@@ -1,98 +1,39 @@
-# Agent Runtime Determinism and Evidence Contract
+# Agent Runtime Map
 
-This file applies to `apps/agent-runtime/**`. The root `AGENTS.md` and accepted ADRs remain authoritative. This file makes the deterministic decision and evidence rules local to runtime code.
+This file applies to `apps/agent-runtime/**`. Read the root `AGENTS.md` first.
 
-## Derived-feature admission
+Use these canonical sources instead of expanding this file:
 
-A connector-aware feature can be `derived` only when all of these conditions are true:
+- Architecture and authority: `docs/ARCHITECTURE.md`
+- Reliability, temporal authority, exact money, ordering, recovery: `docs/RELIABILITY.md`
+- Security and trust boundaries: `docs/SECURITY.md`
+- Verification and review loop: `docs/VERIFICATION.md`
+- Event-driven process decision: `docs/decisions/ADR-003-event-driven-crm-ingestion-and-notifications.md`
 
-1. The repository contains the deterministic derivation.
-2. The derivation has an explicit version identifier.
-3. The derivation consumes authoritative source records, not mapper defaults.
-4. The recommendation evidence identifies the source records that contributed to the derived value.
-5. The derivation version is carried into durable audit evidence when the derived value affects authority.
+## Local runtime invariants
 
-If any condition is false, mark the feature `unavailable`.
+- Keep deterministic scoring, ranking, reason codes, next-best-action authority, and verification model-independent.
+- Model output is untrusted candidate language. It cannot mutate authoritative recommendation fields.
+- Every authoritative reason requires direct supporting source evidence.
+- A feature is `derived` only when a versioned deterministic derivation exists and its contributing source records are traceable.
+- Use one capability authority for scoring and durable evidence. Reject competing declarations.
+- Preserve exact source money before JavaScript number conversion. Aggregate authoritative money in exact minor units.
+- Canonicalize unordered source collections with explicit ordinal ordering before they affect authority or durable evidence.
+- Do not use locale-dependent formatting or sorting in authority-bearing serialization.
+- Keep deterministic candidate recommendation IDs separate from persisted recommendation UUIDs.
 
-## Source-record traceability
+## Temporal authority
 
-- Aggregate evidence alone is insufficient when an aggregate is computed from source rows.
-- For derived pipeline, preserve every contributing open opportunity ID in `sourceSignals` in stable ordinal order.
-- Closed or otherwise excluded opportunities must not appear as contributors.
-- A reason code must have direct evidence for its predicate. Unrelated verified evidence cannot satisfy grounding.
-- Fail closed when a generated authoritative reason has no direct supporting evidence.
+Follow `docs/RELIABILITY.md`.
 
-## Authority coherence
+- Authority-bearing clocks require an explicit `Z` or numeric UTC offset.
+- Repository reads return structurally valid capability snapshots. They do not abort reconciliation because a snapshot is ordinarily stale.
+- Freshness is classified per account at the deterministic decision boundary.
+- Missing, stale, or future capability authority holds only the affected account and records a failed-gate result.
+- Do not draft, approve, verify, or publish an account that failed temporal authority.
 
-Use one capability authority for scoring and for durable evidence.
+## Verification
 
-- Prefer one provenance-bearing capability snapshot.
-- If a caller supplies a capability declaration and a capability snapshot, compare the capability fields before scoring.
-- Reject the call when the two declarations differ.
-- Do not score from one capability object and audit a different capability object.
+For a runtime behavior change, run the narrowest deterministic test first and then the affected gates in `docs/VERIFICATION.md`.
 
-## Capability snapshot age
-
-A monotonic `observedAt` value is not sufficient freshness evidence.
-
-- Compare `observedAt` with the injected decision clock before durable scoring.
-- Use `crm-source-capability-max-age-7d-v1` as the current maximum-age policy.
-- Reject a snapshot that is more than seven days old.
-- Reject a snapshot that is later than the injected decision clock.
-- Change the policy version when the maximum age or comparison rule changes.
-
-## Canonical ordering
-
-Any collection that can originate from database, connector, event, or API order must be canonicalized before it affects serialized recommendation or audit evidence.
-
-- Use explicit ordinal `<` / `>` comparison on stable identifiers.
-- Do not use `localeCompare` for authoritative ordering.
-- Do not depend on insertion order from PostgreSQL unless the query contract has an explicit deterministic `ORDER BY`.
-- Reverse-order regression tests must produce the same complete authority object.
-
-## Deterministic text rendering
-
-Authoritative or persisted evidence text must not depend on host locale or ICU data.
-
-- Do not use `toLocaleString`, `Intl.NumberFormat`, or locale-sensitive sorting in authority-bearing evidence.
-- Render currency with repository-controlled deterministic formatting.
-- If display text is used as durable audit evidence, identical numeric input must produce identical bytes on every supported host.
-
-## Exact money
-
-Money that affects score, reason thresholds, action authority, or audit evidence must use exact minor-unit semantics.
-
-- Preserve the source decimal representation before any JavaScript `number` conversion.
-- For PostgreSQL `numeric` values, select a text cast or another exact representation at the repository boundary.
-- Do not attempt to recover source precision from a JavaScript `number` after conversion.
-- Validate the preserved decimal representation to the allowed currency precision.
-- Convert to integer minor units before aggregation.
-- Use safe integer or `BigInt` arithmetic for aggregation.
-- Convert only once after aggregation when a numeric score input is required.
-- Reject sub-cent values independent of amount magnitude.
-- Do not use floating-point accumulation or tolerance-based rounding for authoritative money.
-
-## Durable recommendation identity
-
-Deterministic in-memory candidate IDs and persisted recommendation IDs are different identity domains.
-
-- Delivery persistence uses the canonical persisted recommendation UUID.
-- Parse or validate the durable UUID before constructing a delivery idempotency key or delivery record.
-- Do not pass deterministic candidate strings such as `rec_<run>_<account>` into database delivery references.
-- Keep the distinction explicit in runtime types and helper names.
-
-## Verification requirement
-
-For every fix in one of these defect classes, sweep homologous paths before stopping:
-
-- derived-feature provenance;
-- source precision before runtime conversion;
-- capability snapshot ordering and age;
-- duplicate authority declarations;
-- unordered evidence collections;
-- locale-dependent serialization;
-- monetary precision;
-- identifier-domain mismatch;
-- missing direct reason evidence.
-
-Add regression coverage for the whole defect class, not only the reported example.
+If an independent review finds another significant defect from the same mechanism, stop line-by-line repair and return to the governing design invariant before changing more code.
