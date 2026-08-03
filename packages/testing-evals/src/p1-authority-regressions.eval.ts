@@ -211,4 +211,90 @@ describe("P1 authority regressions", () => {
 
     expect(recommendation?.sourceCapabilitySnapshot).toEqual(snapshot);
   });
+
+  it("derives pipeline authority identically for every opportunity row order", () => {
+    const now = "2026-08-03T09:00:00.000Z";
+    const capabilities = {
+      accounts: true as const,
+      contacts: false,
+      opportunities: true,
+      activities: false,
+      accountTier: true,
+      lifecycleStage: false,
+      emailEvents: false,
+      renewals: false,
+      healthScore: false,
+      intentSignals: false,
+    };
+    const opportunities = [
+      {
+        id: "opp_c",
+        accountId: "acc_pipeline",
+        name: "Large component",
+        stage: "qualification" as const,
+        amountUsd: 49999.7,
+        probability: 0.5,
+        isClosed: false,
+        isWon: false,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "opp_a",
+        accountId: "acc_pipeline",
+        name: "Ten cents",
+        stage: "qualification" as const,
+        amountUsd: 0.1,
+        probability: 0.5,
+        isClosed: false,
+        isWon: false,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "opp_b",
+        accountId: "acc_pipeline",
+        name: "Twenty cents",
+        stage: "qualification" as const,
+        amountUsd: 0.2,
+        probability: 0.5,
+        isClosed: false,
+        isWon: false,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+
+    const prioritize = (orderedOpportunities: typeof opportunities) =>
+      prioritizeAccounts({
+        runId: "run_pipeline_order",
+        createdAt: now,
+        sourceCapabilitiesByAccountId: { acc_pipeline: capabilities },
+        contexts: [
+          {
+            account: {
+              id: "acc_pipeline",
+              name: "Pipeline Account",
+              ownerId: "rep_1",
+              tier: "smb" as const,
+              lifecycleStage: "prospect" as const,
+              openPipelineUsd: 0,
+              intentSignals: [],
+              dataQualityFlags: [],
+              createdAt: now,
+              updatedAt: now,
+            },
+            contacts: [],
+            opportunities: orderedOpportunities,
+            activities: [],
+          },
+        ],
+      })[0];
+
+    const first = prioritize(opportunities);
+    const second = prioritize([...opportunities].reverse());
+
+    expect(first).toEqual(second);
+    expect(first?.reasonCodes).toContain("high_open_pipeline");
+  });
 });
