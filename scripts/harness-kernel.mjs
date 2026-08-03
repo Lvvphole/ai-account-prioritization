@@ -19,6 +19,7 @@ export const EXIT_CODE = Object.freeze({
 
 const CONTRACT_VERSION = 0;
 const OUTPUT_LIMIT = 16_384;
+const DEFAULT_GATE_TIMEOUT_MS = 10 * 60 * 1000;
 
 function assertNonEmptyString(value, label) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -82,6 +83,14 @@ export function parseContract(raw) {
         gate.command,
         `${contract.id}.gates[${gateIndex}].command`,
       );
+      if (
+        gate.timeout_ms !== undefined &&
+        (!Number.isInteger(gate.timeout_ms) || gate.timeout_ms <= 0)
+      ) {
+        throw new Error(
+          `${contract.id}.gates[${gateIndex}].timeout_ms must be a positive integer`,
+        );
+      }
       if (gateIds.has(gate.id)) {
         throw new Error(`duplicate gate id in ${contract.id}: ${gate.id}`);
       }
@@ -135,12 +144,14 @@ function truncateOutput(value) {
   return `[truncated to last ${OUTPUT_LIMIT} characters]\n${text.slice(-OUTPUT_LIMIT)}`;
 }
 
-function run(command, cwd) {
+function run(command, cwd, timeoutMs) {
   return spawnSync(command, {
     cwd,
     shell: true,
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
+    timeout: timeoutMs,
+    killSignal: "SIGTERM",
   });
 }
 
@@ -165,8 +176,8 @@ export function getChangedFiles({ cwd, base, head }) {
     : git(["rev-parse", "--verify", `${head}^{commit}`], cwd);
   const mergeBase = git(["merge-base", baseSha, headSha], cwd);
   const diffArgs = worktree
-    ? ["diff", "--name-only", mergeBase]
-    : ["diff", "--name-only", mergeBase, headSha];
+    ? ["diff", "--no-renames", "--name-only", mergeBase]
+    : ["diff", "--no-renames", "--name-only", mergeBase, headSha];
   const output = git(diffArgs, cwd);
   const files = output
     .split("\n")
@@ -193,8 +204,13 @@ export function getChangedFiles({ cwd, base, head }) {
 }
 
 export function runGate(gate, contractId, cwd) {
-  const result = run(gate.command, cwd);
+  const timeoutMs = gate.timeout_ms ?? DEFAULT_GATE_TIMEOUT_MS;
+  const result = run(gate.command, cwd, timeoutMs);
   if (result.error) {
+    const timeoutMessage =
+      result.error.code === "ETIMEDOUT"
+        ? `gate timed out after ${timeoutMs}ms`
+        : result.error.message;
     return {
       contract_id: contractId,
       id: gate.id,
@@ -202,7 +218,7 @@ export function runGate(gate, contractId, cwd) {
       status: STATUS.BLOCKED,
       exit_code: null,
       stdout: truncateOutput(result.stdout),
-      stderr: truncateOutput(result.stderr || result.error.message),
+      stderr: truncateOutput(result.stderr || timeoutMessage),
     };
   }
 
