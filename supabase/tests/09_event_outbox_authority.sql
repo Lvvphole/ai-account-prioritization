@@ -1,7 +1,7 @@
 \set ON_ERROR_STOP on
 \pset pager off
 
--- PR #40 authority-boundary regressions. These checks exercise the database
+-- PR #40 authority-boundary regressions. These checks exercise database
 -- behavior, not only the presence of DDL text.
 
 create or replace function pg_temp.expect_fail(sql text, label text)
@@ -25,17 +25,34 @@ begin
 end;
 $$;
 
-\echo '=== capability authority is tenant-bound ==='
+\echo '=== tenant-owned authority references are bound end to end ==='
 
--- The workspaces and owners are seeded by 01_ingestion_invariants.sql. These
--- two accounts make the cross-tenant reference concrete.
+-- Workspaces and owners are seeded by 01_ingestion_invariants.sql. These two
+-- accounts and recommendations make cross-tenant reference confusion concrete.
 insert into public.accounts
   (id, workspace_id, name, owner_id, tier, lifecycle_stage)
 values
   ('90000000-0000-0000-0000-0000000000a1', 'aaaaaaaa-0000-0000-0000-000000000001',
-   'Capability tenant A account', '11111111-1111-1111-1111-111111111111', 'smb', 'prospect'),
+   'Authority tenant A account', '11111111-1111-1111-1111-111111111111', 'smb', 'prospect'),
   ('90000000-0000-0000-0000-0000000000b2', 'bbbbbbbb-0000-0000-0000-000000000002',
-   'Capability tenant B account', '44444444-4444-4444-4444-444444444444', 'smb', 'prospect');
+   'Authority tenant B account', '44444444-4444-4444-4444-444444444444', 'smb', 'prospect');
+
+insert into public.recommendations
+  (id, workspace_id, run_id, account_id, owner_id, score, rank, confidence,
+   reason_codes, reason_narrative, next_best_action, source_signals, verification)
+values
+  ('rec-authority-tenant-a', 'aaaaaaaa-0000-0000-0000-000000000001', 'run-authority-a',
+   '90000000-0000-0000-0000-0000000000a1', '11111111-1111-1111-1111-111111111111',
+   0, 1, 1, array['no_qualifying_signal'], 'Fixture recommendation A.',
+   '{"type":"no_action_hold","customerFacing":false,"crmWriteBack":false,"objective":"fixture"}'::jsonb,
+   '[{"kind":"derived","refId":"fixture-a","description":"fixture","verified":true}]'::jsonb,
+   '{"status":"passed","schemaValid":true,"guardrailsPassed":true,"sourceSignalsVerified":true,"permissionGranted":true,"failedGates":[],"checkedAt":"2026-08-03T09:00:00.000Z"}'::jsonb),
+  ('rec-authority-tenant-b', 'bbbbbbbb-0000-0000-0000-000000000002', 'run-authority-b',
+   '90000000-0000-0000-0000-0000000000b2', '44444444-4444-4444-4444-444444444444',
+   0, 1, 1, array['no_qualifying_signal'], 'Fixture recommendation B.',
+   '{"type":"no_action_hold","customerFacing":false,"crmWriteBack":false,"objective":"fixture"}'::jsonb,
+   '[{"kind":"derived","refId":"fixture-b","description":"fixture","verified":true}]'::jsonb,
+   '{"status":"passed","schemaValid":true,"guardrailsPassed":true,"sourceSignalsVerified":true,"permissionGranted":true,"failedGates":[],"checkedAt":"2026-08-03T09:00:00.000Z"}'::jsonb);
 
 set role service_role;
 select pg_temp.expect_ok(
@@ -55,7 +72,7 @@ select pg_temp.expect_fail(
   'service role cannot bind tenant A capability authority to tenant B account');
 reset role;
 
-\echo '=== outbox inserts can only create pending publication work ==='
+\echo '=== outbox account authority is tenant-bound and starts pending ==='
 
 do $$
 begin
@@ -98,22 +115,31 @@ begin
     raise exception 'service_role must not be able to insert published timestamps';
   end if;
   raise notice 'PASS  service_role cannot insert outbox published timestamps';
-
-  if not exists (
-    select 1
-    from pg_trigger t
-    join pg_class c on c.oid = t.tgrelid
-    join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public'
-      and c.relname = 'integration_event_outbox'
-      and t.tgname = 'enforce_integration_event_outbox_insert'
-      and not t.tgisinternal
-  ) then
-    raise exception 'integration_event_outbox insert-state guard trigger is missing';
-  end if;
-  raise notice 'PASS  outbox insert-state guard exists';
 end
 $$;
+
+set role service_role;
+select pg_temp.expect_ok(
+  $$insert into public.integration_event_outbox
+      (workspace_id, source, source_event_id, aggregate_id, event_type)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'salesforce', 'evt-valid-a',
+            '90000000-0000-0000-0000-0000000000a1', 'account.updated')$$,
+  'service role creates pending outbox work for an account in the same workspace');
+
+select pg_temp.expect_fail(
+  $$insert into public.integration_event_outbox
+      (workspace_id, source, source_event_id, aggregate_id, event_type)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'salesforce', 'evt-cross-tenant',
+            '90000000-0000-0000-0000-0000000000b2', 'account.updated')$$,
+  'service role cannot publish tenant A work for tenant B account');
+
+select pg_temp.expect_fail(
+  $$insert into public.integration_event_outbox
+      (workspace_id, source, source_event_id, aggregate_id, event_type)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'salesforce', 'evt-missing-account',
+            '90000000-0000-0000-0000-000000000099', 'account.updated')$$,
+  'service role cannot publish work for a nonexistent canonical account');
+reset role;
 
 select pg_temp.expect_fail(
   $$insert into public.integration_event_outbox
@@ -124,7 +150,7 @@ select pg_temp.expect_fail(
             'published', 'workflow-forged', now())$$,
   'database guard rejects a forged published outbox insert');
 
-\echo '=== delivery inserts can only create requested work ==='
+\echo '=== delivery authority is recommendation-bound and starts requested ==='
 
 do $$
 begin
@@ -177,20 +203,6 @@ begin
     raise exception 'service_role must not be able to insert delivery failure code';
   end if;
   raise notice 'PASS  service_role cannot insert delivery failure code';
-
-  if not exists (
-    select 1
-    from pg_trigger t
-    join pg_class c on c.oid = t.tgrelid
-    join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public'
-      and c.relname = 'notification_deliveries'
-      and t.tgname = 'enforce_notification_delivery_insert'
-      and not t.tgisinternal
-  ) then
-    raise exception 'notification_deliveries insert-state guard trigger is missing';
-  end if;
-  raise notice 'PASS  delivery insert-state guard exists';
 end
 $$;
 
@@ -199,7 +211,7 @@ select pg_temp.expect_fail(
       (workspace_id, recipient_id, recommendation_id, channel, idempotency_key,
        status, provider_message_id, sent_at)
     values ('aaaaaaaa-0000-0000-0000-000000000001', 'recipient-forged',
-            'recommendation-forged', 'email', repeat('f', 64),
+            'rec-authority-tenant-a', 'email', repeat('f', 64),
             'sent', 'provider-forged', now())$$,
   'database guard rejects a forged sent delivery insert');
 
@@ -208,8 +220,22 @@ select pg_temp.expect_ok(
   $$insert into public.notification_deliveries
       (workspace_id, recipient_id, recommendation_id, channel, idempotency_key, workflow_run_id)
     values ('aaaaaaaa-0000-0000-0000-000000000001', 'recipient-valid',
-            'recommendation-valid', 'email', repeat('a', 64), 'workflow-valid')$$,
-  'service role creates a requested delivery through restricted insert authority');
+            'rec-authority-tenant-a', 'email', repeat('a', 64), 'workflow-valid')$$,
+  'service role creates a requested delivery for a recommendation in the same workspace');
+
+select pg_temp.expect_fail(
+  $$insert into public.notification_deliveries
+      (workspace_id, recipient_id, recommendation_id, channel, idempotency_key, workflow_run_id)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'recipient-cross-tenant',
+            'rec-authority-tenant-b', 'email', repeat('b', 64), 'workflow-cross-tenant')$$,
+  'service role cannot bind tenant A delivery evidence to tenant B recommendation');
+
+select pg_temp.expect_fail(
+  $$insert into public.notification_deliveries
+      (workspace_id, recipient_id, recommendation_id, channel, idempotency_key, workflow_run_id)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'recipient-missing',
+            'rec-does-not-exist', 'email', repeat('c', 64), 'workflow-missing')$$,
+  'service role cannot reserve delivery evidence for a nonexistent recommendation');
 reset role;
 
 select pg_temp.expect_ok(
