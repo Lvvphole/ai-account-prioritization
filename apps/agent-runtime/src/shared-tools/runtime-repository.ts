@@ -4,6 +4,7 @@ import type {
   AnalyticsEvent,
   AuditLogEntry,
   Contact,
+  CrmSourceCapabilities,
   Opportunity,
 } from "@repo/shared-schemas";
 import { repository as inMemory } from "./database/repository";
@@ -28,6 +29,10 @@ export interface RuntimeRepository {
   listContactsByAccount(accountId: string): Promise<Contact[]>;
   listOpportunitiesByAccount(accountId: string): Promise<Opportunity[]>;
   listActivitiesByAccount(accountId: string): Promise<Activity[]>;
+  /** Authoritative connector capability evidence keyed by canonical account ID. */
+  listSourceCapabilitiesByAccountIds(
+    accountIds: readonly string[],
+  ): Promise<Record<string, CrmSourceCapabilities>>;
   appendAudit(entry: AuditLogEntry): Promise<void>;
   appendAnalytics(event: AnalyticsEvent): Promise<void>;
 }
@@ -48,6 +53,10 @@ export const inMemoryRepository: RuntimeRepository = {
   },
   async listActivitiesByAccount(accountId) {
     return inMemory.listActivitiesByAccount(accountId);
+  },
+  async listSourceCapabilitiesByAccountIds(_accountIds) {
+    // Offline/current-contract eval inputs do not represent connector ingestion.
+    return {};
   },
   async appendAudit(entry) {
     inMemory.appendAudit(entry);
