@@ -278,6 +278,12 @@ export interface Database {
             referencedRelation: "accounts";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "recommendations_account_same_workspace_fk";
+            columns: ["account_id", "workspace_id"];
+            referencedRelation: "accounts";
+            referencedColumns: ["id", "workspace_id"];
+          },
         ];
       };
       audit_evidence: {
@@ -396,6 +402,12 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["integration_event_outbox"]["Insert"]>;
         Relationships: [
           {
+            foreignKeyName: "integration_event_outbox_account_same_workspace_fk";
+            columns: ["aggregate_id", "workspace_id"];
+            referencedRelation: "accounts";
+            referencedColumns: ["id", "workspace_id"];
+          },
+          {
             foreignKeyName: "integration_event_outbox_workspace_id_fkey";
             columns: ["workspace_id"];
             referencedRelation: "workspaces";
@@ -440,6 +452,12 @@ export interface Database {
         };
         Update: Partial<Database["public"]["Tables"]["notification_deliveries"]["Insert"]>;
         Relationships: [
+          {
+            foreignKeyName: "notification_deliveries_recommendation_same_workspace_fk";
+            columns: ["recommendation_id", "workspace_id"];
+            referencedRelation: "recommendations";
+            referencedColumns: ["id", "workspace_id"];
+          },
           {
             foreignKeyName: "notification_deliveries_workspace_id_fkey";
             columns: ["workspace_id"];
