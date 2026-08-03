@@ -1,0 +1,252 @@
+/* Final mobile workspace corrections after device verification. */
+.workspace-mobile-menu {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .workspace-mobile-scope .workspace-nav {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-rows: auto;
+    gap: 10px;
+    position: relative;
+  }
+
+  .workspace-mobile-scope .workspace-links,
+  .workspace-mobile-scope .workspace-actions {
+    display: none;
+  }
+
+  .workspace-mobile-scope .workspace-brand {
+    grid-column: 1;
+    grid-row: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .workspace-mobile-scope .user-chip {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .workspace-mobile-scope .workspace-mobile-menu {
+    display: block;
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    position: relative;
+  }
+
+  .workspace-mobile-scope .workspace-mobile-menu > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .workspace-mobile-scope .workspace-mobile-menu > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .workspace-mobile-scope .workspace-mobile-panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    z-index: 100;
+    width: min(260px, calc(100vw - 28px));
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-md);
+  }
+
+  .workspace-mobile-scope .workspace-mobile-route-links,
+  .workspace-mobile-scope .workspace-mobile-session-actions {
+    display: grid;
+    gap: 4px;
+  }
+
+  .workspace-mobile-scope .workspace-mobile-route-links a,
+  .workspace-mobile-scope .workspace-mobile-session-actions a,
+  .workspace-mobile-scope .workspace-mobile-session-actions button {
+    display: block;
+    width: 100%;
+    padding: 10px 11px;
+    border-radius: 8px;
+    text-align: left;
+    font-size: 13px;
+    color: var(--text-2);
+    background: transparent;
+    border: 0;
+    text-decoration: none;
+  }
+
+  .workspace-mobile-scope .workspace-mobile-route-links a:hover,
+  .workspace-mobile-scope .workspace-mobile-session-actions a:hover,
+  .workspace-mobile-scope .workspace-mobile-session-actions button:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .workspace-mobile-scope .workspace-mobile-session-actions {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .workspace-mobile-scope .workspace-mobile-session-actions form {
+    margin: 0;
+  }
+
+  .workspace-route-manager .queue-static {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 12px;
+    align-items: start;
+  }
+
+  .workspace-route-manager .queue-static .queue-esc {
+    grid-column: 2;
+    justify-self: start;
+    margin: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Manager tables become readable mobile records instead of clipped desktop tables. */
+  .workspace-route-manager .table-scroll {
+    overflow: visible;
+  }
+
+  .workspace-route-manager .table-scroll table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workspace-route-manager .table-scroll thead {
+    display: none;
+  }
+
+  .workspace-route-manager .table-scroll tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .workspace-route-manager .table-scroll tr {
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+  }
+
+  .workspace-route-manager .table-scroll td,
+  .workspace-route-manager .table-scroll td.num {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    width: 100%;
+    padding: 6px 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .workspace-route-manager .table-scroll td::before {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  /* Coverage by Rep: 8 columns. */
+  .workspace-route-manager .table-scroll table:has(th:nth-child(8)) td:nth-child(1)::before { content: "Rep"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(8)) td:nth-child(2)::before { content: "Accounts"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(8)) td:nth-child(3)::before { content: "Revenue"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(8)) td:nth-child(4)::before { content: "Avg Score"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(8)) td:nth-child(5)::before { content: "Avg Conf."; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(8)) td:nth-child(6)::before { content: "Top Action"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(8)) td:nth-child(7)::before { content: "Pending"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(8)) td:nth-child(8)::before { content: "Held"; }
+
+  /* Full Run Export: 7 columns. */
+  .workspace-route-manager .table-scroll table:has(th:nth-child(7)):not(:has(th:nth-child(8))) td:nth-child(1)::before { content: "Rank"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(7)):not(:has(th:nth-child(8))) td:nth-child(2)::before { content: "Account"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(7)):not(:has(th:nth-child(8))) td:nth-child(3)::before { content: "Owner"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(7)):not(:has(th:nth-child(8))) td:nth-child(4)::before { content: "Score"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(7)):not(:has(th:nth-child(8))) td:nth-child(5)::before { content: "Next Action"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(7)):not(:has(th:nth-child(8))) td:nth-child(6)::before { content: "Workflow"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(7)):not(:has(th:nth-child(8))) td:nth-child(7)::before { content: "Approval"; }
+
+  /* Held by Safety Gates: 4 columns. */
+  .workspace-route-manager .table-scroll table:has(th:nth-child(4)):not(:has(th:nth-child(5))) td:nth-child(1)::before { content: "Account"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(4)):not(:has(th:nth-child(5))) td:nth-child(2)::before { content: "Owner"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(4)):not(:has(th:nth-child(5))) td:nth-child(3)::before { content: "Gate"; }
+  .workspace-route-manager .table-scroll table:has(th:nth-child(4)):not(:has(th:nth-child(5))) td:nth-child(4)::before { content: "Why"; }
+
+  .workspace-route-admin .cp-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    overflow: visible;
+  }
+
+  .workspace-route-admin .cp-tab {
+    width: 100%;
+    min-width: 0;
+    text-align: center;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 520px) {
+  .workspace-mobile-scope .workspace-nav {
+    padding: 11px 12px;
+  }
+
+  .workspace-mobile-scope .workspace-brand {
+    font-size: 12.5px;
+  }
+
+  .workspace-mobile-scope .user-chip {
+    gap: 5px;
+  }
+
+  .workspace-mobile-scope .user-meta {
+    display: none;
+  }
+
+  .workspace-mobile-scope .avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .workspace-mobile-scope .workspace-mobile-menu > summary {
+    padding: 6px 8px;
+  }
+
+  .workspace-route-manager .table-scroll td,
+  .workspace-route-manager .table-scroll td.num {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+
+  .workspace-route-manager .queue a {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px 10px;
+  }
+
+  .workspace-route-manager .queue-go {
+    align-self: start;
+  }
+}
