@@ -55,7 +55,7 @@ describe("event-driven CRM foundation", () => {
     expect(reversed).toEqual(work);
   });
 
-  it("normalizes offset-bearing event timestamps before first/last ordering", () => {
+  it("normalizes offset-bearing event timestamps and rejects zone-less values", () => {
     const work = coalesceAccountEvents([
       {
         workspaceId: "ws_1",
@@ -84,11 +84,24 @@ describe("event-driven CRM foundation", () => {
         {
           workspaceId: "ws_1",
           source: "crm",
+          sourceEventId: "evt_zone_less",
+          type: "crm.account.updated",
+          accountId: "acc_1",
+          changedFields: ["tier"],
+          occurredAt: "2026-08-03T09:00:00",
+        },
+      ]),
+    ).toThrow("must include an explicit UTC offset");
+    expect(() =>
+      coalesceAccountEvents([
+        {
+          workspaceId: "ws_1",
+          source: "crm",
           sourceEventId: "evt_invalid",
           type: "crm.account.updated",
           accountId: "acc_1",
           changedFields: ["tier"],
-          occurredAt: "not-a-timestamp",
+          occurredAt: "not-a-timestampZ",
         },
       ]),
     ).toThrow("Invalid account event occurredAt timestamp");
@@ -136,6 +149,82 @@ describe("event-driven CRM foundation", () => {
     expect(modes.intent).toBe("unavailable");
     expect(modes.pipeline).toBe("derived");
     expect(modes.staleness).toBe("derived");
+  });
+
+  it("derives pipeline from open opportunities instead of account defaults", () => {
+    const now = "2026-08-03T09:00:00.000Z";
+    const recommendation = prioritizeAccounts({
+      runId: "run_pipeline_derivation",
+      createdAt: now,
+      sourceCapabilitiesByAccountId: {
+        acc_pipeline: {
+          accounts: true,
+          contacts: false,
+          opportunities: true,
+          activities: false,
+          accountTier: false,
+          lifecycleStage: false,
+          emailEvents: false,
+          renewals: false,
+          healthScore: false,
+          intentSignals: false,
+        },
+      },
+      contexts: [
+        {
+          account: {
+            id: "acc_pipeline",
+            name: "Pipeline Account",
+            ownerId: "rep_1",
+            tier: "smb",
+            lifecycleStage: "prospect",
+            openPipelineUsd: 0,
+            intentSignals: [],
+            dataQualityFlags: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+          contacts: [],
+          activities: [],
+          opportunities: [
+            {
+              id: "opp_open",
+              accountId: "acc_pipeline",
+              name: "Open opportunity",
+              stage: "proposal",
+              amountUsd: 250_000,
+              probability: 0.5,
+              isClosed: false,
+              isWon: false,
+              createdAt: now,
+              updatedAt: now,
+            },
+            {
+              id: "opp_closed",
+              accountId: "acc_pipeline",
+              name: "Closed opportunity",
+              stage: "closed_lost",
+              amountUsd: 900_000,
+              probability: 0,
+              isClosed: true,
+              isWon: false,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        },
+      ],
+    })[0];
+
+    expect(recommendation?.reasonCodes).toContain("high_open_pipeline");
+    expect(
+      recommendation?.sourceSignals.some((signal) =>
+        signal.description.includes("Open pipeline of $250,000"),
+      ),
+    ).toBe(true);
+    expect(
+      recommendation?.sourceSignals.some((signal) => signal.description.includes("$900,000")),
+    ).toBe(false);
   });
 
   it("keeps renewal-only lifecycle unavailable until a derivation exists", () => {
@@ -230,6 +319,53 @@ describe("event-driven CRM foundation", () => {
     expect(high?.sourceSignals.some((signal) => signal.description.includes("health score"))).toBe(false);
     expect(high?.sourceSignals.some((signal) => signal.description.includes("No logged contact"))).toBe(false);
     expect(high?.sourceSignals.some((signal) => signal.description.includes("tier strategic"))).toBe(false);
+  });
+
+  it("does not let unavailable staleness lift confidence above the action threshold", () => {
+    const now = "2026-08-03T09:00:00.000Z";
+    const recommendation = prioritizeAccounts({
+      runId: "run_confidence_provenance",
+      createdAt: now,
+      sourceCapabilitiesByAccountId: {
+        acc_confidence: {
+          accounts: true,
+          contacts: false,
+          opportunities: false,
+          activities: false,
+          accountTier: true,
+          lifecycleStage: false,
+          emailEvents: false,
+          renewals: false,
+          healthScore: false,
+          intentSignals: false,
+        },
+      },
+      contexts: [
+        {
+          account: {
+            id: "acc_confidence",
+            name: "Confidence Account",
+            ownerId: "rep_1",
+            tier: "strategic",
+            lifecycleStage: "prospect",
+            openPipelineUsd: 0,
+            employeeCount: 100,
+            daysSinceLastContact: 365,
+            intentSignals: [],
+            dataQualityFlags: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+          contacts: [],
+          opportunities: [],
+          activities: [],
+        },
+      ],
+    })[0];
+
+    expect(recommendation?.confidence).toBeCloseTo(1 / 6, 8);
+    expect(recommendation?.nextBestAction.type).toBe("no_action_hold");
+    expect(recommendation?.approvalStatus).toBe("not_required");
   });
 
   it("creates stable collision-safe delivery evidence without retry scheduling", () => {
