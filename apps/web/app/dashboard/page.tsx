@@ -81,58 +81,58 @@ export default async function DashboardPage({
         const profile = accountProfile(rec.accountId);
         const meta = workspaceMeta(rec.accountId);
         return (
-        <article key={rec.id} className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <h3 style={{ margin: 0 }}>
-              #{rec.rank} ·{" "}
-              <a href={`/accounts/${rec.accountId}`}>{profile?.name ?? rec.accountId}</a>
-              {profile ? (
-                <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
-                  {" "}
-                  · {profile.industry} · {profile.tier}
-                </span>
-              ) : null}
-            </h3>
-            <div style={{ flex: "none", textAlign: "right" }}>
-              <div className="score-line">
-                <span className="score-num">{rec.score.toFixed(1)}</span>
-                <span className="score-den">/100 priority</span>
-              </div>
-              <div className={`ev-band ev-${evidenceBand(rec.confidence).tone}`}>
-                {evidenceBand(rec.confidence).label}
+          <article key={rec.id} className="card">
+            <div className="account-card-head">
+              <h3 style={{ margin: 0 }}>
+                #{rec.rank} ·{" "}
+                <a href={`/accounts/${rec.accountId}`}>{profile?.name ?? rec.accountId}</a>
+                {profile ? (
+                  <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
+                    {" "}
+                    · {profile.industry} · {profile.tier}
+                  </span>
+                ) : null}
+              </h3>
+              <div className="account-card-score">
+                <div className="score-line">
+                  <span className="score-num">{rec.score.toFixed(1)}</span>
+                  <span className="score-den">/100 priority</span>
+                </div>
+                <div className={`ev-band ev-${evidenceBand(rec.confidence).tone}`}>
+                  {evidenceBand(rec.confidence).label}
+                </div>
               </div>
             </div>
-          </div>
-          <div className="row-meta">
-            <span className={`badge tag-${priorityTier(rec.score).tone === "high" ? "accent" : "warn"}`}>
-              {priorityTier(rec.score).label}
-            </span>
-            <span className={`badge wf-${meta.workflow}`}>{WORKFLOW_LABEL[meta.workflow]}</span>
-            <span className="muted">{meta.freshness}</span>
-            <span className="muted">· {repName(rec.ownerId)}</span>
-          </div>
-          <p style={{ marginBottom: 8 }}>{rec.reasonNarrative}</p>
-          <div style={{ marginBottom: 8 }}>
-            {rec.reasonCodes.map((c) => (
-              <span key={c} className="badge">
-                {humanizeCode(c)}
+            <div className="row-meta">
+              <span className={`badge tag-${priorityTier(rec.score).tone === "high" ? "accent" : "warn"}`}>
+                {priorityTier(rec.score).label}
               </span>
-            ))}
-          </div>
-          <div>
-            <strong>Next Best Action:</strong> {rec.nextBestAction.objective}{" "}
-            <ActionBadge rec={rec} />
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <a className="btn-sm" href={`/accounts/${rec.accountId}`}>
-              Take Action →
-            </a>
-          </div>
-          <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
-            Verification: {rec.verification.status} · {rec.sourceSignals.length} verified
-            signal(s)
-          </div>
-        </article>
+              <span className={`badge wf-${meta.workflow}`}>{WORKFLOW_LABEL[meta.workflow]}</span>
+              <span className="muted">{meta.freshness}</span>
+              <span className="muted">· {repName(rec.ownerId)}</span>
+            </div>
+            <p style={{ marginBottom: 8 }}>{rec.reasonNarrative}</p>
+            <div style={{ marginBottom: 8 }}>
+              {rec.reasonCodes.map((c) => (
+                <span key={c} className="badge">
+                  {humanizeCode(c)}
+                </span>
+              ))}
+            </div>
+            <div>
+              <strong>Next Best Action:</strong> {rec.nextBestAction.objective}{" "}
+              <ActionBadge rec={rec} />
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <a className="btn-sm" href={`/accounts/${rec.accountId}`}>
+                Take Action →
+              </a>
+            </div>
+            <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
+              Verification: {rec.verification.status} · {rec.sourceSignals.length} verified
+              signal(s)
+            </div>
+          </article>
         );
       })}
     </section>
