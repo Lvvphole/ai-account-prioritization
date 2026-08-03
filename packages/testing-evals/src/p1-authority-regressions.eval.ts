@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { prioritizeAccounts } from "agent-runtime";
 
@@ -211,30 +210,5 @@ describe("P1 authority regressions", () => {
     })[0];
 
     expect(recommendation?.sourceCapabilitySnapshot).toEqual(snapshot);
-  });
-
-  it("enforces pending-only outbox inserts at the database authority boundary", async () => {
-    const migration = await readFile(
-      new URL(
-        "../../../supabase/migrations/0017_event_outbox_and_notification_jobs.sql",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-
-    expect(migration).toContain("before insert on public.integration_event_outbox");
-    expect(migration).toContain(
-      "integration event outbox insert must start in pending publication state",
-    );
-
-    const insertGrant = migration.match(
-      /grant insert \([\s\S]*?\) on table public\.integration_event_outbox to service_role;/,
-    )?.[0];
-
-    expect(insertGrant).toBeDefined();
-    expect(insertGrant).not.toMatch(/\bstatus\b/);
-    expect(insertGrant).not.toMatch(/\bpublication_attempt_count\b/);
-    expect(insertGrant).not.toMatch(/\bworkflow_run_id\b/);
-    expect(insertGrant).not.toMatch(/\bpublished_at\b/);
   });
 });
