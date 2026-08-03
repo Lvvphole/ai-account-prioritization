@@ -1,12 +1,36 @@
 import {
-  POLICY_FACTORS,
-  POLICY_RULES,
+  POLICY_FACTORS as BASE_POLICY_FACTORS,
+  POLICY_RULES as BASE_POLICY_RULES,
   POLICY_SIMULATION,
   POLICY_VERSIONS,
   SIMULATION_SUMMARY,
 } from "../../lib/admin-data";
 import { formatUsd } from "../../lib/display";
 import { MetricGrid, ReadOnlyBar, Section, StatePill } from "../../components/AdminBits";
+
+const POLICY_FACTORS = BASE_POLICY_FACTORS.map((factor) => {
+  if (factor.factor === "Contact staleness") {
+    return {
+      ...factor,
+      scaling: "Linear to 30 days; unavailable contact history removes this weight",
+    };
+  }
+  if (factor.factor === "Health risk") {
+    return {
+      ...factor,
+      scaling: "(100 − health) / 100; unavailable health removes this weight",
+    };
+  }
+  return factor;
+});
+
+const POLICY_RULES = [
+  {
+    label: "Feature availability",
+    value: "Unavailable optional features are excluded and remaining weights are renormalized",
+  },
+  ...BASE_POLICY_RULES,
+];
 
 const WORKFLOW = [
   "Create draft",
@@ -37,7 +61,7 @@ export default function AdminPolicyPage() {
 
       <Section
         title="Factor Weights"
-        sub={`Policy v12 · weights total ${totalWeight}%. Mirrors the runtime scorer: each feature is clamped to 0–1 and scaled continuously toward saturation, then multiplied by its weight.`}
+        sub={`Policy v12 · weights total ${totalWeight}%. Available features are clamped to 0–1, scaled toward saturation, and weighted. Unavailable optional features are excluded and the remaining weights are renormalized.`}
       >
         <div className="table-scroll">
           <table>
