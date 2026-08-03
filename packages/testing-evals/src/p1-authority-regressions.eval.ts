@@ -117,4 +117,51 @@ describe("P1 authority regressions", () => {
       ),
     ).toBe(true);
   });
+
+  it("preserves connector capability provenance on the recommendation", () => {
+    const now = "2026-08-03T09:00:00.000Z";
+    const snapshot = {
+      accounts: true as const,
+      contacts: false,
+      opportunities: false,
+      activities: false,
+      accountTier: true,
+      lifecycleStage: false,
+      emailEvents: false,
+      renewals: false,
+      healthScore: false,
+      intentSignals: false,
+      source: "salesforce",
+      mappingVersion: "salesforce-account-v7",
+      observedAt: "2026-08-03T08:59:30.000Z",
+    };
+
+    const recommendation = prioritizeAccounts({
+      runId: "run_capability_provenance",
+      createdAt: now,
+      sourceCapabilitiesByAccountId: { acc_provenance: snapshot },
+      sourceCapabilitySnapshotsByAccountId: { acc_provenance: snapshot },
+      contexts: [
+        {
+          account: {
+            id: "acc_provenance",
+            name: "Provenance Account",
+            ownerId: "rep_1",
+            tier: "strategic",
+            lifecycleStage: "prospect",
+            openPipelineUsd: 0,
+            intentSignals: [],
+            dataQualityFlags: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+          contacts: [],
+          opportunities: [],
+          activities: [],
+        },
+      ],
+    })[0];
+
+    expect(recommendation?.sourceCapabilitySnapshot).toEqual(snapshot);
+  });
 });
