@@ -73,17 +73,14 @@ type OpportunityRowWithExactAmount = Tables<"opportunities"> & {
   amount_usd_exact: string;
 };
 
-type OpportunityWithExactAmount = Opportunity & {
-  amountUsdExact: string;
-};
-
-function toOpportunity(row: OpportunityRowWithExactAmount): OpportunityWithExactAmount {
-  const opportunity = OpportunitySchema.parse({
+function toOpportunity(row: OpportunityRowWithExactAmount): Opportunity {
+  return OpportunitySchema.parse({
     id: row.id,
     accountId: row.account_id,
     name: row.name,
     stage: row.stage,
     amountUsd: row.amount_usd,
+    amountUsdExact: row.amount_usd_exact,
     probability: row.probability,
     closeDate: row.close_date ? iso(row.close_date) : undefined,
     isClosed: row.is_closed,
@@ -92,8 +89,6 @@ function toOpportunity(row: OpportunityRowWithExactAmount): OpportunityWithExact
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   } satisfies Opportunity);
-
-  return { ...opportunity, amountUsdExact: row.amount_usd_exact };
 }
 
 function toActivity(row: Tables<"activities">): Activity {
