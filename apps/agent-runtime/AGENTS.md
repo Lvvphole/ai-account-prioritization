@@ -22,6 +22,25 @@ If any condition is false, mark the feature `unavailable`.
 - A reason code must have direct evidence for its predicate. Unrelated verified evidence cannot satisfy grounding.
 - Fail closed when a generated authoritative reason has no direct supporting evidence.
 
+## Authority coherence
+
+Use one capability authority for scoring and for durable evidence.
+
+- Prefer one provenance-bearing capability snapshot.
+- If a caller supplies a capability declaration and a capability snapshot, compare the capability fields before scoring.
+- Reject the call when the two declarations differ.
+- Do not score from one capability object and audit a different capability object.
+
+## Capability snapshot age
+
+A monotonic `observedAt` value is not sufficient freshness evidence.
+
+- Compare `observedAt` with the injected decision clock before durable scoring.
+- Use `crm-source-capability-max-age-7d-v1` as the current maximum-age policy.
+- Reject a snapshot that is more than seven days old.
+- Reject a snapshot that is later than the injected decision clock.
+- Change the policy version when the maximum age or comparison rule changes.
+
 ## Canonical ordering
 
 Any collection that can originate from database, connector, event, or API order must be canonicalized before it affects serialized recommendation or audit evidence.
@@ -43,7 +62,10 @@ Authoritative or persisted evidence text must not depend on host locale or ICU d
 
 Money that affects score, reason thresholds, action authority, or audit evidence must use exact minor-unit semantics.
 
-- Validate the canonical decimal representation to the allowed currency precision.
+- Preserve the source decimal representation before any JavaScript `number` conversion.
+- For PostgreSQL `numeric` values, select a text cast or another exact representation at the repository boundary.
+- Do not attempt to recover source precision from a JavaScript `number` after conversion.
+- Validate the preserved decimal representation to the allowed currency precision.
 - Convert to integer minor units before aggregation.
 - Use safe integer or `BigInt` arithmetic for aggregation.
 - Convert only once after aggregation when a numeric score input is required.
@@ -64,6 +86,9 @@ Deterministic in-memory candidate IDs and persisted recommendation IDs are diffe
 For every fix in one of these defect classes, sweep homologous paths before stopping:
 
 - derived-feature provenance;
+- source precision before runtime conversion;
+- capability snapshot ordering and age;
+- duplicate authority declarations;
 - unordered evidence collections;
 - locale-dependent serialization;
 - monetary precision;
