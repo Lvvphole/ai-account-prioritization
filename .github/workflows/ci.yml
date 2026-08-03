@@ -34,6 +34,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Gate 0: repository knowledge remains concise, discoverable, and cross-linked.
+      - name: Verify repository knowledge
+        run: pnpm verify:knowledge
+
       # Gate 1: schema generation (TS/Zod -> JSON Schema for Python)
       - name: Generate schemas
         run: pnpm generate:schemas
