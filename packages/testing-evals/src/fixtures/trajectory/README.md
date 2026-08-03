@@ -133,10 +133,12 @@ The assertions remain exact; no score tolerance is used.
 
 ## Run
 
-From the repository root:
+From a clean repository root after `pnpm install --frozen-lockfile`:
 
 ```bash
-pnpm --filter @repo/testing-evals test:trajectory
+pnpm test:trajectory
 ```
 
-The suite is also included in the normal deterministic eval gate.
+The root command uses Turborepo to build workspace dependencies before it runs
+the focused trajectory suite. The suite is also included in the normal
+deterministic eval gate.
