@@ -9,21 +9,25 @@
 -- durable workflow runtime owns provider-call retry behavior.
 
 create table if not exists public.account_source_capabilities (
-  account_id uuid primary key references public.accounts(id) on delete cascade,
+  account_id uuid primary key,
+  workspace_id uuid not null references public.workspaces(id) on delete restrict,
   source text not null check (char_length(source) between 1 and 100),
   capabilities jsonb not null,
   mapping_version text not null check (char_length(mapping_version) between 1 and 200),
   observed_at timestamptz not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint account_source_capabilities_object check (jsonb_typeof(capabilities) = 'object')
+  constraint account_source_capabilities_object check (jsonb_typeof(capabilities) = 'object'),
+  constraint account_source_capabilities_account_same_workspace_fk
+    foreign key (account_id, workspace_id)
+    references public.accounts(id, workspace_id) on delete cascade
 );
 
 comment on table public.account_source_capabilities is
-  'Authoritative per-account CRM capability snapshot. The runtime parses capabilities through CrmSourceCapabilitiesSchema and fails closed on missing or invalid evidence.';
+  'Authoritative per-account CRM capability snapshot, bound to the same workspace as its account. The runtime parses capabilities through CrmSourceCapabilitiesSchema and fails closed on missing or invalid evidence.';
 
 create index if not exists account_source_capabilities_source_idx
-  on public.account_source_capabilities (source, observed_at);
+  on public.account_source_capabilities (workspace_id, source, observed_at);
 
 drop trigger if exists set_account_source_capabilities_updated_at on public.account_source_capabilities;
 create trigger set_account_source_capabilities_updated_at
@@ -155,6 +159,28 @@ create table if not exists public.notification_deliveries (
 create index if not exists notification_deliveries_recommendation_idx
   on public.notification_deliveries (workspace_id, recommendation_id, requested_at);
 
+create or replace function public.enforce_notification_delivery_insert()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.status <> 'requested'
+     or new.provider_message_id is not null
+     or new.sent_at is not null
+     or new.failed_at is not null
+     or new.failure_code is not null then
+    raise exception 'notification delivery insert must start in requested state without terminal evidence'
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_notification_delivery_insert on public.notification_deliveries;
+create trigger enforce_notification_delivery_insert
+  before insert on public.notification_deliveries
+  for each row execute function public.enforce_notification_delivery_insert();
+
 create or replace function public.enforce_notification_delivery_transition()
 returns trigger
 language plpgsql
@@ -191,7 +217,17 @@ revoke all on table public.account_source_capabilities from service_role;
 revoke all on table public.integration_event_outbox from service_role;
 revoke all on table public.notification_deliveries from service_role;
 
-grant select, insert on table public.account_source_capabilities to service_role;
+-- Capability authority is tenant-bound by the composite account/workspace FK.
+-- Database-owned timestamps cannot be forged by source-adapter inserts.
+grant select on table public.account_source_capabilities to service_role;
+grant insert (
+  account_id,
+  workspace_id,
+  source,
+  capabilities,
+  mapping_version,
+  observed_at
+) on table public.account_source_capabilities to service_role;
 grant update (source, capabilities, mapping_version, observed_at)
   on table public.account_source_capabilities to service_role;
 
@@ -219,7 +255,17 @@ grant update (
   last_error_code
 ) on table public.integration_event_outbox to service_role;
 
-grant select, insert on table public.notification_deliveries to service_role;
+-- A workflow can create only a requested delivery identity. Terminal state and
+-- provider evidence can be written only through the guarded UPDATE path.
+grant select on table public.notification_deliveries to service_role;
+grant insert (
+  workspace_id,
+  recipient_id,
+  recommendation_id,
+  channel,
+  idempotency_key,
+  workflow_run_id
+) on table public.notification_deliveries to service_role;
 grant update (
   workflow_run_id,
   status,
@@ -232,4 +278,4 @@ grant update (
 comment on table public.integration_event_outbox is
   'Transactional outbox for CRM events. Inserts always start pending; the relay alone advances publication state.';
 comment on table public.notification_deliveries is
-  'Idempotent notification delivery ledger. Workflow steps own provider retry behavior; customer-facing sends remain approval-gated.';
+  'Idempotent notification delivery ledger. Inserts always start requested; workflow steps own provider retry behavior and terminal evidence; customer-facing sends remain approval-gated.';
