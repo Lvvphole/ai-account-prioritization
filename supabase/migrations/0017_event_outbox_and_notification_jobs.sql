@@ -65,6 +65,30 @@ create index if not exists integration_event_outbox_claim_idx
 create index if not exists integration_event_outbox_account_idx
   on public.integration_event_outbox (workspace_id, aggregate_id, created_at);
 
+create or replace function public.enforce_integration_event_outbox_insert()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.status <> 'pending'
+     or new.publication_attempt_count <> 0
+     or new.locked_at is not null
+     or new.locked_by is not null
+     or new.workflow_run_id is not null
+     or new.published_at is not null
+     or new.last_error_code is not null then
+    raise exception 'integration event outbox insert must start in pending publication state'
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_integration_event_outbox_insert on public.integration_event_outbox;
+create trigger enforce_integration_event_outbox_insert
+  before insert on public.integration_event_outbox
+  for each row execute function public.enforce_integration_event_outbox_insert();
+
 create or replace function public.enforce_integration_event_outbox_transition()
 returns trigger
 language plpgsql
@@ -136,8 +160,6 @@ returns trigger
 language plpgsql
 as $$
 begin
-  -- A terminal delivery row is immutable business evidence. A sent/failed/
-  -- cancelled row cannot be reopened to requested or rewritten in place.
   if old.status <> 'requested' then
     raise exception 'notification delivery terminal state is immutable'
       using errcode = '23514';
@@ -161,26 +183,31 @@ alter table public.account_source_capabilities enable row level security;
 alter table public.integration_event_outbox enable row level security;
 alter table public.notification_deliveries enable row level security;
 
--- These tables are server-only. Browser sessions cannot read or mutate them.
 revoke all on table public.account_source_capabilities from anon, authenticated;
 revoke all on table public.integration_event_outbox from anon, authenticated;
 revoke all on table public.notification_deliveries from anon, authenticated;
 
--- PostgreSQL grants are additive. Remove Supabase default service-role table
--- privileges first, then add only the operations required by the runtime.
 revoke all on table public.account_source_capabilities from service_role;
 revoke all on table public.integration_event_outbox from service_role;
 revoke all on table public.notification_deliveries from service_role;
 
--- Source adapters maintain the current capability snapshot. Account identity is
--- the immutable primary key; updates can replace the source evidence and version.
 grant select, insert on table public.account_source_capabilities to service_role;
 grant update (source, capabilities, mapping_version, observed_at)
   on table public.account_source_capabilities to service_role;
 
--- Outbox identity and payload are immutable after insertion. The relay can only
--- advance publication state and record workflow-start evidence.
-grant select, insert on table public.integration_event_outbox to service_role;
+-- The source adapter can insert only event identity/content. Publication-state
+-- columns keep their database defaults and are also protected by the insert trigger.
+grant select on table public.integration_event_outbox to service_role;
+grant insert (
+  workspace_id,
+  source,
+  source_event_id,
+  aggregate_type,
+  aggregate_id,
+  event_type,
+  payload,
+  available_at
+) on table public.integration_event_outbox to service_role;
 grant update (
   status,
   publication_attempt_count,
@@ -192,9 +219,6 @@ grant update (
   last_error_code
 ) on table public.integration_event_outbox to service_role;
 
--- Delivery identity and the idempotency key are immutable to application code.
--- Only delivery-result columns can change while the row is requested. DELETE is
--- not granted, and the transition trigger makes terminal rows immutable.
 grant select, insert on table public.notification_deliveries to service_role;
 grant update (
   workflow_run_id,
@@ -206,6 +230,6 @@ grant update (
 ) on table public.notification_deliveries to service_role;
 
 comment on table public.integration_event_outbox is
-  'Transactional outbox for CRM events. The relay publishes durable workflow starts and records the workflow run id.';
+  'Transactional outbox for CRM events. Inserts always start pending; the relay alone advances publication state.';
 comment on table public.notification_deliveries is
   'Idempotent notification delivery ledger. Workflow steps own provider retry behavior; customer-facing sends remain approval-gated.';
