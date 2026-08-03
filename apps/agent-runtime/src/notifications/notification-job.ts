@@ -1,35 +1,43 @@
 import { createHash } from "node:crypto";
 
 export type NotificationChannel = "email" | "in_app";
-export type NotificationStatus = "pending" | "sending" | "sent" | "failed" | "dead";
+export type NotificationDeliveryStatus = "requested" | "sent" | "failed" | "cancelled";
 
-export interface NotificationJob {
+/**
+ * Durable business evidence for one notification delivery.
+ *
+ * This record does not schedule work and does not own retry state. The durable
+ * workflow runtime owns provider-call retries. Supabase owns the delivery
+ * evidence and idempotency boundary.
+ */
+export interface NotificationDeliveryRecord {
   idempotencyKey: string;
   workspaceId: string;
   recipientId: string;
   recommendationId: string;
   channel: NotificationChannel;
-  status: NotificationStatus;
-  attemptCount: number;
-  availableAt: string;
-  createdAt: string;
+  workflowRunId: string | null;
+  status: NotificationDeliveryStatus;
+  providerMessageId: string | null;
+  requestedAt: string;
   sentAt: string | null;
-  lastErrorCode: string | null;
+  failedAt: string | null;
+  failureCode: string | null;
 }
 
-export interface CreateNotificationJobInput {
+export interface CreateNotificationDeliveryInput {
   workspaceId: string;
   recipientId: string;
   recommendationId: string;
   channel: NotificationChannel;
+  workflowRunId?: string | null;
   now: string;
 }
 
 export function notificationIdempotencyKey(
-  input: Omit<CreateNotificationJobInput, "now">,
+  input: Omit<CreateNotificationDeliveryInput, "now" | "workflowRunId">,
 ): string {
-  // A JSON array is an injective encoding for these ordered string fields.
-  // Delimiter joins are not safe because ids can contain the delimiter.
+  // A JSON array gives one unambiguous encoding for the ordered fields.
   const canonical = JSON.stringify([
     input.workspaceId,
     input.recipientId,
@@ -39,27 +47,21 @@ export function notificationIdempotencyKey(
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
-export function createNotificationJob(input: CreateNotificationJobInput): NotificationJob {
+export function createNotificationDelivery(
+  input: CreateNotificationDeliveryInput,
+): NotificationDeliveryRecord {
   return {
     idempotencyKey: notificationIdempotencyKey(input),
     workspaceId: input.workspaceId,
     recipientId: input.recipientId,
     recommendationId: input.recommendationId,
     channel: input.channel,
-    status: "pending",
-    attemptCount: 0,
-    availableAt: input.now,
-    createdAt: input.now,
+    workflowRunId: input.workflowRunId ?? null,
+    status: "requested",
+    providerMessageId: null,
+    requestedAt: input.now,
     sentAt: null,
-    lastErrorCode: null,
+    failedAt: null,
+    failureCode: null,
   };
-}
-
-/** Deterministic exponential backoff. Attempt 1 waits 60 seconds; cap is 1 hour. */
-export function nextNotificationAttemptAt(now: string, attemptCount: number): string {
-  if (!Number.isInteger(attemptCount) || attemptCount < 1) {
-    throw new Error("attemptCount must be a positive integer.");
-  }
-  const delaySeconds = Math.min(3600, 60 * 2 ** (attemptCount - 1));
-  return new Date(new Date(now).getTime() + delaySeconds * 1000).toISOString();
 }
