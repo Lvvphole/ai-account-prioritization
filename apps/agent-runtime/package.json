@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "pnpm --filter agent-runtime... build",
     "test": "vitest run",
     "dev": "tsx src/index.ts",
     "clean": "rm -rf dist"
