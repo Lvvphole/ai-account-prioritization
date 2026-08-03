@@ -31,6 +31,10 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
+    "test:trajectory": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
     "test:judge": {
       "dependsOn": ["^build"],
       "cache": false

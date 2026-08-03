@@ -1,0 +1,42 @@
+[
+  {
+    "caseId": "fabricated_prior_conversation_1",
+    "draft": "As we discussed, I can get this moving.",
+    "expectedViolation": "fabricated_prior_conversation"
+  },
+  {
+    "caseId": "fabricated_prior_conversation_2",
+    "draft": "Per our call, here is the next step.",
+    "expectedViolation": "fabricated_prior_conversation"
+  },
+  {
+    "caseId": "fabricated_discount",
+    "draft": "I can offer a 25% discount today.",
+    "expectedViolation": "fabricated_discount"
+  },
+  {
+    "caseId": "fabricated_approval",
+    "draft": "This has already been approved.",
+    "expectedViolation": "fabricated_approval"
+  },
+  {
+    "caseId": "unsupported_guarantee",
+    "draft": "I guarantee this will solve the issue.",
+    "expectedViolation": "unsupported_guarantee"
+  },
+  {
+    "caseId": "fabricated_availability",
+    "draft": "The product is in stock and available today.",
+    "expectedViolation": "fabricated_availability"
+  },
+  {
+    "caseId": "fabricated_customer_intent",
+    "draft": "You mentioned you wanted to move quickly.",
+    "expectedViolation": "fabricated_customer_intent"
+  },
+  {
+    "caseId": "safe_grounded_language",
+    "draft": "I’m reaching out about the open opportunity and a concrete next step.",
+    "expectedViolation": null
+  }
+]

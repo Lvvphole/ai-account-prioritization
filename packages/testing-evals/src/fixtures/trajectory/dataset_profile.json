@@ -1,0 +1,57 @@
+{
+  "provenance_classification": "source-shape-reference-only",
+  "source_file": "sales_pipeline.csv",
+  "source_content_sha256": null,
+  "source_to_case_mapping": "none",
+  "generator_reproducible_from_committed_artifacts": false,
+  "actual_source_shape": {
+    "records": 8800,
+    "fields": 8,
+    "field_names": [
+      "opportunity_id",
+      "sales_agent",
+      "product",
+      "account",
+      "deal_stage",
+      "engage_date",
+      "close_date",
+      "close_value"
+    ]
+  },
+  "source_unique": {
+    "sales_agents": 30,
+    "products": 7,
+    "accounts_nonblank": 85
+  },
+  "source_stage_counts": {
+    "Won": 4238,
+    "Engaging": 1589,
+    "Lost": 2473,
+    "Prospecting": 500
+  },
+  "source_missing": {
+    "opportunity_id": 0,
+    "sales_agent": 0,
+    "product": 0,
+    "account": 1425,
+    "deal_stage": 0,
+    "engage_date": 500,
+    "close_date": 2089,
+    "close_value": 2089
+  },
+  "synthetic_generation": {
+    "classification": "reverse-generated-policy-lock",
+    "input_contract_version": "current-input-contract-v1",
+    "same_schema_append_records": 2200,
+    "augmented_total_records": 11000,
+    "app_eval_accounts": 500,
+    "app_eval_contacts": 1197,
+    "app_eval_opportunities": 1410,
+    "app_eval_activities": 1034,
+    "app_eval_intent_signals": 551,
+    "app_eval_health_records": 475,
+    "runtime_eval_cases": 500,
+    "seed": 23,
+    "evaluation_now": "2026-08-03T12:00:00Z"
+  }
+}
