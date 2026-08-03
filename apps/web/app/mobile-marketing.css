@@ -1,0 +1,102 @@
+@media (max-width: 760px) {
+  .marketing-mobile-scope {
+    overflow-x: hidden;
+  }
+
+  .marketing-mobile-scope nav[aria-label="Marketing navigation"] {
+    gap: 12px;
+  }
+
+  .marketing-mobile-scope nav[aria-label="Marketing navigation"] > a[aria-label="AI Account Prioritization home"] {
+    min-width: 0;
+    font-size: 13px;
+    gap: 10px;
+  }
+
+  .marketing-mobile-scope nav[aria-label="Marketing navigation"] a[href="/login"] {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .marketing-mobile-scope #product {
+    padding: 36px 20px 32px;
+    gap: 32px;
+  }
+
+  .marketing-mobile-scope #product h1 {
+    font-size: clamp(38px, 11.5vw, 50px);
+    line-height: 1.02;
+  }
+
+  .marketing-mobile-scope #product a[href="/login"],
+  .marketing-mobile-scope #product a[href="#how-it-works"] {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .marketing-mobile-scope [aria-label="Demo metrics"] {
+    margin-top: 32px;
+  }
+
+  .marketing-mobile-scope [aria-label="Product dashboard preview"] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .marketing-mobile-scope #how-it-works > div {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: start;
+    justify-content: stretch;
+    gap: 12px;
+    padding: 20px;
+    overflow: visible;
+  }
+
+  .marketing-mobile-scope #how-it-works > div > span {
+    white-space: normal;
+  }
+
+  .marketing-mobile-scope #security {
+    padding: 34px 20px 44px;
+  }
+
+  .marketing-mobile-scope #security > div {
+    grid-template-columns: 1fr;
+  }
+
+  .marketing-mobile-scope #security article {
+    min-height: 0;
+    padding: 22px 18px;
+  }
+}
+
+@media (max-width: 420px) {
+  .marketing-mobile-scope nav[aria-label="Marketing navigation"] {
+    padding-left: 14px;
+    padding-right: 14px;
+    gap: 8px;
+  }
+
+  .marketing-mobile-scope nav[aria-label="Marketing navigation"] > a[aria-label="AI Account Prioritization home"] {
+    font-size: 12px;
+    gap: 8px;
+  }
+
+  .marketing-mobile-scope nav[aria-label="Marketing navigation"] a[href="/login"] {
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 11px !important;
+  }
+
+  .marketing-mobile-scope #product {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .marketing-mobile-scope #security {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
