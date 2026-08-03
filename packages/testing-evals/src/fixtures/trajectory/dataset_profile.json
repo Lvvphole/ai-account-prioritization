@@ -1,5 +1,9 @@
 {
+  "provenance_classification": "source-shape-reference-only",
   "source_file": "sales_pipeline.csv",
+  "source_content_sha256": null,
+  "source_to_case_mapping": "none",
+  "generator_reproducible_from_committed_artifacts": false,
   "actual_source_shape": {
     "records": 8800,
     "fields": 8,
@@ -35,7 +39,9 @@
     "close_date": 2089,
     "close_value": 2089
   },
-  "generated": {
+  "synthetic_generation": {
+    "classification": "reverse-generated-policy-lock",
+    "input_contract_version": "current-input-contract-v1",
     "same_schema_append_records": 2200,
     "augmented_total_records": 11000,
     "app_eval_accounts": 500,
