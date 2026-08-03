@@ -56,7 +56,7 @@ export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
 
   return ranked.map((r) => {
     const reasonCodes = generateReasonCodes(r.context, r.features);
-    const sourceSignals = discoverAccountSignals(r.context, reasonCodes);
+    const sourceSignals = discoverAccountSignals(r.context, r.features, reasonCodes);
     const nextBestAction = selectNextBestAction(
       r.context,
       reasonCodes,
