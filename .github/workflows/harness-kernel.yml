@@ -1,0 +1,49 @@
+name: Harness Kernel
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-kernel-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Harness Contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify affected repository contracts
+        run: >-
+          pnpm harness:verify --
+          --base "${{ github.event.pull_request.base.sha }}"
+          --head "${{ github.event.pull_request.head.sha }}"
+          --evidence verification-reports/harness-evidence.json
+
+      - name: Preserve harness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-evidence
+          path: verification-reports/harness-evidence.json
+          if-no-files-found: warn
