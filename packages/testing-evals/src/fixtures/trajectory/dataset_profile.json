@@ -41,7 +41,7 @@
   },
   "synthetic_generation": {
     "classification": "reverse-generated-policy-lock",
-    "input_contract_version": "current-input-contract-v1",
+    "input_contract_version": "current-input-contract-v2",
     "same_schema_append_records": 2200,
     "augmented_total_records": 11000,
     "app_eval_accounts": 500,
