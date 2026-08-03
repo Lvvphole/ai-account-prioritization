@@ -48,11 +48,16 @@ const FIELD_TO_FEATURES: Record<string, AccountFeatureName[]> = {
   healthScore: ["healthRisk"],
 };
 
+const EXPLICIT_TIME_ZONE = /(?:Z|[+-]\d{2}:\d{2})$/i;
+
 function compareOrdinal(a: string, b: string): number {
   return a === b ? 0 : a < b ? -1 : 1;
 }
 
 function normalizeOccurredAt(value: string): string {
+  if (!EXPLICIT_TIME_ZONE.test(value)) {
+    throw new Error(`Account event occurredAt must include an explicit UTC offset: ${value}`);
+  }
   const instant = Date.parse(value);
   if (!Number.isFinite(instant)) {
     throw new Error(`Invalid account event occurredAt timestamp: ${value}`);
@@ -89,8 +94,8 @@ export function affectedFeaturesForEvent(event: AccountEvent): AccountFeatureNam
 /**
  * Coalesce noisy webhook bursts into one account-level recomputation unit.
  * Source-qualified references remain attached for idempotency and audit evidence.
- * Event timestamps are validated and normalized to canonical UTC before they
- * enter durable first/last evidence.
+ * Event timestamps must include an explicit zone and are normalized to UTC before
+ * they enter durable first/last evidence.
  */
 export function coalesceAccountEvents(events: AccountEvent[]): AccountRecomputeWork[] {
   const byAccount = new Map<string, AccountRecomputeWork>();
