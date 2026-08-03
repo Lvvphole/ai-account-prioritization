@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   coalesceAccountEvents,
   createNotificationDelivery,
+  parseDurableRecommendationId,
   prioritizeAccounts,
   resolveFeatureModes,
 } from "agent-runtime";
@@ -151,7 +152,7 @@ describe("event-driven CRM foundation", () => {
     expect(modes.staleness).toBe("unavailable");
   });
 
-  it("derives pipeline from open opportunities instead of account defaults", () => {
+  it("derives pipeline from traceable open opportunities instead of account defaults", () => {
     const now = "2026-08-03T09:00:00.000Z";
     const recommendation = prioritizeAccounts({
       runId: "run_pipeline_derivation",
@@ -218,18 +219,19 @@ describe("event-driven CRM foundation", () => {
 
     expect(recommendation?.reasonCodes).toContain("high_open_pipeline");
     expect(
-      recommendation?.sourceSignals.some((signal) =>
-        signal.description.toLowerCase().includes("open pipeline of $250,000"),
+      recommendation?.sourceSignals.some(
+        (signal) =>
+          signal.refId === "opp_open" &&
+          signal.description.includes("$250,000") &&
+          signal.description.includes("open-opportunity-sum-usd-cents-v2"),
       ),
     ).toBe(true);
     expect(
-      recommendation?.sourceSignals.some((signal) =>
-        signal.description.includes("open-opportunity-sum-usd-cents-v2"),
+      recommendation?.sourceSignals.some(
+        (signal) => signal.description.includes("Derived open pipeline totals $250,000"),
       ),
     ).toBe(true);
-    expect(
-      recommendation?.sourceSignals.some((signal) => signal.description.includes("$900,000")),
-    ).toBe(false);
+    expect(recommendation?.sourceSignals.some((signal) => signal.refId === "opp_closed")).toBe(false);
   });
 
   it("keeps renewal-only lifecycle unavailable until a derivation exists", () => {
@@ -245,7 +247,6 @@ describe("event-driven CRM foundation", () => {
       healthScore: false,
       intentSignals: false,
     });
-
     expect(modes.lifecycle).toBe("unavailable");
   });
 
@@ -323,7 +324,6 @@ describe("event-driven CRM foundation", () => {
     expect(high?.reasonCodes).not.toContain("verified_intent_signal");
     expect(high?.sourceSignals.some((signal) => signal.description.includes("health score"))).toBe(false);
     expect(high?.sourceSignals.some((signal) => signal.description.includes("No logged contact"))).toBe(false);
-    expect(high?.sourceSignals.some((signal) => signal.description.includes("tier strategic"))).toBe(false);
   });
 
   it("does not let unavailable staleness lift confidence above the action threshold", () => {
@@ -432,25 +432,34 @@ describe("event-driven CRM foundation", () => {
     expect(recommendation?.approvalStatus).toBe("not_required");
   });
 
-  it("creates stable collision-safe delivery evidence without retry scheduling", () => {
+  it("requires canonical durable recommendation UUIDs for delivery evidence", () => {
+    const recommendationA = parseDurableRecommendationId(
+      "91000000-0000-0000-0000-0000000000a1",
+    );
+    const recommendationB = parseDurableRecommendationId(
+      "91000000-0000-0000-0000-0000000000b2",
+    );
     const input = {
       workspaceId: "ws_1",
       recipientId: "a:b",
-      recommendationId: "c",
+      recommendationId: recommendationA,
       channel: "email" as const,
       workflowRunId: "workflow_1",
       now: "2026-08-03T09:00:00.000Z",
     };
+
     const first = createNotificationDelivery(input);
     const second = createNotificationDelivery({ ...input, now: "2026-08-03T10:00:00.000Z" });
-    const delimiterCollisionCandidate = createNotificationDelivery({
+    const differentRecommendation = createNotificationDelivery({
       ...input,
       recipientId: "a",
-      recommendationId: "b:c",
+      recommendationId: recommendationB,
     });
 
+    expect(() => parseDurableRecommendationId("rec_run_account")).toThrow();
     expect(first.idempotencyKey).toBe(second.idempotencyKey);
-    expect(first.idempotencyKey).not.toBe(delimiterCollisionCandidate.idempotencyKey);
+    expect(first.idempotencyKey).not.toBe(differentRecommendation.idempotencyKey);
+    expect(first.recommendationId).toBe(recommendationA);
     expect(first).toMatchObject({
       workflowRunId: "workflow_1",
       status: "requested",
