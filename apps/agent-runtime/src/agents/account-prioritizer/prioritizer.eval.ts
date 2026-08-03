@@ -91,6 +91,58 @@ export const prioritizerEvalCases: DeterministicEvalCase[] = [
     },
   },
   {
+    id: "connector_modes_remove_unsupported_default_features",
+    run: () => {
+      const featureModes = {
+        pipeline: "derived",
+        intent: "unavailable",
+        staleness: "unavailable",
+        tier: "unavailable",
+        lifecycle: "unavailable",
+        healthRisk: "unavailable",
+      } as const;
+      const highDefaults: AccountContext = {
+        ...ctx({
+          id: "a_high",
+          openPipelineUsd: 100_000,
+          tier: "strategic",
+          lifecycleStage: "churn_risk",
+          daysSinceLastContact: 365,
+          healthScore: 0,
+        }),
+        featureModes,
+      };
+      const lowDefaults: AccountContext = {
+        ...ctx({
+          id: "a_low",
+          openPipelineUsd: 100_000,
+          tier: "smb",
+          lifecycleStage: "prospect",
+          daysSinceLastContact: 0,
+          healthScore: 100,
+        }),
+        featureModes,
+      };
+      const high = scoreAccount(highDefaults);
+      const low = scoreAccount(lowDefaults);
+      const codes = generateReasonCodes(highDefaults, high.features);
+      return {
+        passed:
+          high.score === low.score &&
+          high.features.availability.pipeline === true &&
+          high.features.availability.intent === false &&
+          high.features.availability.staleness === false &&
+          high.features.availability.tier === false &&
+          high.features.availability.lifecycle === false &&
+          high.features.availability.healthRisk === false &&
+          !codes.includes("strategic_tier_account") &&
+          !codes.includes("churn_risk_detected") &&
+          !codes.includes("stale_no_contact"),
+        details: `high=${high.score} low=${low.score} codes=${codes.join(",")}`,
+      };
+    },
+  },
+  {
     id: "optional_health_does_not_reduce_confidence",
     run: () => {
       const base = ctx({
