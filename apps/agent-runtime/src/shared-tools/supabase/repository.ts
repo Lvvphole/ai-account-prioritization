@@ -15,7 +15,6 @@ import {
   OpportunitySchema,
 } from "@repo/shared-schemas";
 import type { Json, Tables, TypedSupabaseClient } from "@repo/supabase-client";
-import { assertCapabilitySnapshotFresh } from "../../ingestion/source-capabilities";
 import type { RuntimeRepository } from "../runtime-repository";
 import { createRuntimeClient } from "./client";
 import { getServiceRoleClient } from "./service-role-client";
@@ -214,7 +213,6 @@ export function createSupabaseRepository(
             mappingVersion: row.mapping_version,
             observedAt: iso(row.observed_at),
           });
-          assertCapabilitySnapshotFresh(snapshot.observedAt, nowIso);
           snapshots[row.account_id] = snapshot;
         } catch (error) {
           const message = error instanceof Error ? error.message : "unknown schema error";
