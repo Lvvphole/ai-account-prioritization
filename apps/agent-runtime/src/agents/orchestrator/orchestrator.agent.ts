@@ -149,9 +149,10 @@ async function applyApproval(
       action: "approve_action",
       decision: "approved",
       reason: `Human approved ${rec.nextBestAction.type} action.`,
-      evidence: rec.sourceCapabilitySnapshot
-        ? { sourceCapabilitySnapshot: rec.sourceCapabilitySnapshot }
-        : undefined,
+      evidence: {
+        sourceCapabilitySnapshot: rec.sourceCapabilitySnapshot,
+        sourceSignals: rec.sourceSignals,
+      },
       occurredAt: now,
     },
     repo,
@@ -229,6 +230,7 @@ async function auditDraftOutcome(
       evidence: {
         recommendationId: outcome.recommendationId,
         sourceCapabilitySnapshot: rec.sourceCapabilitySnapshot,
+        sourceSignals: rec.sourceSignals,
         draftSource: outcome.source,
         selectedSourceSignalIds: outcome.selectedSourceSignalIds,
         claimCitations: outcome.claimCitations,
@@ -365,9 +367,10 @@ export async function runDailyPrioritizationForOwner(
           action: "block_recommendation",
           decision: "blocked",
           reason: `Failed gates: ${failedGates.join(", ")}`,
-          evidence: candidate.sourceCapabilitySnapshot
-            ? { sourceCapabilitySnapshot: candidate.sourceCapabilitySnapshot }
-            : undefined,
+          evidence: {
+            sourceCapabilitySnapshot: candidate.sourceCapabilitySnapshot,
+            sourceSignals: candidate.sourceSignals,
+          },
           occurredAt: now,
         },
         repo,
@@ -393,6 +396,7 @@ export async function runDailyPrioritizationForOwner(
             score: publishedRec.score,
             rank: publishedRec.rank,
             sourceCapabilitySnapshot: publishedRec.sourceCapabilitySnapshot,
+            sourceSignals: publishedRec.sourceSignals,
           },
           occurredAt: now,
         },
@@ -423,9 +427,10 @@ export async function runDailyPrioritizationForOwner(
           action: "block_recommendation",
           decision: "blocked",
           reason: `Failed gates: ${recommendation.verification.failedGates.join(", ")}`,
-          evidence: recommendation.sourceCapabilitySnapshot
-            ? { sourceCapabilitySnapshot: recommendation.sourceCapabilitySnapshot }
-            : undefined,
+          evidence: {
+            sourceCapabilitySnapshot: recommendation.sourceCapabilitySnapshot,
+            sourceSignals: recommendation.sourceSignals,
+          },
           occurredAt: now,
         },
         repo,
