@@ -60,8 +60,6 @@ export {
   type RuntimeModelTelemetry,
 } from "./inference/runtime-model";
 
-// Supabase wiring (Sprint 4). The runtime stays on the in-memory store unless a
-// run supplies an RLS context AND Supabase is configured.
 export {
   resolveRepository,
   inMemoryRepository,
@@ -75,7 +73,6 @@ export {
 } from "./shared-tools/supabase/rls-context";
 export { createSupabaseRepository } from "./shared-tools/supabase/repository";
 
-// Co-located deterministic eval cases (consumed by @repo/testing-evals).
 export {
   prioritizerEvalCases,
   type DeterministicEvalCase,
@@ -146,17 +143,14 @@ export {
 export {
   createNotificationDelivery,
   notificationIdempotencyKey,
+  parseDurableRecommendationId,
   type CreateNotificationDeliveryInput,
+  type DurableRecommendationId,
   type NotificationChannel,
   type NotificationDeliveryRecord,
   type NotificationDeliveryStatus,
 } from "./notifications/notification-job";
 
-/**
- * Register read-only runtime tools on the MCP registry. Side-effecting tools
- * (CRM write-back, send) are deliberately NOT auto-registered here; they remain
- * approval-gated and are invoked only through the orchestrator's verified path.
- */
 mcpRegistry.register({
   name: "crm.read_accounts",
   description: "Read accounts owned by a sales rep.",
@@ -165,7 +159,6 @@ mcpRegistry.register({
   handler: ({ ownerId }) => readAccounts(ownerId),
 });
 
-/** Container/CLI entrypoint for the daily prioritization worker. */
 async function main(): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(ORCHESTRATOR_CONTRACT);
