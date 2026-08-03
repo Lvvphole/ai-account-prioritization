@@ -1,0 +1,55 @@
+{
+  "$ref": "#/definitions/CrmSourceCapabilities",
+  "definitions": {
+    "CrmSourceCapabilities": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "boolean",
+          "const": true
+        },
+        "contacts": {
+          "type": "boolean"
+        },
+        "opportunities": {
+          "type": "boolean"
+        },
+        "activities": {
+          "type": "boolean"
+        },
+        "accountTier": {
+          "type": "boolean"
+        },
+        "lifecycleStage": {
+          "type": "boolean"
+        },
+        "emailEvents": {
+          "type": "boolean"
+        },
+        "renewals": {
+          "type": "boolean"
+        },
+        "healthScore": {
+          "type": "boolean"
+        },
+        "intentSignals": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accounts",
+        "contacts",
+        "opportunities",
+        "activities",
+        "accountTier",
+        "lifecycleStage",
+        "emailEvents",
+        "renewals",
+        "healthScore",
+        "intentSignals"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

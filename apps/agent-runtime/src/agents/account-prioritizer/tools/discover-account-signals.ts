@@ -1,4 +1,4 @@
-import type { SourceSignal } from "@repo/shared-schemas";
+import type { ReasonCode, SourceSignal } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../../config/runtime";
 import type { AccountContext } from "../prioritizer.policy";
 import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-observations";
@@ -9,7 +9,10 @@ import { resolveVerifiedIntentObservations } from "./resolve-verified-intent-obs
  * Every signal is derived ONLY from real records and marked `verified` based on
  * the source record's own verification flag. Nothing is invented (Rule #11).
  */
-export function discoverAccountSignals(ctx: AccountContext): SourceSignal[] {
+export function discoverAccountSignals(
+  ctx: AccountContext,
+  reasonCodes: readonly ReasonCode[] = [],
+): SourceSignal[] {
   const cfg = RUNTIME_CONFIG;
   const a = ctx.account;
   const signals: SourceSignal[] = [];
@@ -61,15 +64,24 @@ export function discoverAccountSignals(ctx: AccountContext): SourceSignal[] {
     });
   }
 
-  // Guarantee at least one verified signal so the recommendation can cite
-  // evidence; otherwise the data-quality state itself is the (verified) signal.
+  // Guarantee at least one verified signal. A neutral hold cites the deterministic
+  // policy result; other cases retain the existing verified account identity fact.
   if (signals.length === 0) {
-    signals.push({
-      kind: "account",
-      refId: a.id,
-      description: `Account ${a.name} is owned by ${a.ownerId} at tier ${a.tier}.`,
-      verified: true,
-    });
+    if (reasonCodes.includes("no_qualifying_signal")) {
+      signals.push({
+        kind: "derived",
+        refId: a.id,
+        description: "No configured priority predicate was satisfied for this account.",
+        verified: true,
+      });
+    } else {
+      signals.push({
+        kind: "account",
+        refId: a.id,
+        description: `Account ${a.name} is owned by ${a.ownerId} at tier ${a.tier}.`,
+        verified: true,
+      });
+    }
   }
 
   return signals;

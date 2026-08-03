@@ -38,6 +38,10 @@ import {
   ToolPolicySchema,
 } from "./source";
 import {
+  CrmSourceCapabilitiesSchema,
+  FeatureStatusSchema,
+} from "./source-capabilities";
+import {
   InboundRecordEnvelopeSchema,
   IngestionBatchSchema,
   IngestionFileSchema,
@@ -80,6 +84,7 @@ export * from "./analytics-event";
 export * from "./eval-result";
 export * from "./workspace";
 export * from "./source";
+export * from "./source-capabilities";
 export * from "./ingestion";
 export * from "./ingestion-state-machine";
 export * from "./trigger";
@@ -121,6 +126,8 @@ export const SCHEMA_REGISTRY = {
   WebhookEnvelope: WebhookEnvelopeSchema,
   McpSourceConfig: McpSourceConfigSchema,
   ToolPolicy: ToolPolicySchema,
+  CrmSourceCapabilities: CrmSourceCapabilitiesSchema,
+  FeatureStatus: FeatureStatusSchema,
 
   // Ingestion pipeline.
   InboundRecordEnvelope: InboundRecordEnvelopeSchema,

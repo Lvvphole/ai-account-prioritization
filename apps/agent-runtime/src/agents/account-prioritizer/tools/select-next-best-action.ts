@@ -20,6 +20,12 @@ function pickType(ctx: AccountContext, reasonCodes: ReasonCode[]): {
   const a = ctx.account;
   const has = (c: ReasonCode) => reasonCodes.includes(c);
 
+  if (has("no_qualifying_signal")) {
+    return {
+      type: "no_action_hold",
+      objective: "Hold: no configured priority predicate is satisfied.",
+    };
+  }
   if (has("data_quality_blocked")) {
     return {
       type: "log_research_note",

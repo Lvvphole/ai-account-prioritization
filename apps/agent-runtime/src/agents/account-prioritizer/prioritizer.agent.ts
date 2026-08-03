@@ -1,5 +1,6 @@
-import type { Recommendation } from "@repo/shared-schemas";
+import type { CrmSourceCapabilities, Recommendation } from "@repo/shared-schemas";
 import { RUNTIME_CONFIG } from "../../config/runtime";
+import { resolveFeatureModes } from "../../ingestion/source-capabilities";
 import type { AccountContext } from "./prioritizer.policy";
 import { scoreAccounts } from "./tools/score-accounts";
 import { rankAccounts, type RankedAccount } from "./tools/rank-accounts";
@@ -36,15 +37,26 @@ export interface PrioritizeArgs {
   runId: string;
   contexts: AccountContext[];
   createdAt: string;
+  /**
+   * Connector capability declarations keyed by canonical account ID. The
+   * declaration is converted to feature modes before scoring.
+   */
+  sourceCapabilitiesByAccountId?: Readonly<Record<string, CrmSourceCapabilities>>;
 }
 
 export function prioritizeAccounts(args: PrioritizeArgs): Recommendation[] {
-  const scored = scoreAccounts(args.contexts);
+  const contexts = args.contexts.map((context) => {
+    const capabilities = args.sourceCapabilitiesByAccountId?.[context.account.id];
+    return capabilities
+      ? { ...context, featureModes: resolveFeatureModes(capabilities) }
+      : context;
+  });
+  const scored = scoreAccounts(contexts);
   const ranked = rankAccounts(scored);
 
   return ranked.map((r) => {
-    const sourceSignals = discoverAccountSignals(r.context);
     const reasonCodes = generateReasonCodes(r.context, r.features);
+    const sourceSignals = discoverAccountSignals(r.context, reasonCodes);
     const nextBestAction = selectNextBestAction(
       r.context,
       reasonCodes,

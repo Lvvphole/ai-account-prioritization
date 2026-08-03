@@ -127,6 +127,31 @@ export {
   type CommitPlanEntry,
   type RollbackPlan,
 } from "./ingestion/commit";
+export {
+  CrmSourceCapabilitiesSchema,
+  FeatureStatusSchema,
+  resolveFeatureModes,
+  unavailableFeature,
+  type CrmSourceCapabilities,
+  type FeatureStatus,
+  type FeatureValue,
+} from "./ingestion/source-capabilities";
+export {
+  affectedFeaturesForEvent,
+  coalesceAccountEvents,
+  type AccountEvent,
+  type AccountEventType,
+  type AccountRecomputeWork,
+} from "./events/account-events";
+export {
+  createNotificationJob,
+  nextNotificationAttemptAt,
+  notificationIdempotencyKey,
+  type CreateNotificationJobInput,
+  type NotificationChannel,
+  type NotificationJob,
+  type NotificationStatus,
+} from "./notifications/notification-job";
 
 /**
  * Register read-only runtime tools on the MCP registry. Side-effecting tools

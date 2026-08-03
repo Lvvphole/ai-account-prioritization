@@ -36,5 +36,6 @@ export const REASON_CODE_PHRASES: Record<string, string> = {
   new_executive_buyer: "has an engaged executive buyer",
   strategic_tier_account: "is a strategic-tier account",
   stalled_opportunity: "has an open opportunity that needs a next step",
+  no_qualifying_signal: "has no qualifying priority signal under the current policy",
   data_quality_blocked: "has data-quality gaps to resolve first",
 };
