@@ -9,6 +9,7 @@
     "ChangeSetItem",
     "Contact",
     "CrmSourceCapabilities",
+    "CrmSourceCapabilitySnapshot",
     "DataSource",
     "DataSourceScope",
     "DeadLetterEvent",
