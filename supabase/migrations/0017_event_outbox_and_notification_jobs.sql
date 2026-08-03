@@ -1,11 +1,34 @@
 -- Event-driven CRM processing foundation.
 --
--- Source adapters write canonical CRM changes and outbox rows in one database
--- transaction. The outbox relay only starts durable account-action workflows.
--- It does not own the process after publication succeeds.
+-- Source adapters write canonical CRM changes, authoritative capability evidence,
+-- and outbox rows as one ingestion transaction. The outbox relay only starts
+-- durable account-action workflows. It does not own the process after
+-- publication succeeds.
 --
 -- Notification rows are delivery evidence. They do not schedule retries. The
 -- durable workflow runtime owns provider-call retry behavior.
+
+create table if not exists public.account_source_capabilities (
+  account_id uuid primary key references public.accounts(id) on delete cascade,
+  source text not null check (char_length(source) between 1 and 100),
+  capabilities jsonb not null,
+  mapping_version text not null check (char_length(mapping_version) between 1 and 200),
+  observed_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint account_source_capabilities_object check (jsonb_typeof(capabilities) = 'object')
+);
+
+comment on table public.account_source_capabilities is
+  'Authoritative per-account CRM capability snapshot. The runtime parses capabilities through CrmSourceCapabilitiesSchema and fails closed on missing or invalid evidence.';
+
+create index if not exists account_source_capabilities_source_idx
+  on public.account_source_capabilities (source, observed_at);
+
+drop trigger if exists set_account_source_capabilities_updated_at on public.account_source_capabilities;
+create trigger set_account_source_capabilities_updated_at
+  before update on public.account_source_capabilities
+  for each row execute function public.set_updated_at();
 
 create table if not exists public.integration_event_outbox (
   id uuid primary key default gen_random_uuid(),
@@ -66,23 +89,70 @@ create table if not exists public.notification_deliveries (
 create index if not exists notification_deliveries_recommendation_idx
   on public.notification_deliveries (workspace_id, recommendation_id, requested_at);
 
+create or replace function public.enforce_notification_delivery_transition()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- A terminal delivery row is immutable business evidence. A sent/failed/
+  -- cancelled row cannot be reopened to requested or rewritten in place.
+  if old.status <> 'requested' then
+    raise exception 'notification delivery terminal state is immutable'
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_notification_delivery_transition on public.notification_deliveries;
+create trigger enforce_notification_delivery_transition
+  before update on public.notification_deliveries
+  for each row execute function public.enforce_notification_delivery_transition();
+
 drop trigger if exists set_notification_deliveries_updated_at on public.notification_deliveries;
 create trigger set_notification_deliveries_updated_at
   before update on public.notification_deliveries
   for each row execute function public.set_updated_at();
 
+alter table public.account_source_capabilities enable row level security;
 alter table public.integration_event_outbox enable row level security;
 alter table public.notification_deliveries enable row level security;
 
 -- These tables are server-only. Browser sessions cannot read or mutate them.
+revoke all on table public.account_source_capabilities from anon, authenticated;
 revoke all on table public.integration_event_outbox from anon, authenticated;
 revoke all on table public.notification_deliveries from anon, authenticated;
-grant select, insert, update, delete on table public.integration_event_outbox to service_role;
+
+-- PostgreSQL grants are additive. Remove Supabase default service-role table
+-- privileges first, then add only the operations required by the runtime.
+revoke all on table public.account_source_capabilities from service_role;
+revoke all on table public.integration_event_outbox from service_role;
+revoke all on table public.notification_deliveries from service_role;
+
+-- Source adapters maintain the current capability snapshot. Account identity is
+-- the immutable primary key; updates can replace the source evidence and version.
+grant select, insert on table public.account_source_capabilities to service_role;
+grant update (source, capabilities, mapping_version, observed_at)
+  on table public.account_source_capabilities to service_role;
+
+-- Outbox identity and payload are immutable after insertion. The relay can only
+-- advance publication state and record workflow-start evidence.
+grant select, insert on table public.integration_event_outbox to service_role;
+grant update (
+  status,
+  publication_attempt_count,
+  available_at,
+  locked_at,
+  locked_by,
+  workflow_run_id,
+  published_at,
+  last_error_code
+) on table public.integration_event_outbox to service_role;
 
 -- Delivery identity and the idempotency key are immutable to application code.
--- Only delivery-result columns can change after insert; updated_at is maintained
--- by the trigger above. DELETE is not granted, so a completed send key cannot be
--- reopened by removing or rewriting its durable evidence.
+-- Only delivery-result columns can change while the row is requested. DELETE is
+-- not granted, and the transition trigger makes terminal rows immutable.
 grant select, insert on table public.notification_deliveries to service_role;
 grant update (
   workflow_run_id,
