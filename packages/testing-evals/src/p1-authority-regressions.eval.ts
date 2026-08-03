@@ -1,0 +1,120 @@
+import { describe, expect, it } from "vitest";
+import { prioritizeAccounts } from "agent-runtime";
+
+describe("P1 authority regressions", () => {
+  it("emits direct evidence for every generated account reason", () => {
+    const now = "2026-08-03T09:00:00.000Z";
+    const baseAccount = {
+      ownerId: "rep_1",
+      openPipelineUsd: 0,
+      intentSignals: [] as string[],
+      dataQualityFlags: [] as string[],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const recommendations = prioritizeAccounts({
+      runId: "run_reason_evidence",
+      createdAt: now,
+      sourceCapabilitiesByAccountId: {
+        acc_strategic: {
+          accounts: true,
+          contacts: false,
+          opportunities: false,
+          activities: false,
+          accountTier: true,
+          lifecycleStage: false,
+          emailEvents: false,
+          renewals: false,
+          healthScore: false,
+          intentSignals: false,
+        },
+        acc_renewal: {
+          accounts: true,
+          contacts: false,
+          opportunities: false,
+          activities: false,
+          accountTier: false,
+          lifecycleStage: true,
+          emailEvents: false,
+          renewals: false,
+          healthScore: false,
+          intentSignals: false,
+        },
+        acc_quality: {
+          accounts: true,
+          contacts: false,
+          opportunities: false,
+          activities: false,
+          accountTier: false,
+          lifecycleStage: false,
+          emailEvents: false,
+          renewals: false,
+          healthScore: false,
+          intentSignals: false,
+        },
+      },
+      contexts: [
+        {
+          account: {
+            ...baseAccount,
+            id: "acc_strategic",
+            name: "Strategic Account",
+            tier: "strategic" as const,
+            lifecycleStage: "prospect" as const,
+          },
+          contacts: [],
+          opportunities: [],
+          activities: [],
+        },
+        {
+          account: {
+            ...baseAccount,
+            id: "acc_renewal",
+            name: "Renewal Account",
+            tier: "smb" as const,
+            lifecycleStage: "renewal" as const,
+          },
+          contacts: [],
+          opportunities: [],
+          activities: [],
+        },
+        {
+          account: {
+            ...baseAccount,
+            id: "acc_quality",
+            name: "Quality Account",
+            tier: "smb" as const,
+            lifecycleStage: "prospect" as const,
+            dataQualityFlags: ["missing_industry"],
+          },
+          contacts: [],
+          opportunities: [],
+          activities: [],
+        },
+      ],
+    });
+
+    const byAccount = new Map(recommendations.map((rec) => [rec.accountId, rec]));
+
+    const strategic = byAccount.get("acc_strategic");
+    expect(strategic?.reasonCodes).toContain("strategic_tier_account");
+    expect(
+      strategic?.sourceSignals.some((signal) => signal.description === "Account tier is strategic."),
+    ).toBe(true);
+
+    const renewal = byAccount.get("acc_renewal");
+    expect(renewal?.reasonCodes).toContain("renewal_approaching");
+    expect(
+      renewal?.sourceSignals.some((signal) => signal.description === "Account lifecycle stage is renewal."),
+    ).toBe(true);
+
+    const quality = byAccount.get("acc_quality");
+    expect(quality?.reasonCodes).toContain("data_quality_blocked");
+    expect(
+      quality?.sourceSignals.some(
+        (signal) => signal.description === "Account data-quality flag: missing_industry.",
+      ),
+    ).toBe(true);
+  });
+});
