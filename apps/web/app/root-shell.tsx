@@ -72,7 +72,9 @@ export default function RootShell({
     <div className="app-frame workspace-mobile-scope">
       <nav className="nav workspace-nav" aria-label="Workspace navigation">
         <strong className="workspace-brand">
-          <span className="brand-dot" aria-hidden="true" />
+          <span className="workspace-brand-mark" aria-hidden="true">
+            <span className="workspace-brand-bar" />
+          </span>
           AI Account Prioritization
         </strong>
 
