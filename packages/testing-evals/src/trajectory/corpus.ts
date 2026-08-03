@@ -18,7 +18,7 @@ import {
 import { z } from "zod";
 
 const ManifestSchema = z.object({
-  version: z.literal("trajectory-corpus-v1"),
+  version: z.literal("trajectory-corpus-v2"),
   seed: z.literal(23),
   caseCount: z.number().int().positive(),
   evaluationNow: z.string().datetime(),
@@ -49,7 +49,7 @@ const OracleRowSchema = z.tuple([
 type OracleRow = z.infer<typeof OracleRowSchema>;
 
 const OracleSchema = z.object({
-  version: z.literal("trajectory-oracle-v1"),
+  version: z.literal("trajectory-oracle-v2"),
   seed: z.literal(23),
   evaluationNow: z.string().datetime(),
   columns: z.array(z.string()).length(12),
@@ -113,6 +113,7 @@ const RUNTIME_REASON_ORDER: z.infer<typeof ReasonCode>[] = [
   "strategic_tier_account",
   "stalled_opportunity",
   "new_executive_buyer",
+  "no_qualifying_signal",
   "data_quality_blocked",
 ];
 
