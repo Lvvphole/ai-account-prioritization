@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CrmSourceCapabilitySnapshotSchema } from "./source-capabilities";
 
 /**
  * Recommendation — the verified, daily, per-account action plan item.
@@ -7,6 +8,8 @@ import { z } from "zod";
  *  - score & rank are DETERMINISTIC (computed by the scorer, not the LLM).
  *  - every recommendation carries score, confidence, reasonCodes,
  *    sourceSignals, and nextBestAction (Execution Rule #8).
+ *  - durable connector-aware recommendations preserve the capability snapshot
+ *    that authorized feature availability.
  *  - no recommendation may publish without passing verification
  *    (verification.status === "passed").
  *  - customer-facing actions require human approval before send.
@@ -109,6 +112,11 @@ export const RecommendationSchema = z.object({
     .array(SourceSignalSchema)
     .min(1)
     .describe("Evidence backing the recommendation. Required & must be verified."),
+  sourceCapabilitySnapshot: CrmSourceCapabilitySnapshotSchema
+    .optional()
+    .describe(
+      "Immutable connector capability evidence used by durable connector-aware scoring.",
+    ),
   nextBestAction: NextBestActionSchema,
 
   verification: VerificationResultSchema,
