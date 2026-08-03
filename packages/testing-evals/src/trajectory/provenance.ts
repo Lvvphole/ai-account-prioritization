@@ -5,9 +5,9 @@ import { z } from "zod";
 
 const ManifestSchema = z
   .object({
-    version: z.literal("trajectory-corpus-v1"),
+    version: z.literal("trajectory-corpus-v2"),
     corpusKind: z.literal("synthetic-canonical-state-policy-regression"),
-    inputContractVersion: z.literal("current-input-contract-v1"),
+    inputContractVersion: z.literal("current-input-contract-v2"),
     oracleClass: z.literal(
       "policy-lock-regression-not-independent-ground-truth",
     ),
@@ -17,10 +17,7 @@ const ManifestSchema = z
     expectedMaxRecommendations: z.literal(25),
     oracleSha256: z.string().regex(/^[a-f0-9]{64}$/),
     datasetProfileSha256: z.string().regex(/^[a-f0-9]{64}$/),
-    scoreRoundingCorrections: z.object({
-      "108": z.literal(67.98),
-      "89": z.literal(57.8),
-    }),
+    scoreRoundingCorrections: z.record(z.number().min(0).max(100)).default({}),
     sourceDataset: z.object({
       file: z.literal("sales_pipeline.csv"),
       records: z.literal(8800),
@@ -47,7 +44,7 @@ const DatasetProfileSchema = z
     }),
     synthetic_generation: z.object({
       classification: z.literal("reverse-generated-policy-lock"),
-      input_contract_version: z.literal("current-input-contract-v1"),
+      input_contract_version: z.literal("current-input-contract-v2"),
       runtime_eval_cases: z.literal(500),
       seed: z.literal(23),
       evaluation_now: z.string().datetime(),
