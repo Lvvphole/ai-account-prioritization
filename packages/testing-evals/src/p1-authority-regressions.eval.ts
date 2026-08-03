@@ -296,5 +296,144 @@ describe("P1 authority regressions", () => {
 
     expect(first).toEqual(second);
     expect(first?.reasonCodes).toContain("high_open_pipeline");
+    expect(
+      first?.sourceSignals.some((signal) =>
+        signal.description.includes("open-opportunity-sum-usd-cents-v2"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects sub-cent pipeline values regardless of amount magnitude", () => {
+    const now = "2026-08-03T09:00:00.000Z";
+
+    expect(() =>
+      prioritizeAccounts({
+        runId: "run_pipeline_precision",
+        createdAt: now,
+        sourceCapabilitiesByAccountId: {
+          acc_precision: {
+            accounts: true,
+            contacts: false,
+            opportunities: true,
+            activities: false,
+            accountTier: false,
+            lifecycleStage: false,
+            emailEvents: false,
+            renewals: false,
+            healthScore: false,
+            intentSignals: false,
+          },
+        },
+        contexts: [
+          {
+            account: {
+              id: "acc_precision",
+              name: "Precision Account",
+              ownerId: "rep_1",
+              tier: "smb" as const,
+              lifecycleStage: "prospect" as const,
+              openPipelineUsd: 0,
+              intentSignals: [],
+              dataQualityFlags: [],
+              createdAt: now,
+              updatedAt: now,
+            },
+            contacts: [],
+            opportunities: [
+              {
+                id: "opp_subcent",
+                accountId: "acc_precision",
+                name: "Sub-cent amount",
+                stage: "qualification" as const,
+                amountUsd: 1_000_000_000_000.001,
+                probability: 0.5,
+                isClosed: false,
+                isWon: false,
+                createdAt: now,
+                updatedAt: now,
+              },
+            ],
+            activities: [],
+          },
+        ],
+      }),
+    ).toThrow("must have at most two decimal places");
+  });
+
+  it("serializes buyer evidence identically for every contact row order", () => {
+    const now = "2026-08-03T09:00:00.000Z";
+    const capabilities = {
+      accounts: true as const,
+      contacts: true,
+      opportunities: false,
+      activities: false,
+      accountTier: true,
+      lifecycleStage: false,
+      emailEvents: false,
+      renewals: false,
+      healthScore: false,
+      intentSignals: false,
+    };
+    const contacts = [
+      {
+        id: "contact_z",
+        accountId: "acc_buyers",
+        firstName: "Zoe",
+        lastName: "Buyer",
+        role: "economic_buyer" as const,
+        isPrimary: false,
+        lastEngagedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "contact_A",
+        accountId: "acc_buyers",
+        firstName: "Avery",
+        lastName: "Buyer",
+        role: "economic_buyer" as const,
+        isPrimary: true,
+        lastEngagedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+
+    const prioritize = (orderedContacts: typeof contacts) =>
+      prioritizeAccounts({
+        runId: "run_buyer_order",
+        createdAt: now,
+        sourceCapabilitiesByAccountId: { acc_buyers: capabilities },
+        contexts: [
+          {
+            account: {
+              id: "acc_buyers",
+              name: "Buyer Order Account",
+              ownerId: "rep_1",
+              tier: "smb" as const,
+              lifecycleStage: "prospect" as const,
+              openPipelineUsd: 0,
+              intentSignals: [],
+              dataQualityFlags: [],
+              createdAt: now,
+              updatedAt: now,
+            },
+            contacts: orderedContacts,
+            opportunities: [],
+            activities: [],
+          },
+        ],
+      })[0];
+
+    const first = prioritize(contacts);
+    const second = prioritize([...contacts].reverse());
+
+    expect(first).toEqual(second);
+    expect(first?.reasonCodes).toContain("new_executive_buyer");
+    expect(
+      first?.sourceSignals
+        .filter((signal) => signal.kind === "contact")
+        .map((signal) => signal.refId),
+    ).toEqual(["contact_A", "contact_z"]);
   });
 });
