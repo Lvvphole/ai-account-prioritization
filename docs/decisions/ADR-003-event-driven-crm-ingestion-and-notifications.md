@@ -12,7 +12,7 @@ Many CRMs do not supply enrichment fields such as account health. Missing enrich
 
 CRM events, business decisions, human approval, and external delivery have different responsibilities. An event log does not own a long-running business process. A database job table must not become a custom workflow engine.
 
-`Practical Process Automation` separates event communication from process orchestration. It also treats durable state, waiting, retries, human work, and process visibility as workflow-engine responsibilities. Vercel Workflow SDK provides durable TypeScript workflows, retryable steps, suspension and resumption, hooks for external events, and execution observability. The application already uses TypeScript and Vercel. This gives the smallest sufficient orchestration layer for the current requirements.
+`Practical Process Automation` separates event communication from process orchestration. Vercel Workflow SDK provides durable TypeScript workflows, retryable steps, suspension and resumption, hooks for external events, and execution observability. The application already uses TypeScript and Vercel. This gives the smallest sufficient orchestration layer for the current requirements.
 
 ## Decision
 
@@ -38,7 +38,7 @@ Use this runtime path after the workflow implementation is delivered:
 CRM webhook or scheduled reconciliation
   → source adapter and capability declaration
   → canonical CRM write + capability snapshot + transactional outbox event
-  → outbox relay starts one durable account-action workflow
+  → separately credentialed outbox relay starts one durable account-action workflow
   → load authoritative account snapshot and capability evidence
   → coalesce relevant source events
   → derive only supported features
@@ -47,13 +47,13 @@ CRM webhook or scheduled reconciliation
   → deterministic verification
   → hold, internal delivery, or human approval wait
   → re-read authoritative approval after resume
-  → idempotent external action
+  → idempotent external action through separately credentialed delivery worker
   → persist outcome and audit evidence
 ```
 
-Keep the weekday daily run as the reconciliation path. Event processing is the fast path. Both paths must use the same domain policy and the same authoritative capability evidence.
+Keep the weekday daily run as the reconciliation path. Event processing is the fast path. Both paths must use the same domain policy and authoritative capability evidence.
 
-Do not add the Workflow SDK dependency in this PR. This PR defines the boundary and persistence foundation. A later PR implements the durable process.
+Do not add the Workflow SDK dependency in this PR. This PR defines the Phase 1 contract and persistence foundation. A later PR implements the durable process and provisions credentials for the capability roles defined here.
 
 ## Data contract
 
@@ -66,21 +66,28 @@ Classify input fields as follows:
 
 Each connector declares its capabilities. A feature can be `observed`, `derived`, or `unavailable`.
 
-Persist the current authoritative declaration per canonical account in `account_source_capabilities`. Store the workspace, source, capability object, source-mapping version, and observation time. The database must enforce that the capability row and its canonical account have the same `(account_id, workspace_id)` binding. Durable prioritization loads this evidence from Supabase and fails closed when any account has no valid declaration.
+Persist the current authoritative declaration per canonical account in `account_source_capabilities`. Store the workspace, source, capability object, source-mapping version, and observation time. The database enforces the same `(account_id, workspace_id)` binding. Durable prioritization fails closed when any account has no valid declaration.
+
+Because this row is the current authority snapshot, update order is also an authority rule. `observed_at` cannot move backward. An equal-time replay can be idempotent only when source, mapping version, and capability content are unchanged. An older or conflicting equal-time event cannot replace newer authority.
 
 The scorer removes unavailable feature weights and renormalizes the remaining weights. It does not create a neutral health score. It does not treat missing contact history as maximal staleness.
 
 A feature can be `derived` only when the repository contains a versioned deterministic derivation that actually produces the authoritative value. Activity or email availability alone does not define account staleness, so connector-aware staleness remains `unavailable` until a versioned last-contact derivation exists. The same rule applies to intent, renewal-derived lifecycle, and health.
 
-Pipeline derivation version `open-opportunity-sum-usd-cents-v2` sorts open canonical opportunities by stable opportunity ID, validates each canonical USD amount from its decimal representation to at most two fractional digits, converts it to exact integer cents, sums exact minor units, and only then converts the total to dollars. The precision rule is independent of amount magnitude. Values finer than one cent and unsafe totals fail closed. Database row order and floating-point addition order therefore cannot change score, reasons, or action authority.
+Pipeline derivation version `open-opportunity-sum-usd-cents-v2` sorts open canonical opportunities by stable opportunity ID, validates each canonical USD amount to at most two fractional digits, converts it to exact integer cents, sums exact minor units, and converts the total once. The precision rule is independent of amount magnitude. Values finer than one cent and unsafe totals fail closed.
 
-Every connector-aware recommendation whose pipeline feature is derived must carry the pipeline derivation version in its pre-draft source evidence. Durable audit evidence must preserve the recommendation source evidence or the explicit derivation version so a replay can identify the formula that authorized the decision.
+A derived pipeline recommendation must preserve two forms of evidence:
+
+1. The aggregate amount and derivation version.
+2. The stable ID and exact contributed amount for every open opportunity included in the aggregate.
+
+Excluded opportunities must not appear as contributors. Durable audit evidence preserves these source signals. A replay can therefore recover both the formula and the records that authorized the decision.
+
+Authority-bearing evidence text must be host-independent. Do not use locale-sensitive formatting or locale-sensitive sorting. Currency evidence uses repository-controlled deterministic formatting.
 
 ## Tenant reference integrity
 
-A `workspace_id` column does not by itself prove tenant ownership. Every tenant-owned reference that can affect authority must be bound at the database boundary to the referenced object's workspace.
-
-For this Phase 1 path, the required reference chain is:
+A `workspace_id` column does not by itself prove tenant ownership. Every tenant-owned reference that can affect authority is bound at the database boundary to the referenced object's workspace.
 
 ```text
 account_source_capabilities(account_id, workspace_id)
@@ -96,56 +103,52 @@ notification_deliveries(recommendation_id, workspace_id)
   → recommendations(id, workspace_id)
 ```
 
-Cross-workspace and nonexistent references must fail at the database constraint boundary, including when `service_role` is used.
+Cross-workspace and nonexistent references fail at the database constraint boundary, including under backend roles.
 
 ## Process contract
 
 ### Business authority
 
-Supabase is the source of truth for:
-
-- canonical CRM records;
-- source capability and feature provenance;
-- recommendations;
-- approvals;
-- delivery outcomes;
-- durable business audit evidence.
-
-Workflow state is not the business source of truth.
+Supabase is the source of truth for canonical CRM records, source capability and feature provenance, recommendations, approvals, delivery outcomes, and durable business audit evidence. Workflow state is not the business source of truth.
 
 ### Process authority
 
-Vercel Workflow SDK will own:
-
-- process progression;
-- completed-step checkpoints;
-- waits and timers;
-- retryable step execution;
-- workflow failure state;
-- workflow-version binding;
-- operational execution traces.
+Vercel Workflow SDK will own process progression, completed-step checkpoints, waits and timers, retryable step execution, workflow failure state, workflow-version binding, and operational execution traces.
 
 Do not implement a second retry scheduler or general process-state machine in application tables.
 
+### Credential authority
+
+Logical component separation is insufficient when the same database credential can perform both sides of an authority boundary.
+
+Phase 1 defines three database capabilities:
+
+```text
+service_role
+  → producer authority: capability snapshots, pending outbox rows, requested delivery rows
+
+integration_outbox_relay
+  → publication-transition authority only
+
+notification_delivery_worker
+  → provider-result transition authority only
+```
+
+`integration_outbox_relay` and `notification_delivery_worker` are `NOLOGIN` capability roles. `service_role` is not a member and does not hold equivalent `UPDATE` privileges. The future runtime must provision separate credentials that map to these roles. Do not expose equivalent `SECURITY DEFINER` operations to producer credentials.
+
 ### Event and command semantics
 
-Events describe completed facts. Examples are `crm.account.updated`, `recommendation.created`, `approval.granted`, and `notification.sent`.
-
-Commands request work. Examples are `recompute_account`, `request_approval`, `send_notification`, and `record_outcome`.
-
-An event can wake a workflow. It cannot authorize a customer-facing side effect.
+Events describe completed facts. Commands request work. An event can wake a workflow. It cannot authorize a customer-facing side effect.
 
 ### Transactional publication
 
 Store an accepted canonical CRM change, its current capability evidence, and its outbox event in the same ingestion transaction when those records change together.
 
-The outbox relay can retry publication to the workflow runtime. It does not own the account-action process after publication succeeds.
+The separately credentialed outbox relay can retry publication to the workflow runtime. It does not own the account-action process after publication succeeds.
 
 ### Human approval
 
-A customer-facing send or CRM write-back requires durable approval evidence.
-
-A workflow hook can resume a waiting process. The hook is not approval authority. After the workflow resumes, it must read the current approval record from Supabase before it performs the side effect.
+A customer-facing send or CRM write-back requires durable approval evidence. A workflow hook can resume a waiting process, but the hook is not approval authority. After resume, the workflow must read the current approval record from Supabase before it performs the side effect.
 
 ### Idempotent side effects
 
@@ -153,7 +156,7 @@ Every external side effect requires a deterministic idempotency key. Retry must 
 
 ### Version binding
 
-Each process execution must record the applicable workflow deployment, policy version, scoring version, schema version, source mapping version, deterministic derivation versions that affected authority, and model or prompt identity when model drafting occurs.
+Each process execution records the applicable workflow deployment, policy version, scoring version, schema version, source mapping version, deterministic derivation versions that affected authority, and model or prompt identity when model drafting occurs.
 
 ## Outbox controls
 
@@ -162,36 +165,26 @@ Each process execution must record the applicable workflow deployment, policy ve
 - Keep source-qualified event identifiers as audit evidence.
 - Coalesce webhook bursts by workspace and account before recomputation.
 - Use explicit ordinal ordering for durable event and evidence collections.
-- Keep bounded retry and terminal failure state only for outbox publication.
 - Permit only `pending → publishing → published|failed` and `failed → publishing|dead` progression.
 - Never reopen `published` or `dead` rows.
-- Never decrease the publication-attempt count.
-- Require a workflow run identifier and publication timestamp before `published` is valid.
+- Entering `publishing` from `pending` or `failed` increments `publication_attempt_count` by exactly one.
+- The attempt count cannot change on any other transition.
+- Require workflow-run and publication-time evidence before `published` is valid.
 - Record a stable error code for `failed` and `dead` states.
-- Source-adapter inserts must start in `pending` state. Publication status and publication evidence are not insert authority.
+- Source-adapter credentials can insert pending rows but cannot claim or transition them.
+- Only `integration_outbox_relay` can update publication state.
 
 ## Delivery ledger controls
 
 The database stores delivery evidence. It does not schedule delivery retries.
 
-The delivery ledger records:
+The ledger records workspace, recipient, recommendation, channel, idempotency key, workflow run identifier, delivery status, provider message identifier, request/success/failure timestamps, and stable failure code.
 
-- workspace;
-- recipient;
-- recommendation;
-- channel;
-- idempotency key;
-- workflow run identifier;
-- delivery status;
-- provider message identifier when available;
-- request, success, and failure timestamps;
-- stable failure code when delivery fails.
+Bind `(recommendation_id, workspace_id)` to `(recommendations.id, recommendations.workspace_id)`. A delivery cannot cite another tenant's recommendation or a recommendation that does not exist.
 
-Bind `(recommendation_id, workspace_id)` to the authoritative recommendation `(id, workspace_id)`. A delivery cannot cite a recommendation from another tenant or a recommendation that does not exist.
+Persisted delivery references use the canonical recommendation UUID. Deterministic in-memory candidate IDs are a separate identity domain and cannot be used as durable recommendation references.
 
-Delivery identity and idempotency columns are immutable to application code. Terminal delivery rows are immutable and cannot return to `requested`.
-
-A new ledger row must start in `requested` state without terminal provider, success, or failure evidence. Application insert authority excludes terminal-state columns. Terminal evidence can be established only through the guarded update transition from the requested row.
+Delivery identity and idempotency columns are immutable. A new row starts in `requested` state without terminal evidence. Producer credentials can reserve requested rows but cannot record provider results. Only `notification_delivery_worker` can transition requested work to a terminal result. Terminal rows cannot return to `requested`.
 
 The Workflow SDK step owns retry behavior for the provider call.
 
@@ -207,9 +200,7 @@ Do not add Kafka now. Add it behind the outbox boundary only when measured requi
 
 ## Framework isolation
 
-Keep scoring, verification, schemas, source mapping, approval policy, and business rules independent of Workflow SDK types.
-
-The future workflow calls domain functions through a thin adapter. This permits a runtime change without rewriting business authority.
+Keep scoring, verification, schemas, source mapping, approval policy, and business rules independent of Workflow SDK types. The future workflow calls domain functions through a thin adapter.
 
 Do not add another orchestration platform unless Vercel Workflow SDK fails a documented production requirement.
 
@@ -217,52 +208,53 @@ Do not add another orchestration platform unless Vercel Workflow SDK fails a doc
 
 ### Positive
 
-- Common CRM data can enter the product without vendor-specific health fields.
 - Missing evidence remains explicit.
 - Durable runs cannot silently treat normalized defaults as connector evidence.
+- Older capability events cannot overwrite newer current authority.
 - Tenant-owned authority references cannot cross workspace boundaries silently.
+- Producer credentials cannot self-publish outbox work or self-attest delivery success.
+- Derived pipeline decisions are reproducible to their source opportunity rows.
 - Webhook events can update affected accounts without full-book recomputation.
 - Daily reconciliation can detect missed events and repair drift.
 - The outbox preserves atomic publication without becoming the process engine.
 - The database keeps durable business evidence without duplicating workflow runtime state.
-- Human approval can wait without a custom polling system.
-- Kafka remains an optional transport.
-- The architecture reuses the existing Vercel and TypeScript platform.
+- Kafka remains optional.
 
 ### Costs and risks
 
-- The outbox relay still requires a small publication component.
+- The outbox relay still requires a small publication component and a separately provisioned credential.
+- Provider-result persistence requires a separately provisioned delivery-worker credential.
 - Source adapters must maintain field mappings and durable capability declarations.
-- Existing durable accounts need valid capability snapshots before connector-aware prioritization can run; absence fails closed rather than guessing.
-- Staleness, derived health, renewal-derived lifecycle, and activity-derived intent require separate versioned formulas before they can be enabled.
+- Existing durable accounts need valid capability snapshots before connector-aware prioritization can run.
+- Staleness, derived health, renewal-derived lifecycle, and activity-derived intent require separate versioned formulas before enablement.
 - Workflow SDK becomes an infrastructure dependency when the durable process is implemented.
-- Operators still need business audit views in Supabase and workflow execution views in Vercel.
 
 ## Phase 1 scope
 
-This PR must deliver only the foundation:
+This PR delivers only the foundation:
 
 1. Explicit optional-feature availability.
-2. Connector capability, provenance, durable capability-snapshot, and same-workspace authority contracts.
-3. Transactional outbox persistence with retry-safe publication-state and account-reference controls.
-4. Delivery-ledger persistence with same-workspace recommendation binding and without generic retry scheduling.
-5. Deterministic event routing, evidence ordering, coalescing, and idempotency.
-6. Versioned deterministic pipeline derivation with exact minor-unit aggregation and durable provenance.
-7. Reconciliation of trajectory eval contracts with the intentional scoring change.
-8. Passing CI, security, migration, build, schema, and eval gates.
+2. Connector capability, provenance, freshness, durable snapshot, and same-workspace authority contracts.
+3. Transactional outbox persistence with producer/relay privilege separation, exact attempt semantics, and account-reference controls.
+4. Delivery-ledger persistence with producer/result privilege separation and same-workspace recommendation binding.
+5. Deterministic event routing, evidence ordering, formatting, coalescing, and idempotency.
+6. Versioned deterministic pipeline derivation with exact minor-unit aggregation, source-record references, and durable provenance.
+7. Canonical persisted recommendation UUID validation for delivery references.
+8. Reconciliation of trajectory eval contracts with intentional scoring changes.
+9. Passing CI, security, migration, build, schema, and eval gates.
 
-This PR must not add a live CRM webhook, Workflow SDK dependency, provider-specific email adapter, Kafka, or another orchestration framework.
+This PR does not add a live CRM webhook, Workflow SDK dependency, provider-specific email adapter, Kafka, or another orchestration framework.
 
 ## Next delivery
 
-The next PR will implement one `accountActionWorkflow` with Vercel Workflow SDK. It will use durable steps for external work and a bounded approval wait for customer-facing actions.
+The next PR will implement one `accountActionWorkflow` with Vercel Workflow SDK. It will use durable steps for external work, a bounded approval wait for customer-facing actions, and separately provisioned credentials for `integration_outbox_relay` and `notification_delivery_worker`.
 
 ## References
 
-- Bernd Ruecker, *Practical Process Automation*, O'Reilly Media. See the sections on orchestration, event-driven architecture, workflow engines, human tasks, and reliable distributed communication.
+- Bernd Ruecker, *Practical Process Automation*, O'Reilly Media. See orchestration, event-driven architecture, workflow engines, human tasks, and reliable distributed communication.
 - Dimitri Fontaine, *The Art of PostgreSQL*. See SQL-as-code, constraints, transactions, regression testing, and concurrency control.
 - Martin Fowler et al., *Patterns of Enterprise Application Architecture*. See persistence, transaction, repository, and enterprise data boundaries.
 - Chris Richardson, *Microservices Patterns*. See transactional outbox, transactional messaging, duplicate-message handling, and audit logging.
 - Bill Karwin, *SQL Antipatterns*. See Keyless Entry and Rounding Errors.
 - Vercel Workflow SDK: https://vercel.com/docs/workflow
-- Vercel guidance for durable workflows and human approval: https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk
+- Vercel human approval guidance: https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk
