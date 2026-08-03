@@ -3,6 +3,7 @@ import {
   coalesceAccountEvents,
   createNotificationJob,
   nextNotificationAttemptAt,
+  prioritizeAccounts,
   resolveFeatureModes,
 } from "agent-runtime";
 
@@ -96,6 +97,97 @@ describe("event-driven CRM foundation", () => {
     expect(modes.healthRisk).toBe("unavailable");
     expect(modes.intent).toBe("derived");
     expect(modes.pipeline).toBe("derived");
+  });
+
+  it("keeps renewal-only lifecycle unavailable until a derivation exists", () => {
+    const modes = resolveFeatureModes({
+      accounts: true,
+      contacts: true,
+      opportunities: true,
+      activities: true,
+      accountTier: true,
+      lifecycleStage: false,
+      emailEvents: false,
+      renewals: true,
+      healthScore: false,
+      intentSignals: false,
+    });
+
+    expect(modes.lifecycle).toBe("unavailable");
+  });
+
+  it("threads connector availability into scoring and reason authority", () => {
+    const now = "2026-08-03T09:00:00.000Z";
+    const capabilities = {
+      accounts: true as const,
+      contacts: false,
+      opportunities: true,
+      activities: false,
+      accountTier: false,
+      lifecycleStage: false,
+      emailEvents: false,
+      renewals: false,
+      healthScore: false,
+      intentSignals: false,
+    };
+    const contexts = [
+      {
+        account: {
+          id: "acc_high_defaults",
+          name: "High Defaults",
+          ownerId: "rep_1",
+          tier: "strategic" as const,
+          lifecycleStage: "churn_risk" as const,
+          openPipelineUsd: 100_000,
+          daysSinceLastContact: 365,
+          healthScore: 0,
+          intentSignals: ["surge"],
+          dataQualityFlags: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+        contacts: [],
+        opportunities: [],
+        activities: [],
+      },
+      {
+        account: {
+          id: "acc_low_defaults",
+          name: "Low Defaults",
+          ownerId: "rep_1",
+          tier: "smb" as const,
+          lifecycleStage: "prospect" as const,
+          openPipelineUsd: 100_000,
+          daysSinceLastContact: 0,
+          healthScore: 100,
+          intentSignals: [],
+          dataQualityFlags: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+        contacts: [],
+        opportunities: [],
+        activities: [],
+      },
+    ];
+
+    const recommendations = prioritizeAccounts({
+      runId: "run_capability_test",
+      contexts,
+      createdAt: now,
+      sourceCapabilitiesByAccountId: {
+        acc_high_defaults: capabilities,
+        acc_low_defaults: capabilities,
+      },
+    });
+    const high = recommendations.find((item) => item.accountId === "acc_high_defaults");
+    const low = recommendations.find((item) => item.accountId === "acc_low_defaults");
+
+    expect(high?.score).toBe(low?.score);
+    expect(high?.reasonCodes).not.toContain("strategic_tier_account");
+    expect(high?.reasonCodes).not.toContain("churn_risk_detected");
+    expect(high?.reasonCodes).not.toContain("stale_no_contact");
+    expect(high?.reasonCodes).not.toContain("verified_intent_signal");
   });
 
   it("creates stable collision-safe notification ids and bounded retry times", () => {
