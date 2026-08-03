@@ -10,24 +10,35 @@ import {
   type TrajectoryCase,
   type TrajectoryContext,
 } from "./corpus";
-import { runHybridDraftTrajectories } from "./hybrid-cases";
+import {
+  runHybridDraftTrajectories,
+  runHybridPromptInjectionTrajectory,
+} from "./hybrid-cases";
 import { TEMPLATE_POLICY } from "./policies";
+import { loadTrajectoryProvenance } from "./provenance";
+
+const LOCKED_MAX_RECOMMENDATIONS = 25;
 
 export interface TrajectoryEvalSummary {
   corpusVersion: string;
+  inputContractVersion: string;
   totalCases: number;
   authorityCasesPassed: number;
   topRankingCasesExpected: number;
   topRankingCasesPassed: number;
   templateDraftCasesPassed: number;
   verificationCasesPassed: number;
+  approvalGateCases: number;
+  approvalGateCasesPassed: number;
   promptInjectionCases: number;
   promptInjectionCasesPassed: number;
+  hybridInjectionCases: number;
+  hybridInjectionCasesPassed: number;
   guardrailCases: number;
   guardrailCasesPassed: number;
   hybridDraftCases: number;
   hybridDraftCasesPassed: number;
-  publishableCases: number;
+  publishEligibleCases: number;
   heldCases: number;
   reasonCodeCoverage: string[];
   actionCoverage: string[];
@@ -35,22 +46,10 @@ export interface TrajectoryEvalSummary {
   failures: string[];
 }
 
-function authorityEnvelope(rec: Recommendation): object {
-  return {
-    accountId: rec.accountId,
-    ownerId: rec.ownerId,
-    score: rec.score,
-    rank: rec.rank,
-    confidence: rec.confidence,
-    reasonCodes: rec.reasonCodes,
-    sourceSignals: rec.sourceSignals,
-    nextBestAction: {
-      type: rec.nextBestAction.type,
-      customerFacing: rec.nextBestAction.customerFacing,
-      crmWriteBack: rec.nextBestAction.crmWriteBack,
-      objective: rec.nextBestAction.objective,
-    },
-  };
+function recommendationStateWithoutDraft(rec: Recommendation): object {
+  const nextBestAction = { ...rec.nextBestAction };
+  delete nextBestAction.draft;
+  return { ...rec, nextBestAction };
 }
 
 const sameJson = (left: unknown, right: unknown): boolean =>
@@ -67,14 +66,13 @@ const pushFailure = (
   failures.push(`${caseId}: ${message}`);
 };
 
+const needsApproval = (rec: Recommendation): boolean =>
+  rec.nextBestAction.customerFacing || rec.nextBestAction.crmWriteBack;
+
 function approvedForVerification(rec: Recommendation): Recommendation {
-  if (
-    !rec.nextBestAction.customerFacing &&
-    !rec.nextBestAction.crmWriteBack
-  ) {
-    return rec;
-  }
-  return { ...rec, approvalStatus: "approved" };
+  return needsApproval(rec)
+    ? { ...rec, approvalStatus: "approved" }
+    : rec;
 }
 
 function sanitizedInjectionContext(
@@ -94,6 +92,7 @@ function sanitizedInjectionContext(
 }
 
 export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
+  const provenance = loadTrajectoryProvenance();
   const { manifest, cases, guardrailCases } = loadTrajectoryCorpus();
   const failures: string[] = [];
   const contexts = cases.map((trajectoryCase) => trajectoryCase.context);
@@ -104,17 +103,30 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
     ]),
   );
 
+  if (
+    provenance.manifest.expectedMaxRecommendations !==
+    LOCKED_MAX_RECOMMENDATIONS
+  ) {
+    failures.push(
+      `manifest: expectedMaxRecommendations must remain ${LOCKED_MAX_RECOMMENDATIONS}, got ${provenance.manifest.expectedMaxRecommendations}`,
+    );
+  }
+  if (RUNTIME_CONFIG.maxRecommendations !== LOCKED_MAX_RECOMMENDATIONS) {
+    failures.push(
+      `runtime: maxRecommendations must remain ${LOCKED_MAX_RECOMMENDATIONS}, got ${RUNTIME_CONFIG.maxRecommendations}`,
+    );
+  }
+
   let authorityCasesPassed = 0;
   let templateDraftCasesPassed = 0;
   let verificationCasesPassed = 0;
-  let publishableCases = 0;
+  let publishEligibleCases = 0;
   let heldCases = 0;
   const perCaseCandidates: Recommendation[] = [];
 
-  // Exercise all 500 account states independently. The production prioritizer
-  // intentionally caps one run at maxRecommendations, so single-account runs
-  // let the corpus evaluate every score/confidence/reason/action trajectory
-  // without weakening that production limit.
+  // Exercise all 500 synthetic canonical states independently. This is a
+  // current-input-contract-v1 policy-lock regression, not a source-ingestion
+  // or independent policy-correctness oracle.
   for (const trajectoryCase of cases) {
     const candidate = prioritizeAccounts({
       runId: `trajectory_${trajectoryCase.caseId}`,
@@ -175,7 +187,7 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
       }
     }
 
-    const beforeDraft = authorityEnvelope(candidate);
+    const beforeDraft = recommendationStateWithoutDraft(candidate);
     const drafted = await attachHybridActionDraft(
       candidate,
       trajectoryCase.context,
@@ -191,8 +203,15 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
         `expected deterministic template source, got ${drafted.outcome.source}${drafted.outcome.failureCode ? ` (${drafted.outcome.failureCode})` : ""}`,
       );
     }
-    if (!sameJson(beforeDraft, authorityEnvelope(drafted.recommendation))) {
-      draftErrors.push("drafting mutated the deterministic authority envelope");
+    if (
+      !sameJson(
+        beforeDraft,
+        recommendationStateWithoutDraft(drafted.recommendation),
+      )
+    ) {
+      draftErrors.push(
+        "drafting mutated non-draft recommendation state, including approval, verification, or publication fields",
+      );
     }
 
     const shouldHaveDraft =
@@ -248,12 +267,20 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
       );
     }
 
-    if (actualPass) publishableCases += 1;
+    if (verification.recommendation.published) {
+      pushFailure(
+        failures,
+        trajectoryCase.caseId,
+        "verification incorrectly performed publication",
+      );
+    }
+
+    if (actualPass) publishEligibleCases += 1;
     else heldCases += 1;
   }
 
-  // Exercise the real production run limit and stable global ordering against
-  // the oracle's top-N accounts. We do not raise maxRecommendations for tests.
+  // Lock the exact product invariant rather than deriving the oracle selection
+  // from the same runtime value under test.
   const rankedCandidates = prioritizeAccounts({
     runId: "trajectory_corpus_global_rank",
     contexts,
@@ -262,14 +289,19 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
   const expectedTop = cases
     .filter(
       (trajectoryCase) =>
-        trajectoryCase.expected.rank <= RUNTIME_CONFIG.maxRecommendations,
+        trajectoryCase.expected.rank <= LOCKED_MAX_RECOMMENDATIONS,
     )
     .sort((left, right) => left.expected.rank - right.expected.rank);
   let topRankingCasesPassed = 0;
 
-  if (rankedCandidates.length !== expectedTop.length) {
+  if (expectedTop.length !== LOCKED_MAX_RECOMMENDATIONS) {
     failures.push(
-      `global ranking: expected ${expectedTop.length} selected accounts, got ${rankedCandidates.length}`,
+      `global ranking: oracle must contain exactly ${LOCKED_MAX_RECOMMENDATIONS} top accounts, got ${expectedTop.length}`,
+    );
+  }
+  if (rankedCandidates.length !== LOCKED_MAX_RECOMMENDATIONS) {
+    failures.push(
+      `global ranking: runtime must return exactly ${LOCKED_MAX_RECOMMENDATIONS} accounts, got ${rankedCandidates.length}`,
     );
   }
 
@@ -299,21 +331,78 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
   }
 
   const reversedCandidates = prioritizeAccounts({
-    runId: "trajectory_corpus_global_rank_reversed",
+    runId: "trajectory_corpus_global_rank",
     contexts: [...contexts].reverse(),
     createdAt: manifest.evaluationNow,
   });
   if (
     !sameJson(
-      rankedCandidates.map(authorityEnvelope),
-      reversedCandidates.map(authorityEnvelope),
+      rankedCandidates.map(recommendationStateWithoutDraft),
+      reversedCandidates.map(recommendationStateWithoutDraft),
     )
   ) {
     failures.push(
-      "determinism: reversing input order changed the authoritative top-N ranked output",
+      "determinism: reversing input order changed the authoritative top-25 ranked output",
     );
   }
 
+  // Approved-state verification and publish-eligibility simulation. This does
+  // not perform an orchestrator publication write or delivery operation.
+  let approvalGateCases = 0;
+  let approvalGateCasesPassed = 0;
+  const approvalBase = perCaseCandidates.find(
+    (candidate) =>
+      candidate.confidence >= RUNTIME_CONFIG.minPublishableConfidence &&
+      needsApproval(candidate),
+  );
+
+  if (!approvalBase) {
+    failures.push(
+      "approval gates: no approval-gated publish-eligible candidate was available",
+    );
+  } else {
+    const approvalCases: Array<{
+      status: Recommendation["approvalStatus"];
+      expectedAllowed: boolean;
+    }> = [
+      { status: "pending_approval", expectedAllowed: false },
+      { status: "rejected", expectedAllowed: false },
+      { status: "approved", expectedAllowed: true },
+    ];
+
+    for (const approvalCase of approvalCases) {
+      approvalGateCases += 1;
+      const candidate: Recommendation = {
+        ...approvalBase,
+        approvalStatus: approvalCase.status,
+        published: false,
+      };
+      const decision = verifyRecommendation(candidate, manifest.evaluationNow);
+      const hasApprovalGate =
+        decision.recommendation.verification.failedGates.includes(
+          "approval_required",
+        );
+      const gateMatches = approvalCase.expectedAllowed
+        ? !hasApprovalGate
+        : hasApprovalGate;
+      const publicationUntouched = !decision.recommendation.published;
+
+      if (
+        decision.allowed === approvalCase.expectedAllowed &&
+        gateMatches &&
+        publicationUntouched
+      ) {
+        approvalGateCasesPassed += 1;
+      } else {
+        failures.push(
+          `approval_${approvalCase.status}: expected allowed=${approvalCase.expectedAllowed} approvalGate=${!approvalCase.expectedAllowed} published=false; actual allowed=${decision.allowed} failedGates=${decision.recommendation.verification.failedGates.join("|")} published=${decision.recommendation.published}`,
+        );
+      }
+    }
+  }
+
+  // This first check proves raw CRM note bodies do not influence deterministic
+  // ranking authority.
   const injectionCases = cases.filter((trajectoryCase) =>
     trajectoryCase.context.activities.some(
       (activity) =>
@@ -325,12 +414,12 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
 
   for (const trajectoryCase of injectionCases) {
     const original = prioritizeAccounts({
-      runId: `injection_original_${trajectoryCase.caseId}`,
+      runId: `injection_${trajectoryCase.caseId}`,
       contexts: [trajectoryCase.context],
       createdAt: manifest.evaluationNow,
     })[0];
     const sanitized = prioritizeAccounts({
-      runId: `injection_sanitized_${trajectoryCase.caseId}`,
+      runId: `injection_${trajectoryCase.caseId}`,
       contexts: [sanitizedInjectionContext(trajectoryCase)],
       createdAt: manifest.evaluationNow,
     })[0];
@@ -338,25 +427,71 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
     if (
       original &&
       sanitized &&
-      sameJson(authorityEnvelope(original), authorityEnvelope(sanitized))
+      sameJson(
+        recommendationStateWithoutDraft(original),
+        recommendationStateWithoutDraft(sanitized),
+      )
     ) {
       promptInjectionCasesPassed += 1;
     } else {
       pushFailure(
         failures,
         trajectoryCase.caseId,
-        "customer-controlled prompt-injection text changed authoritative output",
+        "customer-controlled prompt-injection text changed deterministic ranking authority",
       );
     }
   }
 
+  // This second check crosses the verified-context, model-candidate, grounding,
+  // fallback, and final publish-eligibility boundary.
+  let hybridInjectionCases = 0;
+  let hybridInjectionCasesPassed = 0;
+  const candidateByAccountId = new Map(
+    perCaseCandidates.map((candidate) => [candidate.accountId, candidate]),
+  );
+  const hybridInjectionCase = injectionCases.find((trajectoryCase) => {
+    const candidate = candidateByAccountId.get(
+      trajectoryCase.context.account.id,
+    );
+    return (
+      candidate !== undefined &&
+      candidate.confidence >= RUNTIME_CONFIG.minPublishableConfidence &&
+      candidate.nextBestAction.type !== "no_action_hold"
+    );
+  });
+
+  if (!hybridInjectionCase) {
+    failures.push(
+      "hybrid injection: no draftable publish-eligible injection case was available",
+    );
+  } else {
+    const candidate = candidateByAccountId.get(
+      hybridInjectionCase.context.account.id,
+    );
+    if (!candidate) {
+      failures.push("hybrid injection: candidate lookup failed");
+    } else {
+      const hybridInjection = await runHybridPromptInjectionTrajectory(
+        candidate,
+        hybridInjectionCase,
+        manifest.evaluationNow,
+      );
+      hybridInjectionCases = hybridInjection.total;
+      hybridInjectionCasesPassed = hybridInjection.passed;
+      failures.push(...hybridInjection.failures);
+    }
+  }
+
   const guardrailBase = perCaseCandidates.find(
-    (candidate) => candidate.confidence >= 0.2,
+    (candidate) =>
+      candidate.confidence >= RUNTIME_CONFIG.minPublishableConfidence,
   );
   let guardrailCasesPassed = 0;
 
   if (!guardrailBase) {
-    failures.push("guardrails: no publishable base candidate was available");
+    failures.push(
+      "guardrails: no publish-eligible base candidate was available",
+    );
   } else {
     const approvedBase = approvedForVerification(guardrailBase);
     for (const guardrailCase of guardrailCases) {
@@ -402,18 +537,21 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
   let hybridDraftCasesPassed = 0;
   const hybridBase = perCaseCandidates.find(
     (candidate) =>
-      candidate.confidence >= 0.2 &&
-      candidate.nextBestAction.type !== "no_action_hold",
+      candidate.confidence >= RUNTIME_CONFIG.minPublishableConfidence &&
+      candidate.nextBestAction.type !== "no_action_hold" &&
+      needsApproval(candidate),
   );
 
   if (!hybridBase) {
     failures.push(
-      "hybrid drafting: no model-draftable base candidate was available",
+      "hybrid drafting: no approval-gated model-draftable base candidate was available",
     );
   } else {
     const hybridCase = expectedByAccountId.get(hybridBase.accountId);
     if (!hybridCase) {
-      failures.push("hybrid drafting: base candidate was missing from the oracle");
+      failures.push(
+        "hybrid drafting: base candidate was missing from the oracle",
+      );
     } else {
       const hybrid = await runHybridDraftTrajectories(
         hybridBase,
@@ -439,19 +577,24 @@ export async function runTrajectoryEval(): Promise<TrajectoryEvalSummary> {
 
   return {
     corpusVersion: manifest.version,
+    inputContractVersion: provenance.manifest.inputContractVersion,
     totalCases: cases.length,
     authorityCasesPassed,
     topRankingCasesExpected: expectedTop.length,
     topRankingCasesPassed,
     templateDraftCasesPassed,
     verificationCasesPassed,
+    approvalGateCases,
+    approvalGateCasesPassed,
     promptInjectionCases: injectionCases.length,
     promptInjectionCasesPassed,
+    hybridInjectionCases,
+    hybridInjectionCasesPassed,
     guardrailCases: guardrailCases.length,
     guardrailCasesPassed,
     hybridDraftCases,
     hybridDraftCasesPassed,
-    publishableCases,
+    publishEligibleCases,
     heldCases,
     reasonCodeCoverage,
     actionCoverage,
