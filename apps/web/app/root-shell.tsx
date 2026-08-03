@@ -52,6 +52,22 @@ export default function RootShell({
     );
   }
 
+  const workspaceRoute = pathname.startsWith("/manager")
+    ? "workspace-route-manager"
+    : pathname.startsWith("/admin")
+      ? "workspace-route-admin"
+      : pathname.startsWith("/accounts")
+        ? "workspace-route-accounts"
+        : "workspace-route-dashboard";
+
+  const workspaceLinks = (
+    <>
+      <a href="/dashboard">Rep Dashboard</a>
+      {identity.canViewTeamCoverage ? <a href="/manager">Manager</a> : null}
+      {identity.canEditScoringConfig ? <a href="/admin">Admin</a> : null}
+    </>
+  );
+
   return (
     <div className="app-frame workspace-mobile-scope">
       <nav className="nav workspace-nav" aria-label="Workspace navigation">
@@ -59,11 +75,9 @@ export default function RootShell({
           <span className="brand-dot" aria-hidden="true" />
           AI Account Prioritization
         </strong>
-        <div className="workspace-links">
-          <a href="/dashboard">Rep Dashboard</a>
-          {identity.canViewTeamCoverage ? <a href="/manager">Manager</a> : null}
-          {identity.canEditScoringConfig ? <a href="/admin">Admin</a> : null}
-        </div>
+
+        <div className="workspace-links">{workspaceLinks}</div>
+
         <span className="user-chip">
           <span className="avatar" aria-hidden="true">
             {(identity.email ?? "?").charAt(0).toUpperCase()}
@@ -73,6 +87,7 @@ export default function RootShell({
             <span className="user-role">{identity.role}</span>
           </span>
         </span>
+
         <div className="workspace-actions">
           <a className="btn-link" href="/login">
             Switch Role
@@ -81,8 +96,21 @@ export default function RootShell({
             <button type="submit">Sign Out</button>
           </form>
         </div>
+
+        <details className="workspace-mobile-menu">
+          <summary>Menu</summary>
+          <div className="workspace-mobile-panel">
+            <div className="workspace-mobile-route-links">{workspaceLinks}</div>
+            <div className="workspace-mobile-session-actions">
+              <a href="/login">Switch Role</a>
+              <form action="/auth/signout" method="post">
+                <button type="submit">Sign Out</button>
+              </form>
+            </div>
+          </div>
+        </details>
       </nav>
-      <main className="container">{children}</main>
+      <main className={`container ${workspaceRoute}`}>{children}</main>
     </div>
   );
 }
