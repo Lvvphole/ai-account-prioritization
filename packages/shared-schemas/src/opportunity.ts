@@ -17,6 +17,13 @@ export const OpportunitySchema = z.object({
   name: z.string().min(1),
   stage: OpportunityStage,
   amountUsd: z.number().nonnegative().default(0),
+  amountUsdExact: z
+    .string()
+    .regex(/^\d+(?:\.\d+)?$/)
+    .optional()
+    .describe(
+      "Optional exact decimal text preserved from the authoritative monetary source before JavaScript number conversion.",
+    ),
   probability: z.number().min(0).max(1).default(0),
   closeDate: z.string().datetime().optional(),
   isClosed: z.boolean().default(false),
