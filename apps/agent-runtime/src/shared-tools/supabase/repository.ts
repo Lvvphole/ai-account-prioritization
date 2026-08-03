@@ -4,14 +4,14 @@ import type {
   AnalyticsEvent,
   AuditLogEntry,
   Contact,
-  CrmSourceCapabilities,
+  CrmSourceCapabilitySnapshot,
   Opportunity,
 } from "@repo/shared-schemas";
 import {
   AccountSchema,
   ActivitySchema,
   ContactSchema,
-  CrmSourceCapabilitiesSchema,
+  CrmSourceCapabilitySnapshotSchema,
   OpportunitySchema,
 } from "@repo/shared-schemas";
 import type { Json, Tables, TypedSupabaseClient } from "@repo/supabase-client";
@@ -57,8 +57,6 @@ function toAccount(row: Tables<"accounts">, nowIso: string): Account {
     annualRevenueUsd: row.annual_revenue_usd ?? undefined,
     openPipelineUsd: row.open_pipeline_usd,
     lastContactedAt: row.last_contacted_at ? iso(row.last_contacted_at) : undefined,
-    // Derived staleness (not a stored column). Absent contact stays undefined so
-    // connector-aware policy can remove the feature instead of inventing risk.
     daysSinceLastContact: row.last_contacted_at
       ? daysBetween(row.last_contacted_at, nowIso)
       : undefined,
@@ -126,15 +124,6 @@ function unwrap<T>(
   return res.data ?? [];
 }
 
-/**
- * Supabase/PostgREST caps every response at `max_rows` (supabase/config.toml =
- * 1000), so a single unbounded select silently truncates large result sets.
- * Page through with explicit ranges until a short page signals the end, so the
- * runtime never scores/ranks/fans-out over a truncated subset.
- *
- * PAGE_SIZE must stay <= the server's max_rows; a larger value would be capped
- * server-side, return < PAGE_SIZE, and stop the loop before all rows are read.
- */
 const PAGE_SIZE = 1000;
 const FILTER_CHUNK_SIZE = 200;
 
@@ -158,8 +147,6 @@ export function createSupabaseRepository(
   ctx: RlsContext,
   nowIso: string,
 ): RuntimeRepository {
-  // Reads: user mode honors RLS via the user's token; service mode uses the
-  // service-role client with an explicit owner filter (RLS bypassed by design).
   const read: TypedSupabaseClient =
     ctx.kind === "user" ? createRuntimeClient(ctx) : getServiceRoleClient();
 
@@ -206,11 +193,9 @@ export function createSupabaseRepository(
       return rows.map(toActivity);
     },
 
-    async listSourceCapabilitiesByAccountIds(accountIds) {
+    async listSourceCapabilitySnapshotsByAccountIds(accountIds) {
       if (accountIds.length === 0) return {};
 
-      // Capability evidence is a server-only authority input. Read it through
-      // the service role even when the account facts were read through user RLS.
       const service = getServiceRoleClient();
       const rows: Tables<"account_source_capabilities">[] = [];
       for (let offset = 0; offset < accountIds.length; offset += FILTER_CHUNK_SIZE) {
@@ -228,24 +213,26 @@ export function createSupabaseRepository(
         );
       }
 
-      const capabilities: Record<string, CrmSourceCapabilities> = {};
+      const snapshots: Record<string, CrmSourceCapabilitySnapshot> = {};
       for (const row of rows) {
         try {
-          capabilities[row.account_id] = CrmSourceCapabilitiesSchema.parse(row.capabilities);
+          snapshots[row.account_id] = CrmSourceCapabilitySnapshotSchema.parse({
+            source: row.source,
+            mappingVersion: row.mapping_version,
+            observedAt: iso(row.observed_at),
+            capabilities: row.capabilities,
+          });
         } catch (error) {
           const message = error instanceof Error ? error.message : "unknown schema error";
           throw new Error(
-            `Supabase account source capabilities invalid for ${row.account_id}: ${message}`,
+            `Supabase account source capability snapshot invalid for ${row.account_id}: ${message}`,
           );
         }
       }
-      return capabilities;
+      return snapshots;
     },
 
     async appendAudit(entry: AuditLogEntry) {
-      // Writes ALWAYS go through the service role: audit_evidence has no INSERT
-      // policy, and the trail must be written regardless of the caller's RLS
-      // scope. The id is left to the DB (gen_random_uuid) — no synthetic UUIDs.
       const service = getServiceRoleClient();
       const { error } = await service.from("audit_evidence").insert({
         run_id: entry.runId ?? null,
@@ -254,7 +241,6 @@ export function createSupabaseRepository(
         action: entry.action,
         decision: entry.decision,
         reason: entry.reason,
-        // evidence is JSON-serializable by the AuditLogEntry Zod contract.
         evidence: entry.evidence as unknown as Json,
         occurred_at: entry.occurredAt,
       });
@@ -262,9 +248,7 @@ export function createSupabaseRepository(
     },
 
     async appendAnalytics(_event: AnalyticsEvent) {
-      // Analytics persistence (observability_events) is owned by the
-      // observability sprint. No-op here so Supabase mode never blocks on a
-      // table this sprint does not own.
+      // Analytics persistence is owned by the observability sprint.
     },
   };
 }
