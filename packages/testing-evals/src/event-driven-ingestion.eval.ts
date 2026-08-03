@@ -148,7 +148,7 @@ describe("event-driven CRM foundation", () => {
     expect(modes.healthRisk).toBe("unavailable");
     expect(modes.intent).toBe("unavailable");
     expect(modes.pipeline).toBe("derived");
-    expect(modes.staleness).toBe("derived");
+    expect(modes.staleness).toBe("unavailable");
   });
 
   it("derives pipeline from open opportunities instead of account defaults", () => {
@@ -219,7 +219,12 @@ describe("event-driven CRM foundation", () => {
     expect(recommendation?.reasonCodes).toContain("high_open_pipeline");
     expect(
       recommendation?.sourceSignals.some((signal) =>
-        signal.description.includes("Open pipeline of $250,000"),
+        signal.description.toLowerCase().includes("open pipeline of $250,000"),
+      ),
+    ).toBe(true);
+    expect(
+      recommendation?.sourceSignals.some((signal) =>
+        signal.description.includes("open-opportunity-sum-usd-cents-v2"),
       ),
     ).toBe(true);
     expect(
