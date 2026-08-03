@@ -28,12 +28,15 @@ export interface CreateNotificationJobInput {
 export function notificationIdempotencyKey(
   input: Omit<CreateNotificationJobInput, "now">,
 ): string {
-  return createHash("sha256")
-    .update(
-      [input.workspaceId, input.recipientId, input.recommendationId, input.channel].join(":"),
-      "utf8",
-    )
-    .digest("hex");
+  // A JSON array is an injective encoding for these ordered string fields.
+  // Delimiter joins are not safe because ids can contain the delimiter.
+  const canonical = JSON.stringify([
+    input.workspaceId,
+    input.recipientId,
+    input.recommendationId,
+    input.channel,
+  ]);
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
 export function createNotificationJob(input: CreateNotificationJobInput): NotificationJob {
