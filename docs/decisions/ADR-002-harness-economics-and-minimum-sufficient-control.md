@@ -48,7 +48,7 @@ This ADR is the single canonical normative source for **harness-economics semant
 
 `docs/ARCHITECTURE.md` records the architectural consequences of this decision. `AGENTS.md` operationalizes the decision for coding-agent execution. Those documents may reference or operationalize this ADR, but they must not redefine these semantics. If they conflict with this ADR on harness economics, correct the conflict rather than allowing parallel doctrine to persist.
 
-This authority is narrow. It does not override an explicit user requirement or weaken existing product safety, approval, provenance, tenancy, schema, grounding, deterministic-decision, authorization, Trusted Acceptance, or production-verification invariants.
+This authority is narrow. It does not override an explicit user requirement or weaken existing product safety, approval, provenance, tenancy, schema, grounding, deterministic-decision, authorization, or production-verification invariants.
 
 ## Mandatory invariants versus control mechanisms
 
@@ -74,7 +74,7 @@ A required invariant must never be removed merely because its implementation car
 
 Do not compute a universal harness-value score. Compare demonstrated benefit with added burden while preserving every mandatory invariant.
 
-Use measured values when authoritative measurement exists. Otherwise use qualitative evidence and explicit acceptance criteria. Economic measurement uses the existing 0M measurement contract; this ADR does not define a second metric vocabulary.
+Use measured values when authoritative measurement exists. Otherwise use qualitative evidence and explicit acceptance criteria. Harness Fitness must use the repository's authoritative measurement contract once that contract is durably established. This ADR does not define a second metric vocabulary or authorize a parallel telemetry path.
 
 ## Harness-component admission rule
 
@@ -89,7 +89,7 @@ Before adding a discretionary harness component, or choosing among alternative i
 
 If these cannot be established for a discretionary control, do not add it. If the requirement is mandatory, keep the requirement and choose a smaller valid implementation rather than deleting the invariant.
 
-Each admission item names one decision owner and closes as **APPROVED**, **REJECTED**, or **NO_DECISION** when its justified decision bound expires. `APPROVED` permits implementation; it does not prove Artifact DoD or Trusted Acceptance. `REJECTED` and `NO_DECISION` do not authorize implementation.
+Each admission item names one decision owner and closes as **APPROVED**, **REJECTED**, or **NO_DECISION** when its justified decision bound expires. `APPROVED` permits implementation; it does not prove Artifact DoD or authorize merge, publication, deployment, or another acceptance decision. `REJECTED` and `NO_DECISION` do not authorize implementation.
 
 Policy changes are separate admission items and apply prospectively by default. A closed item reopens only for a material change to the admitted implementation or evidence, a mandatory-invariant violation, a material escaped defect, or an admitted migration that names the item.
 
@@ -168,9 +168,7 @@ Do not build a second complex subsystem merely to mechanically enforce a judgmen
 
 Artifact DoD is satisfied only by `PASS` from the required deterministic gates. A repaired artifact always returns to deterministic verification. Probabilistic evaluators may measure residual semantic qualities only when no reliable deterministic oracle exists, and they never override `FAIL` or `BLOCKED`.
 
-Held-out acceptance material is not part of Artifact DoD. It belongs only to Trusted Acceptance in the protected trust domain.
-
-**Artifact DoD `PASS` is not Trusted Acceptance.** It must not satisfy, substitute for, or be published as the protected Trusted Acceptance required check.
+**Artifact DoD `PASS` establishes only that the artifact satisfies its frozen visible contract. It does not authorize merge, publication, deployment, or any other acceptance decision.**
 
 ## Review closure
 
@@ -211,7 +209,7 @@ STOP -> REDUCE OR REDESIGN -> VERIFY
 
 ## Harness Fitness
 
-Harness Fitness measures whether a complete harness configuration improves, preserves, or degrades whole-system behavior. It is separate from Artifact DoD and Trusted Acceptance.
+Harness Fitness measures whether a complete harness configuration improves, preserves, or degrades whole-system behavior. It is separate from Artifact DoD and does not create acceptance authority.
 
 A harness-improvement claim requires a locked model. A model-improvement claim requires a locked harness. Within one Harness Fitness epoch, keep the model and model configuration, evaluation-set hash, budgets, execution environment, verifier identity, and measurement protocol fixed. Compare complete configurations, not summed component deltas.
 
@@ -221,7 +219,7 @@ A verifier or evaluation-set change ends the current baseline epoch and requires
 
 An active Harness Fitness epoch starts only from an admitted change or other admitted evidence-driven trigger and must have a stop condition. It ends in **RETAIN**, **REVERT**, or **DEFER**. `DEFER` keeps the baseline configuration active and requires a decision deadline; expiry resolves to `REVERT`.
 
-The existing 0M measurement contract owns metric names, calculations, missing-value behavior, baseline procedure, and passive telemetry. Passive telemetry does not authorize a parallel collector and remains subject to harness economics.
+Harness Fitness uses the repository's authoritative measurement contract once that contract is durably established. This ADR does not define metric names, calculations, missing-value behavior, baseline procedure, or a parallel telemetry path. Any passive telemetry must use that same authority and remains subject to harness economics.
 
 Harness Fitness is inactive until corpus isolation, candidate credential separation, fixed verifier and protected evaluation-set identity, measurement authority, and an approved baseline epoch exist. This ADR does not authorize new instrumentation, corpus creation, or automatic harness optimization before those prerequisites are complete.
 
@@ -272,7 +270,7 @@ Move to a more complex substitutable control class only when evidence demonstrat
 
 ## Non-goals
 
-This ADR does not weaken existing product safety, approval, provenance, tenancy, schema, grounding, deterministic-decision, authorization, Trusted Acceptance, or production-verification invariants.
+This ADR does not weaken existing product safety, approval, provenance, tenancy, schema, grounding, deterministic-decision, authorization, or production-verification invariants.
 
 It does not prohibit state, orchestration, retries, agents, evaluators, or control planes. It requires discretionary uses and implementation choices to satisfy the smallest-sufficient-control rule.
 
@@ -293,7 +291,7 @@ Architecture and agent-contract reviews should be able to answer:
 - How will we know it improved the whole system without weakening a mandatory invariant?
 - Can a discretionary component be removed or reduced without violating an invariant?
 - Does repair continue only while materially new diagnostic evidence identifies a bounded correction, with an explicit stop condition?
-- Is Artifact DoD deterministic and separate from Trusted Acceptance?
+- Is Artifact DoD deterministic and free of merge, publication, deployment, or other acceptance authority?
 - If Harness Fitness is claimed, were the model, verifier, evaluation set, and measurement protocol fixed for the epoch and was non-regression measured after the change?
 
 If those questions cannot be answered for a discretionary addition, the default decision is **do not add the component**. If the requirement is mandatory, preserve the requirement and reduce the implementation until it is the smallest sufficient mechanism.
