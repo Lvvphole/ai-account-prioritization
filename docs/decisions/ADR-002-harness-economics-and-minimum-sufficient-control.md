@@ -31,7 +31,7 @@ The minimum sufficient production harness is the **smallest deterministic and me
 
 Harness complexity is not an objective. It is a cost that must be justified.
 
-The model may propose, draft, diagnose, and repair. The model must not certify completion, grant acceptance authority, authorize additional spend, or certify that the harness improved.
+Models may propose, draft, diagnose, and repair. They do not certify completion, grant acceptance authority, authorize additional spend, or certify harness improvement.
 
 ## Specification authority
 
@@ -41,14 +41,14 @@ This ADR is the single canonical normative source for **harness-economics semant
 - harness-component admission;
 - simplicity precedence;
 - machine-enforcement boundaries;
-- Artifact DoD semantics;
-- harness-fitness semantics;
+- Artifact DoD;
+- Harness Fitness;
 - removal economics; and
 - repair economics.
 
 `docs/ARCHITECTURE.md` records the architectural consequences of this decision. `AGENTS.md` operationalizes the decision for coding-agent execution. Those documents may reference or operationalize this ADR, but they must not redefine these semantics. If they conflict with this ADR on harness economics, correct the conflict rather than allowing parallel doctrine to persist.
 
-This authority is narrow. It does not override an explicit user requirement or weaken existing product safety, approval, provenance, tenancy, schema, grounding, deterministic-decision, authorization, trusted-acceptance, or production-verification invariants.
+This authority is narrow. It does not override an explicit user requirement or weaken existing product safety, approval, provenance, tenancy, schema, grounding, deterministic-decision, authorization, Trusted Acceptance, or production-verification invariants.
 
 ## Mandatory invariants versus control mechanisms
 
@@ -72,20 +72,9 @@ A required invariant must never be removed merely because its implementation car
 
 ### Governing economic model
 
-Do not collapse harness value into one computed score unless a separately admitted contract defines commensurable units and weights.
+Do not compute a universal harness-value score. Compare demonstrated benefit with added burden while preserving every mandatory invariant.
 
-For each discretionary control, establish evidence for:
-
-- the requirement protected;
-- the observed insufficiency;
-- the smallest mechanism considered;
-- the correctness, reliability, safety, or operating-cost effect;
-- the added latency and compute burden;
-- the added complexity, state, dependencies, and failure surface;
-- the removal or reduction alternative; and
-- the decision rationale.
-
-If a claimed value is not measured, do not fabricate a number. Use qualitative evidence and explicit acceptance criteria. If the claimed value is economic, measurement must use the repository's existing measurement contract. This ADR does not create a second metric vocabulary.
+Use measured values when authoritative measurement exists. Otherwise use qualitative evidence and explicit acceptance criteria. Economic measurement uses the existing 0M measurement contract; this ADR does not define a second metric vocabulary.
 
 ## Harness-component admission rule
 
@@ -96,25 +85,13 @@ Before adding a discretionary harness component, or choosing among alternative i
 3. **Minimum mechanism** — the least complex mechanism capable of addressing it without weakening mandatory invariants.
 4. **Acceptance evidence** — the executable or reviewable evidence that will prove the mechanism works.
 5. **Added burden** — new latency, token/compute cost, code, state, dependencies, operational work, and failure modes.
-6. **Net value rationale** — why the expected or measured benefit justifies the added burden.
+6. **Net value** — why the expected or measured benefit justifies the added burden.
 
 If these cannot be established for a discretionary control, do not add it. If the requirement is mandatory, keep the requirement and choose a smaller valid implementation rather than deleting the invariant.
 
-### Control-admission closure
+Each admission item names one decision owner and closes as **APPROVED**, **REJECTED**, or **NO_DECISION** when its justified decision bound expires. `APPROVED` permits implementation; it does not prove Artifact DoD or Trusted Acceptance. `REJECTED` and `NO_DECISION` do not authorize implementation.
 
-Each control-admission item must name one decision owner. The repository-maintainer role remains the general owner class; the item record identifies the person who owns that decision.
-
-A control-admission item closes when one of these conditions occurs:
-
-- the named owner records **APPROVED**;
-- the named owner records **REJECTED**; or
-- the admitted decision bound expires with no decision, which is **NO_DECISION** and is fail-closed.
-
-`NO_DECISION` does not authorize implementation. `REJECTED` terminates the item. `APPROVED` permits the separately defined implementation work to proceed; it does not prove implementation correctness and does not grant Trusted Acceptance.
-
-The item record must contain the six admission areas above, the decision owner, the decision outcome, the evidence identity, and any required mutation-survivor disposition.
-
-A policy amendment is a separate admission item. It applies prospectively by default. It does not reopen closed items merely because the policy version changed. A closed item may reopen only when an admitted policy migration names the affected item, or when its implementation materially changes, its evidence materially changes, a mandatory invariant violation is discovered, or a material escaped defect is discovered.
+Policy changes are separate admission items and apply prospectively by default. A closed item reopens only for a material change to the admitted implementation or evidence, a mandatory-invariant violation, a material escaped defect, or an admitted migration that names the item.
 
 ## Simplicity precedence
 
@@ -181,42 +158,25 @@ Do not build a second complex subsystem merely to mechanically enforce a judgmen
 9. **Do not turn heuristics into fail-closed law without evidence.** A threshold must correspond to a real requirement or demonstrated failure boundary.
 10. **The harness is part of the failure surface.** Whole-system reliability is the target, not local reduction of model variability.
 11. **Removal is a first-class optimization for discretionary or substitutable controls.** Simplify or remove controls that duplicate a simpler mechanism, no longer protect an evidenced requirement, or create more burden than value. Do not remove a mandatory invariant; reduce its implementation burden instead.
-12. **Predictions are not non-regression evidence.** A pre-change prediction constrains scope and creates a falsifiable hypothesis. Improvement and non-regression are established only by post-change measurement under the frozen evaluation conditions.
-13. **Measure configurations, not summed control deltas.** Component ablations are diagnostic evidence. Retention decisions compare complete harness configurations because component effects need not compose additively.
-14. **No model authorizes spend.** Retry, repair, delegation, context growth, and other spend-producing continuation decisions operate only inside externally enforced and explicitly justified bounds.
+12. **Predictions are not non-regression evidence.** Predictions constrain scope and create falsifiable hypotheses. Improvement and non-regression are established only by post-change measurement.
+13. **Measure complete configurations.** Component measurements are diagnostic; do not infer whole-harness value by summing control deltas.
+14. **No model authorizes spend.** Retry, repair, delegation, context growth, and other spend-producing continuation decisions operate only inside externally enforced, explicitly justified bounds.
 
 ## Artifact DoD
 
-**Artifact DoD** is the only term used in this ADR for deterministic completion of one implementation artifact against its frozen visible contract.
+**Artifact DoD** is deterministic completion of one implementation artifact against its frozen visible contract. Its verdict vocabulary is `PASS | FAIL | BLOCKED`.
 
-Artifact DoD is computed by deterministic verification. The authoritative gate verdict vocabulary remains:
+Artifact DoD is satisfied only by `PASS` from the required deterministic gates. A repaired artifact always returns to deterministic verification. Probabilistic evaluators may measure residual semantic qualities only when no reliable deterministic oracle exists, and they never override `FAIL` or `BLOCKED`.
 
-```text
-PASS | FAIL | BLOCKED
-```
+Held-out acceptance material is not part of Artifact DoD. It belongs only to Trusted Acceptance in the protected trust domain.
 
-Artifact DoD is satisfied only when the required Artifact DoD verification result is `PASS` under the frozen contract. A probabilistic evaluator may measure residual semantic qualities only where no reliable deterministic oracle exists. It must not override a deterministic `FAIL` or `BLOCKED` result.
-
-Held-out acceptance material does not belong in the candidate-visible Artifact DoD contract. Held-out tests, inputs, expected outputs, assertion material, oracle logic, and reconstructible oracle values belong only to Trusted Acceptance in the protected trust domain.
-
-A local Artifact DoD `PASS` is **not Trusted Acceptance**. It must not satisfy, substitute for, spoof, or be published as the protected trusted-acceptance required check.
-
-This ADR does not redefine the already-closed T24, T25, or T26 trusted-acceptance contracts. Artifact DoD consumes those authority boundaries where applicable; it does not replace them.
+**Artifact DoD `PASS` is not Trusted Acceptance.** It must not satisfy, substitute for, or be published as the protected Trusted Acceptance required check.
 
 ## Review closure
 
-A reviewer must evaluate the frozen artifact set and return the complete known blocking set for that review epoch. Non-blocking findings must be recorded separately and must not silently become merge requirements for the unchanged artifact set.
+Review uses a frozen artifact set. A reviewer returns all blockers known from that review epoch together. A new blocker against unchanged artifacts requires new evidence of a mandatory-invariant violation, invalid evidence, a material escaped defect, or a defect that could not reasonably have been evaluated in the prior scope. Preferences and optional improvements are separate work.
 
-After a complete blocking set is returned, a new blocker against unchanged artifacts requires new evidence of one of these conditions:
-
-- a previously unobserved mandatory-invariant violation;
-- invalid or fabricated evidence;
-- a material escaped defect; or
-- a defect that could not reasonably have been evaluated in the prior review scope.
-
-A preference, refinement, broader architecture idea, or optional improvement is separate work.
-
-A surviving required mutant blocks closure unless equivalence is demonstrated. The equivalence record must identify the mutant, the protected property, the independent guard that preserves the property, the observable behavior with and without the mutation, and the reviewer who accepted the equivalence argument.
+A surviving required mutant blocks closure unless equivalence is demonstrated and recorded.
 
 ## Repair economics
 
@@ -249,97 +209,21 @@ Repeated significant defects generated by the same harness mechanism are evidenc
 STOP -> REDUCE OR REDESIGN -> VERIFY
 ```
 
-A repaired artifact always returns to deterministic verification. A failed attempt is not accepted merely because a model reports that it repaired the failure.
+## Harness Fitness
 
-## Harness fitness and measurement
+Harness Fitness measures whether a complete harness configuration improves, preserves, or degrades whole-system behavior. It is separate from Artifact DoD and Trusted Acceptance.
 
-Harness Fitness answers a different question from Artifact DoD: whether one complete harness configuration improves, preserves, or degrades whole-system behavior relative to a frozen baseline configuration.
+A harness-improvement claim requires a locked model. A model-improvement claim requires a locked harness. Within one Harness Fitness epoch, keep the model and model configuration, evaluation-set hash, budgets, execution environment, verifier identity, and measurement protocol fixed. Compare complete configurations, not summed component deltas.
 
-Harness Fitness does not create a new acceptance authority. It does not replace Artifact DoD or Trusted Acceptance.
+A prediction may define the expected effect of a change, but it is not evidence of improvement or non-regression. Both are established only by post-change measurement against the frozen evaluation set.
 
-### Attribution rule
+A verifier or evaluation-set change ends the current baseline epoch and requires a new baseline. Do not mutate either inside an active baseline window or report cross-epoch differences as attributable harness improvement.
 
-A harness-improvement claim requires a locked model. A model-improvement claim requires a locked harness.
+An active Harness Fitness epoch starts only from an admitted change or other admitted evidence-driven trigger and must have a stop condition. It ends in **RETAIN**, **REVERT**, or **DEFER**. `DEFER` keeps the baseline configuration active and requires a decision deadline; expiry resolves to `REVERT`.
 
-For a harness comparison, hold constant:
+The existing 0M measurement contract owns metric names, calculations, missing-value behavior, baseline procedure, and passive telemetry. Passive telemetry does not authorize a parallel collector and remains subject to harness economics.
 
-- model and model configuration;
-- evaluation set;
-- budgets;
-- execution environment;
-- verifier identity;
-- measurement protocol; and
-- review epoch.
-
-Compare the complete baseline configuration `H0` with the complete proposed configuration `H1`. Do not infer the configuration delta by summing individual control deltas.
-
-Improvement may be predicted before a change. The prediction is a scope-control and falsifiability mechanism only. Improvement is established by post-change measurement. Non-regression must also be measured after the change against the frozen evaluation set. It must not be predicted, asserted from a change manifest, or inferred from the absence of a predicted regression.
-
-### Evaluation-set and verifier identity
-
-The fitness evaluation set must be frozen and hash-bound for each baseline epoch.
-
-A change to the verifier or to the fitness evaluation set invalidates cross-epoch attribution. Either change ends the current baseline window. It must not mutate `verifier_id`, `evaluation_set_hash`, or `review_epoch` inside an active baseline window. Establish the changed verifier or evaluation set, rotate the applicable identities, and open a new baseline epoch.
-
-The prior and new epochs may be reported separately. Do not report their difference as attributable harness improvement because the measurement instrument or evaluation population changed.
-
-Repository-visible evaluation files such as `packages/testing-evals/**` are not, by themselves, a protected fitness corpus. Their use does not satisfy the protected measurement prerequisites defined below.
-
-### Active evaluation loop and stop condition
-
-Continuous measurement does not authorize continuous harness mutation.
-
-An active harness-fitness evaluation epoch has this bounded shape:
-
-```text
-admitted harness proposal
-  -> freeze comparison conditions
-  -> run the admitted evaluation window
-  -> collect complete post-change evidence
-  -> RETAIN | REVERT | DEFER
-  -> freeze the resulting active configuration
-  -> STOP
-```
-
-`DEFER` is not a third running configuration. While the decision is deferred, `H0` remains the active configuration. `DEFER` must carry an admitted decision deadline. If the deadline expires without a decision, the outcome is `REVERT`.
-
-After `STOP`, measurement may continue, but no new harness-fitness epoch opens merely because someone plans or proposes a change. A new harness proposal may open an epoch only after the control-admission process admits that proposal.
-
-Other evidence-driven triggers may require a new admitted evaluation epoch, including:
-
-- material production drift;
-- an escaped defect;
-- a mandatory-invariant violation;
-- a new model or model version that requires qualification;
-- an approved policy change; or
-- a material measurement-boundary change.
-
-### Measurement ownership and enabling condition
-
-The existing **0M measurement contract** is the sole owner of metric names, schemas, calculations, missing-value behavior, and baseline procedure. This ADR does not define a second metric vocabulary.
-
-Passive telemetry means the existing 0M collection path only. It does not authorize a parallel collector. Passive telemetry is not exempt from harness economics: if it is discretionary, it must pay rent like any other harness mechanism.
-
-Harness Fitness is a required capability but is **inactive** until all protected measurement prerequisites are satisfied:
-
-- corpus isolation is complete;
-- candidate credentials are verified to have no protected read access;
-- verifier identity is fixed;
-- the fitness evaluation set is fixed and protected as required;
-- measurement-schema authority is fixed; and
-- an approved baseline epoch is opened.
-
-This requirement does not authorize new instrumentation, corpus creation, or optimization work before those prerequisites are complete.
-
-When the baseline window opens, `verifier_id`, `evaluation_set_hash`, and `review_epoch` are fixed for that window. The existing baseline procedure governs the approved 14-21 day observation window and prohibits re-analysis during the window unless invalidating evidence occurs. A verifier or evaluation-set change ends the current window and requires a new baseline epoch; it does not mutate the frozen variables in place.
-
-### Research evidence posture
-
-External studies are supporting evidence, not normative thresholds.
-
-`Agentic Harness Engineering: Observability-Driven Automatic Evolution of Coding-Agent Harnesses` reports two forms of regression-prediction statistics. The cross-iteration means are 11.8% regression precision and 11.1% regression recall. The cumulative counts are 43 regression predictions with 5 correct predictions and 40 unforeseen regressions, which gives 11.6% cumulative precision and 11.1% cumulative recall. This ADR cites the **cross-iteration means** when it uses percentage figures and keeps the cumulative counts separate. The same study reports materially stronger fix attribution than regression attribution and documents non-additive component effects. These results support post-change non-regression measurement and configuration-level comparison; they do not authorize automatic harness evolution.
-
-`The Harness Effect: How Orchestration Design Sets the Token Economics of Enterprise Agentic AI` reports a controlled swap across 22 locked tasks and six foundation models. Cost, token use, and median latency decrease in that reported experiment when the orchestration layer changes while models and tasks are held fixed. The study is vendor-authored, uses one baseline/harness pair, and treats the aggregate quality delta as directional at its sample size. Record the measured result as evidence for harness-level economic attribution; do not convert its percentages into universal thresholds.
+Harness Fitness is inactive until corpus isolation, candidate credential separation, fixed verifier and protected evaluation-set identity, measurement authority, and an approved baseline epoch exist. This ADR does not authorize new instrumentation, corpus creation, or automatic harness optimization before those prerequisites are complete.
 
 ## Architectural consequences
 
@@ -372,33 +256,31 @@ Move to a more complex substitutable control class only when evidence demonstrat
 
 ### Positive
 
-- Lower harness latency, token use, operational cost, and maintenance burden when measurement supports the claim.
+- Lower harness latency, token use, operational cost, and maintenance burden.
 - Smaller failure surface around probabilistic components.
 - Easier debugging and stronger causal attribution when failures occur.
 - Reduced incentive to convert every engineering preference into a state machine or CI policy.
 - Architecture grows from observed requirements rather than pattern accumulation.
 - One canonical doctrine prevents semantic drift across architecture and agent-operating documents.
-- Artifact completion, Trusted Acceptance, and harness-fitness measurement remain separate authorities.
 
 ### Tradeoffs
 
 - Some decisions remain review judgments rather than machine-enforced predicates.
 - A smaller harness can require disciplined human escalation when evidence is ambiguous.
 - High-consequence systems may still justify expensive controls, but the justification must be explicit.
-- Harness Fitness requires a trustworthy frozen baseline before attribution is valid.
 - `AGENTS.md` and `docs/ARCHITECTURE.md` must remain operational/consequence views rather than independent copies of this doctrine.
 
 ## Non-goals
 
-This ADR does not weaken existing product safety, approval, provenance, tenancy, schema, grounding, deterministic-decision, authorization, trusted-acceptance, or production-verification invariants.
+This ADR does not weaken existing product safety, approval, provenance, tenancy, schema, grounding, deterministic-decision, authorization, Trusted Acceptance, or production-verification invariants.
 
 It does not prohibit state, orchestration, retries, agents, evaluators, or control planes. It requires discretionary uses and implementation choices to satisfy the smallest-sufficient-control rule.
 
-It does not define universal numeric complexity, line-count, retry-count, harness-value, criticality, or economic thresholds.
+It does not define universal numeric complexity, line-count, retry-count, harness-value, or fitness thresholds.
 
 It does not permit required post-draft verification or human approval to become optional because they have implementation cost.
 
-It does not authorize automatic harness evolution, a new measurement subsystem, a parallel telemetry collector, held-out corpus creation, or economic optimization before the protected measurement prerequisites and baseline procedure permit that work.
+It does not authorize automatic harness evolution or a second measurement system.
 
 ## Verification of this decision
 
@@ -408,14 +290,10 @@ Architecture and agent-contract reviews should be able to answer:
 - What evidenced requirement pays for this implementation or discretionary component?
 - What simpler mechanism was considered and why is it insufficient?
 - What new failure modes does the mechanism introduce?
-- What exactly makes the implementation satisfy Artifact DoD?
-- What remains exclusively Trusted Acceptance authority?
-- How will we know the complete harness configuration improved without weakening a mandatory invariant?
-- Is non-regression measured after the change under a frozen model, verifier, evaluation set, budget, environment, and measurement protocol?
-- Does the active evaluation epoch have a stop condition and a defined active configuration during deferral?
-- Are verifier and evaluation-set changes treated as new baseline epochs rather than in-place mutations?
-- Does passive telemetry use only the existing 0M collection path and satisfy the same rent rule as other discretionary controls?
+- How will we know it improved the whole system without weakening a mandatory invariant?
 - Can a discretionary component be removed or reduced without violating an invariant?
 - Does repair continue only while materially new diagnostic evidence identifies a bounded correction, with an explicit stop condition?
+- Is Artifact DoD deterministic and separate from Trusted Acceptance?
+- If Harness Fitness is claimed, were the model, verifier, evaluation set, and measurement protocol fixed for the epoch and was non-regression measured after the change?
 
 If those questions cannot be answered for a discretionary addition, the default decision is **do not add the component**. If the requirement is mandatory, preserve the requirement and reduce the implementation until it is the smallest sufficient mechanism.
