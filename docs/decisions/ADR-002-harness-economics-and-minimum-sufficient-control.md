@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-01
+- Amended: 2026-08-06
 - Decision owners: Repository maintainers
 - Scope: AI harness architecture, coding-agent controls, runtime controls, verification, repair behavior, and CI/CD control design
 - Evidence: PR #35 (`Harden coding-agent repair loop with fail-closed circuit breaker`)
@@ -31,7 +32,7 @@ The minimum sufficient production harness is the **smallest deterministic and me
 
 Harness complexity is not an objective. It is a cost that must be justified.
 
-Models may propose, draft, diagnose, and repair. They do not certify completion, grant acceptance authority, authorize additional spend, or certify harness improvement.
+Models may propose, draft, diagnose, and repair. Under ADR-001 task contracts, they may also perform approved bounded What and How work. They do not certify completion, grant acceptance authority, authorize additional spend, or certify harness improvement.
 
 ## Specification authority
 
@@ -49,6 +50,20 @@ This ADR is the single canonical normative source for **harness-economics semant
 `docs/ARCHITECTURE.md` records the architectural consequences of this decision. `AGENTS.md` operationalizes the decision for coding-agent execution. Those documents may reference or operationalize this ADR, but they must not redefine these semantics. If they conflict with this ADR on harness economics, correct the conflict rather than allowing parallel doctrine to persist.
 
 This authority is narrow. It does not override an explicit user requirement or weaken existing product safety, approval, provenance, tenancy, schema, grounding, deterministic-decision, authorization, or production-verification invariants.
+
+## Approved target architecture versus implementation admission
+
+ADR-001 defines the approved Position B target architecture. That target permits bounded What and How, including candidate-action selection inside a software-supplied envelope, allowlisted tool selection and sequencing, bounded semantic mapping, task decomposition, and bounded supervisor-worker execution.
+
+Those capabilities are approved product capabilities. Their existence in the target architecture does not require architectural readmission under this ADR.
+
+Implementation is a separate decision. This ADR governs whether a particular task or production increment should use a more complex approved capability and which implementation is sufficient.
+
+A direct model execution remains preferred when it can satisfy the task contract. Supervisor-worker fan-out, general tool orchestration, and other more complex mechanisms are used only when the current implementation scope permits them and evidence shows that the smaller approved path is insufficient.
+
+The current production-spine P4 scope remains narrower than the full Position B target. Model-controlled candidate-action selection, a capability resolver driven by model-selected What, general tool orchestration, side-effecting model tools, supervisor-worker fan-out, multi-model routing or voting, a second action ontology, and production caching remain deferred. A document that describes those capabilities as approved target architecture does not authorize their current implementation.
+
+A deferred Position B capability requires a new explicit implementation ruling and the applicable admission evidence before implementation begins.
 
 ## Mandatory invariants versus control mechanisms
 
@@ -113,6 +128,8 @@ no additional mechanism
 
 Do not move right when a simpler substitutable level satisfies the evidenced requirement. Do not use this ordering to omit a mandatory runtime boundary.
 
+This ordering does not prohibit an architecture-approved capability. It governs when a production task should pay the cost to invoke or implement the more complex mechanism.
+
 ## Machine-enforcement boundary
 
 Machine-enforce properties when they are:
@@ -130,7 +147,7 @@ Examples that normally belong in deterministic enforcement:
 - deterministic scoring invariants;
 - forbidden dependencies;
 - authorization and approval boundaries;
-- model inability to mutate authoritative fields;
+- model inability to widen its authority envelope;
 - security invariants; and
 - test, build, type, migration, and deployment gates.
 
@@ -149,10 +166,10 @@ Do not build a second complex subsystem merely to mechanically enforce a judgmen
 
 1. **Every discretionary harness component must pay rent.** A required invariant does not need to re-justify its existence; its implementation must still be the smallest sufficient mechanism that preserves the invariant.
 2. **Evidence before mechanism.** Do not add controls for hypothetical failures unless an explicit high-consequence threat model requires them.
-3. **Deterministic before probabilistic.** Do not use an LLM where deterministic software satisfies the requirement.
+3. **Deterministic before probabilistic.** Do not use an LLM where deterministic software satisfies the requirement and the task does not require the approved probabilistic capability.
 4. **Local before stateful.** Do not create durable state when the required decision is stateless.
 5. **Represent before infer.** Do not infer authoritative state from mutable artifacts when it can be represented directly at the source.
-6. **Simple before orchestrated.** Do not introduce multi-agent, workflow, or control-plane architecture when a smaller substitutable boundary works.
+6. **Simple before orchestrated.** Do not invoke or implement multi-agent, workflow, or control-plane mechanisms when a smaller approved boundary satisfies the requirement.
 7. **Bound every loop.** Every retry, reflection, review, evaluation, and repair loop requires an explicit stop condition. A valid stop condition may be evidence exhaustion, an explicitly justified resource/time/attempt bound, or a systemic-defect trigger; there is no universal numeric retry count.
 8. **Do not confuse green gates with correct architecture.** Passing CI proves only the properties covered by those gates.
 9. **Do not turn heuristics into fail-closed law without evidence.** A threshold must correspond to a real requirement or demonstrated failure boundary.
@@ -161,6 +178,7 @@ Do not build a second complex subsystem merely to mechanically enforce a judgmen
 12. **Predictions are not non-regression evidence.** Predictions constrain scope and create falsifiable hypotheses. Improvement and non-regression are established only by post-change measurement.
 13. **Measure complete configurations.** Component measurements are diagnostic; do not infer whole-harness value by summing control deltas.
 14. **No model authorizes spend.** Retry, repair, delegation, context growth, and other spend-producing continuation decisions operate only inside externally enforced, explicitly justified bounds.
+15. **Architecture approval is not implementation authorization.** Do not implement a deferred target capability because an authority document describes it as approved.
 
 ## Artifact DoD
 
@@ -225,19 +243,20 @@ Harness Fitness is inactive until corpus isolation, candidate credential separat
 
 ## Architectural consequences
 
-This decision reinforces the repository's mandatory responsibility separation:
+This decision supports the Position B authority split:
 
 ```text
-deterministic decision authority
-  -> bounded drafting
-       probabilistic generation when enabled
-       OR approved deterministic fallback
-  -> deterministic post-draft verification
-  -> human approval for customer-facing or side-effecting actions
-  -> publish or hold
+deterministic authority envelope
+  -> bounded probabilistic What and How when the task contract permits it
+  -> deterministic validation and postconditions
+  -> explicit human approval for protected side effects
+  -> protected execution when authorized
+  -> deterministic PASS | FAIL | BLOCKED
 ```
 
-A probabilistic draft never bypasses deterministic post-draft verification. These sequential responsibilities are not substitutable control classes.
+The model can make choices only inside the supplied envelope. It cannot widen the envelope or certify its own completion.
+
+The current production spine is intentionally narrower. It keeps deterministic next-best-action selection and bounded drafting/synthesis until separately approved deferred capabilities are admitted and implemented.
 
 For genuinely substitutable control implementations, prefer:
 
@@ -248,7 +267,7 @@ simple local control
   > autonomous control plane
 ```
 
-Move to a more complex substitutable control class only when evidence demonstrates that the simpler class is insufficient.
+Move to a more complex substitutable control class only when evidence demonstrates that the simpler class is insufficient and the implementation is inside the approved scope.
 
 ## Consequences
 
@@ -260,6 +279,7 @@ Move to a more complex substitutable control class only when evidence demonstrat
 - Reduced incentive to convert every engineering preference into a state machine or CI policy.
 - Architecture grows from observed requirements rather than pattern accumulation.
 - One canonical doctrine prevents semantic drift across architecture and agent-operating documents.
+- Approved Position B capabilities can coexist with a smaller current production spine without forcing premature implementation.
 
 ### Tradeoffs
 
@@ -267,6 +287,7 @@ Move to a more complex substitutable control class only when evidence demonstrat
 - A smaller harness can require disciplined human escalation when evidence is ambiguous.
 - High-consequence systems may still justify expensive controls, but the justification must be explicit.
 - `AGENTS.md` and `docs/ARCHITECTURE.md` must remain operational/consequence views rather than independent copies of this doctrine.
+- Target architecture and implementation status must remain explicit to prevent accidental scope expansion.
 
 ## Non-goals
 
@@ -274,9 +295,13 @@ This ADR does not weaken existing product safety, approval, provenance, tenancy,
 
 It does not prohibit state, orchestration, retries, agents, evaluators, or control planes. It requires discretionary uses and implementation choices to satisfy the smallest-sufficient-control rule.
 
+It does not revoke the Position B target architecture defined by ADR-001.
+
+It does not authorize deferred Position B capabilities for the current production spine.
+
 It does not define universal numeric complexity, line-count, retry-count, harness-value, or fitness thresholds.
 
-It does not permit required post-draft verification or human approval to become optional because they have implementation cost.
+It does not permit required deterministic verification or human approval to become optional because they have implementation cost.
 
 It does not authorize automatic harness evolution or a second measurement system.
 
@@ -285,6 +310,7 @@ It does not authorize automatic harness evolution or a second measurement system
 Architecture and agent-contract reviews should be able to answer:
 
 - Is this requirement a mandatory invariant or a discretionary/substitutable control?
+- Is the capability approved in the target architecture and separately authorized for the current implementation scope?
 - What evidenced requirement pays for this implementation or discretionary component?
 - What simpler mechanism was considered and why is it insufficient?
 - What new failure modes does the mechanism introduce?
