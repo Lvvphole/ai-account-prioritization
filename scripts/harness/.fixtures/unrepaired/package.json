@@ -1,0 +1,9 @@
+{
+  "name": "unrepaired-fixture",
+  "private": true,
+  "scripts": {
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test"
+  }
+}

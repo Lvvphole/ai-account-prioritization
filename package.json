@@ -24,6 +24,8 @@
     "verify:security": "bash scripts/verify-security.sh",
     "verify:observability": "bash scripts/verify-observability.sh",
     "verify:production": "bash scripts/verify-production.sh",
+    "verify:dod": "node scripts/harness/verify-dod-integrity.mjs .",
+    "harness:verify": "CANDIDATE_ROOT=scripts/harness/.fixtures/unrepaired node --test scripts/harness/test/dodintegrity.test.mjs",
     "scan:secrets": "bash scripts/scan-secrets.sh",
     "docker:config": "docker compose -f infra/compose.yaml config",
     "docker:build": "docker compose -f infra/compose.yaml build",

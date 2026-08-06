@@ -184,21 +184,53 @@ implementation_sequence:
   - enable_model_path_behind_environment_policy
   - promote_after_all_gates_pass
 
+# Artifact Definition of Done.
+#
+# ArtifactDoD(x) holds exactly when every gate below returns PASS. FAIL and
+# BLOCKED do not satisfy it.
+#
+# This list is the single completion authority. No other document independently
+# defines completion, and a new Artifact DoD property must first receive a
+# versioned root command before it can be declared here — direct CI plumbing
+# does not silently redefine Artifact DoD.
+#
+# Every gate below is deterministic, resolves to a real execution target, and is
+# scheduled by a pull_request workflow. `pnpm verify:dod` proves those three
+# properties mechanically. The classified sets beneath this one are required
+# too, but they are deliberately not Artifact DoD.
 definition_of_done:
   - pnpm install --frozen-lockfile
   - pnpm scan:secrets
   - pnpm generate:schemas
-  - pnpm lint
   - pnpm build
   - pnpm typecheck
   - pnpm test
   - pnpm test:evals
+  - pnpm test:trajectory
+  - pnpm build:api-python
+  - pnpm check:no-prisma
   - pnpm verify:security
   - pnpm verify:observability
+  - pnpm verify:migrations
+  - pnpm verify:dod
+
+# Release gate. Required before deployment, but not Artifact DoD: this
+# aggregator re-runs the deterministic gates and additionally invokes the
+# probabilistic judge and a Docker step, so declaring it above would make
+# Artifact DoD transitively depend on a non-deterministic evaluation.
+deployment_gates:
   - pnpm verify:production
 
+# Residual probabilistic evaluation. Deliberately outside deterministic
+# Artifact DoD; it re-audits published narratives offline and cannot alter a
+# live recommendation.
 optional_gates:
   - EVAL_JUDGE_ENABLED=true pnpm test:judge
+
+# Harness control gate. Verifies the DoD-integrity mechanism itself rather than
+# a property of the artifact, so it is a required PR gate but not Artifact DoD.
+harness_gates:
+  - pnpm harness:verify
 
 eval_gates:
   - id: scoring

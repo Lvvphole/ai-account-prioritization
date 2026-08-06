@@ -80,20 +80,17 @@ tool, approval, verification, or publication authority.
 
 ## Definition of Done
 
-```bash
-pnpm install --frozen-lockfile
-pnpm scan:secrets
-pnpm generate:schemas
-pnpm lint
-pnpm build
-pnpm typecheck
-pnpm test
-pnpm test:evals
-pnpm verify:security
-pnpm verify:observability
-pnpm verify:production
-git diff --check
-```
+Completion is defined by `prd_manifest.yaml:definition_of_done`, which is the
+single completion authority. This document deliberately does **not** reproduce
+the command list: a second copy is a second authority, and the two drift the
+moment one is edited alone. `pnpm verify:dod` fails if any document reintroduces
+an independent list.
+
+Run `pnpm verify:dod` to confirm every declared gate resolves, has a real
+execution target, and is scheduled by a pull_request workflow. The manifest also
+classifies the gates that are required but are *not* Artifact DoD: the
+`verify:production` release aggregator, the residual `test:judge` evaluation,
+and the `harness:verify` control gate.
 
 Runtime-generation changes additionally require evidence that:
 

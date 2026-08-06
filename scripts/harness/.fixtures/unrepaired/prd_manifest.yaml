@@ -1,0 +1,7 @@
+product: unrepaired-fixture
+
+definition_of_done:
+  - pnpm install --frozen-lockfile
+  - pnpm lint
+  - pnpm typecheck
+  - pnpm test

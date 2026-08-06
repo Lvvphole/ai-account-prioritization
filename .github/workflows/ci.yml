@@ -53,6 +53,12 @@ jobs:
       - name: Run evals
         run: pnpm test:evals
 
+      # Gate 4b: package-level unit tests. Declared in definition_of_done, so
+      # it has to be scheduled here — a declared gate that no pull_request
+      # workflow runs is a claim, not a gate.
+      - name: Run unit tests
+        run: pnpm test
+
       # Python support service syntax/build check
       - name: Build Python support service
         run: pnpm build:api-python
@@ -68,7 +74,20 @@ jobs:
       - name: Verify migrations
         run: pnpm verify:migrations
 
-      # Gate 6: containerization — validate Compose (config needs no daemon)
+      # Gate 6: the declared Definition of Done is honest — every gate in
+      # prd_manifest.yaml resolves, has a real execution target, and is
+      # scheduled by a pull_request workflow, and no second document
+      # independently defines completion.
+      - name: Verify Definition of Done integrity
+        run: pnpm verify:dod
+
+      # Harness control gate. Verifies the checker itself, so it is required on
+      # every PR but is deliberately not an Artifact DoD gate — it proves a
+      # property of the mechanism, not of the artifact.
+      - name: Verify the DoD checker
+        run: pnpm harness:verify
+
+      # Gate 7: containerization — validate Compose (config needs no daemon)
       - name: Validate Docker Compose
         run: docker compose -f infra/compose.yaml config
 
