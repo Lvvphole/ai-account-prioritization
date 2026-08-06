@@ -48,6 +48,7 @@ export function readYamlList(text, key) {
       continue;
     }
     if (lines[i].trim() === '') continue;
+    if (lines[i].trimStart().startsWith('#')) continue;
     break;
   }
   return out;
@@ -186,6 +187,7 @@ export function checkDodIntegrity(root) {
     if (!builtin) {
       const turbo = /^turbo run (\S+)/.exec(definition);
       const bash = /^bash (\S+)/.exec(definition);
+      const node = /^node(?:\s+--?\S+)*\s+(\S+)(?:\s+.*)?$/.exec(definition);
       const filtered = /^pnpm --filter (\S+) (\S+)/.exec(definition);
 
       if (turbo) {
@@ -197,6 +199,10 @@ export function checkDodIntegrity(root) {
       } else if (bash) {
         if (!existsSync(join(root, bash[1]))) {
           add(FINDING.DOD_GATE_VACUOUS, command, `script file missing: ${bash[1]}`);
+        }
+      } else if (node) {
+        if (!existsSync(join(root, node[1]))) {
+          add(FINDING.DOD_GATE_VACUOUS, command, `script file missing: ${node[1]}`);
         }
       } else if (filtered) {
         const [, pkgName, task] = filtered;

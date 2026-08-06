@@ -41,38 +41,31 @@ declared set. A new Artifact DoD property must first receive a versioned root
 command before it can be declared; CI plumbing does not silently redefine
 Artifact DoD.
 
-## Revision status — read before trusting a green run
+## Revision
 
-> `verify-dod-integrity.mjs` and `test/dodintegrity.test.mjs` in this directory
-> are the **pre-D11/D12 revision** and are pending replacement by the frozen
-> 16-test revision. They are committed unmodified, exactly as received.
+`verify-dod-integrity.mjs` and `test/dodintegrity.test.mjs` are the frozen
+16-test revision, installed byte-identical to the supplied archive. Neither file
+is edited by this repository. If a gate fails, the defect is in the repository
+or in the declaration — not something to resolve by editing the checker.
 
-Measured, not inferred:
-
-- the test file runs **14 tests, not 16**;
-- `readYamlList` terminates the gate list at the first comment line inside it
-  (D11 absent), which is why the manifest keeps its explanatory comments *above*
-  `definition_of_done:` rather than inside the list;
-- the execution-target recognizer accepts only `turbo run`, `bash`, and
-  `pnpm --filter` — there is no `node [flags] <file>` form (D12 absent).
-
-**Consequence:** `pnpm verify:dod` currently reports
+Current verdict:
 
 ```text
-DOD_GATE_UNRECOGNIZED_FORM  pnpm verify:dod  unrecognized script form: node scripts/harness/verify-dod-integrity.mjs .
-DoD integrity: FAIL (14 declared gates, 1 findings)
+pnpm verify:dod      → DoD integrity: PASS (14 declared gates, 0 findings)
+pnpm harness:verify  → 16/16
+reverse direction    → harness:verify, test:judge
 ```
 
-That single finding is the checker rejecting itself — precisely the case D12
-exists to fix — not a defect in this repository. Confirmed by running an
-unmodified copy of this checker with only node-form support added, against this
-same tree:
+Two behaviours of this revision are load-bearing here, and a downgrade would
+silently break them:
 
-```text
-DoD integrity: PASS (14 declared gates, 0 findings)
-```
+- **D11** lets `readYamlList` skip comment lines inside a block list. Without it
+  the gate list truncates at the first comment and the declared count drops
+  below 14.
+- **D12** recognizes the `node [flags] <file>` execution form. Without it
+  `verify:dod` — itself a node command — is reported
+  `DOD_GATE_UNRECOGNIZED_FORM`, and the checker rejects itself.
 
-The repository repair is therefore complete. Replacing the two files above with
-the frozen revision, changing nothing else, is expected to turn `verify:dod`
-green. If it does not, that difference is evidence to diagnose — not a reason to
-edit the checker or the manifest.
+An earlier commit on this branch deliberately shipped that second failure rather
+than working around it, because the honest result was that the artifact revision
+was wrong, not the repository.

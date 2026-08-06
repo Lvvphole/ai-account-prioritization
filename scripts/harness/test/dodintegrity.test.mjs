@@ -13,6 +13,7 @@ import {
   checkDodIntegrity,
   listUndeclaredPrCommands,
   extractRunCommands,
+  readYamlList,
   FINDING,
 } from '../verify-dod-integrity.mjs';
 
@@ -283,3 +284,62 @@ test('D7b a non-PR workflow does not count as enforcement', () => {
     cleanup(root);
   }
 });
+
+test('D11 comments inside definition_of_done do not truncate the list', () => {
+  const yaml = [
+    'product: fixture',
+    '',
+    'definition_of_done:',
+    '  # Artifact DoD is ALL PASS across every required gate.',
+    '  - pnpm install --frozen-lockfile',
+    '  # This comment is explanatory and is not a gate.',
+    '  - pnpm typecheck',
+    '  - pnpm verify:security',
+    '',
+    'other_key: value',
+  ].join('\n');
+  assert.deepEqual(readYamlList(yaml, 'definition_of_done'), [
+    'pnpm install --frozen-lockfile',
+    'pnpm typecheck',
+    'pnpm verify:security',
+  ]);
+});
+
+test('D12 node execution form is recognized and its target file must exist', () => {
+  const validRoot = buildFixture({
+    dodCommands: ['pnpm install --frozen-lockfile', 'pnpm verify:dod'],
+    rootScripts: { 'verify:dod': 'node scripts/harness/verify-dod-integrity.mjs .' },
+    implementers: {},
+    ciCommands: ['pnpm install --frozen-lockfile', 'pnpm verify:dod'],
+  });
+  try {
+    mkdirSync(join(validRoot, 'scripts', 'harness'), { recursive: true });
+    writeFileSync(join(validRoot, 'scripts', 'harness', 'verify-dod-integrity.mjs'), 'process.exit(0);\n');
+    const r = checkDodIntegrity(validRoot);
+    assert.deepEqual(r.findings, [], `valid node target must pass: ${JSON.stringify(r.findings)}`);
+  } finally {
+    cleanup(validRoot);
+  }
+
+  const missingRoot = buildFixture({
+    dodCommands: ['pnpm install --frozen-lockfile', 'pnpm verify:dod'],
+    rootScripts: { 'verify:dod': 'node --trace-warnings scripts/harness/missing.mjs .' },
+    implementers: {},
+    ciCommands: ['pnpm install --frozen-lockfile', 'pnpm verify:dod'],
+  });
+  try {
+    const r = checkDodIntegrity(missingRoot);
+    assert.equal(r.status, 'FAIL');
+    assert.ok(
+      codesFor(r, 'pnpm verify:dod').includes(FINDING.DOD_GATE_VACUOUS),
+      'missing node target must fail closed as vacuous',
+    );
+    assert.ok(
+      !codesFor(r, 'pnpm verify:dod').includes(FINDING.DOD_GATE_UNRECOGNIZED_FORM),
+      'recognized node form must not be reported as unrecognized',
+    );
+  } finally {
+    cleanup(missingRoot);
+  }
+});
+
