@@ -91,7 +91,7 @@ These capabilities remain approved under the target architecture. A later implem
 
 **Acceptance A — deterministic baseline:** AI is disabled. The production-shaped daily spine must pass end to end with deterministic behavior and approved fallback semantics.
 
-**Acceptance B — qualified model:** the same spine runs with the single qualified production model configuration. Model success or safe fallback must never alter tenant, owner, account, score, rank, reason codes, permissions, approval state, publication authority, side-effect authority, or completion authority.
+**Acceptance B — qualified model:** the same spine runs with the single qualified production model configuration. Model success or safe fallback must never alter tenant, owner, account, eligibility, score, rank, confidence, reason codes, source evidence, next-best-action type, permissions, approval state, publication authority, side-effect authority, or completion authority.
 
 ## Product runtime goal
 
@@ -257,6 +257,7 @@ scope
 
 authorized inputs
 allowlisted tools
+allowed resources
 allowed action envelope
 strict output schema
 deterministic postconditions
@@ -273,6 +274,8 @@ budgets
 human approval requirement
 terminal states = PASS | FAIL | BLOCKED
 ```
+
+`allowed resources` is always explicit. Use an empty grant when no resources are authorized.
 
 A field that does not apply to the current implementation remains empty or constrained by policy. The model cannot infer omitted authority.
 
@@ -415,6 +418,7 @@ For each selected account, software constructs the task contract and supplies:
 - deterministic reason codes;
 - allowed action envelope;
 - allowlisted tools;
+- allowed resources;
 - output schema;
 - postconditions;
 - budgets; and
