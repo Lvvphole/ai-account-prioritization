@@ -236,6 +236,8 @@ model_policy:
     - schema_version
     - task_contract_version
     - policy_identity
+    - grounding_version
+    - fallback_version
     - token_and_time_budgets
     - validation_outcome
     - terminal_state

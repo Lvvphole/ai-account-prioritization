@@ -148,6 +148,7 @@ Before model execution, software supplies:
 - the goal;
 - authorized inputs;
 - the allowlisted tools;
+- the allowed resources;
 - the allowed action envelope;
 - the strict output schema;
 - deterministic postconditions;
@@ -301,6 +302,7 @@ In the approved target architecture, software supplies, for each task:
 - verified evidence;
 - deterministic reason codes;
 - the allowed action and tool envelope;
+- the allowed resources;
 - the strict output schema;
 - deterministic postconditions;
 - token, time, call, retry, concurrency, and delegation budgets; and
@@ -342,12 +344,15 @@ Every LLM-assisted task must define these fields before execution:
 2. `authorized_inputs`
 3. `scope`
 4. `allowlisted_tools`
-5. `allowed_action_envelope`
-6. `strict_output_schema`
-7. `deterministic_postconditions`
-8. `budgets`
-9. `human_approval_requirement`
-10. `terminal_states = PASS | FAIL | BLOCKED`
+5. `allowed_resources`
+6. `allowed_action_envelope`
+7. `strict_output_schema`
+8. `deterministic_postconditions`
+9. `budgets`
+10. `human_approval_requirement`
+11. `terminal_states = PASS | FAIL | BLOCKED`
+
+If no resources are authorized, `allowed_resources` must be an explicit empty grant.
 
 When delegation is implemented, a subagent receives a stricter child contract. A child contract cannot widen the parent contract.
 
@@ -409,7 +414,7 @@ Until this path exists and passes, the web application is **NOT DONE**, regardle
 
 **Acceptance A — deterministic baseline:** AI is disabled. The full production-shaped daily path must pass end to end using the deterministic baseline and approved fallback behavior.
 
-**Acceptance B — qualified model:** the same spine runs with the single qualified production model configuration. Model success or safe fallback must never alter tenant, owner, account, score, rank, reason codes, permissions, approval state, publication authority, side-effect authority, or completion authority.
+**Acceptance B — qualified model:** the same spine runs with the single qualified production model configuration. Model success or safe fallback must never alter tenant, owner, account, eligibility, score, rank, confidence, reason codes, source evidence, next-best-action type, permissions, approval state, publication authority, side-effect authority, or completion authority.
 
 The model can be disabled, unavailable, or rejected by verification without breaking the correctness of the daily spine.
 

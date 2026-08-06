@@ -3,24 +3,9 @@
 **Product:** AI Account Prioritization Agent for B2B Sales Teams  
 **Repository:** `Lvvphole/ai-account-prioritization`  
 **Implementation target:** Claude Code  
-**Artifact status:** Historical/domain specification; implementation sequencing superseded by the current production-spine authority  
+**Artifact status:** Implementation-ready specification v1  
 **Date:** 2026-07-31  
-**Authority alignment:** 2026-08-06  
 **Canonical destination in repository:** `docs/SECURE_CRM_INGESTION_EVENT_TRIGGERS_SOURCE_ONBOARDING_SPEC_V1.md`
-
----
-
-## 0. Authority and current-scope status
-
-This specification preserves domain requirements and already-adopted security, tenancy, provenance, quarantine, validation, and ingestion invariants. It does not override `AGENTS.md`, ADR-001, ADR-002, `docs/PRD.md`, `docs/ARCHITECTURE.md`, or `prd_manifest.yaml`.
-
-The approved Position B target architecture permits bounded model assistance with semantic interpretation and field-mapping proposals when an explicit task contract permits it. A model proposal never makes source data authoritative. Source authentication, quarantine, security decisions, schema validation, row disposition, canonical commit, provenance, and authoritative CRM state remain deterministic.
-
-The event-driven ingestion, trigger orchestration, remote MCP ingestion, generalized connector sequencing, and worker architecture described below are not the current production-spine implementation plan. They remain historical or future domain design unless a later explicit ruling admits them under the current product plan and ADR-002.
-
-Current production-spine P4 remains limited to the provider-neutral model boundary, provider-native constrained output, normalized reasoning or effort configuration, full prompt/schema/policy/model identity evidence, offline cross-model k-run qualification, one qualified production configuration at a time, deterministic fallback or hold, and the two production acceptance profiles defined in the current authority documents.
-
-No statement in this historical specification authorizes model-controlled candidate-action selection, general tool orchestration, supervisor-worker fan-out, multi-model routing or voting, a second action ontology, production caching, event-driven ingestion, or remote MCP ingestion as current production-spine work.
 
 ---
 
@@ -77,12 +62,10 @@ The implementation must preserve the following rules from `AGENTS.md`, `docs/PRD
 
 - The LLM never ranks accounts.
 - Deterministic scoring decides rank.
-- Deterministic software owns the authority envelope, including scope, permissions, resources, budgets, postconditions, protected side effects, verification, publication, and completion.
-- Bounded semantic mapping proposals can be model-assisted only when a current task contract and implementation scope permit them; deterministic validation and commit retain authority.
 - TypeScript/Zod is the schema source of truth.
 - Python consumes generated JSON Schema only.
 - Runtime guardrails remain synchronous and deterministic.
-- The LLM judge remains asynchronous and outside runtime acceptance authority.
+- The LLM judge remains asynchronous and outside the runtime.
 - Human approval remains mandatory before customer-facing sends or CRM write-back.
 - No recommendation publishes without verification.
 - Unsupported or fabricated claims remain prohibited.
@@ -448,8 +431,6 @@ The interface must show:
 - Mapping confidence as advisory only.
 - Final administrator decision.
 
-A later explicitly admitted model-assisted mapping flow may propose a mapping or advisory confidence. Deterministic schema validation and the authorized mapping decision remain authoritative.
-
 #### Step 6: Preview records
 
 Show a redacted sample after normalization.
@@ -786,7 +767,7 @@ export const InboundRecordEnvelopeSchema = z.object({
 }).strict();
 ```
 
-The raw payload is stored outside the canonical operational object and is never sent to a scorer. Model use is permitted only under the active authority and implementation-scope contract.
+The raw payload is stored outside the canonical operational object and is never sent to a model or scorer.
 
 ### 8.4 Trust classification
 
@@ -806,7 +787,7 @@ Rules:
 - Free-form notes, email bodies, activity bodies, and imported descriptions default to `untrusted_text`.
 - `untrusted_text` never becomes a source signal merely because it exists in an authenticated CRM.
 - Prompt-like instructions inside CRM fields are treated as data, never as commands.
-- Model-visible source data must be explicitly permitted, minimized, redacted where required, and bounded by the active task contract.
+- A model, if used later for drafting, receives only explicitly permitted normalized fields after PII redaction and trust filtering.
 
 ---
 
@@ -1283,8 +1264,8 @@ An anomaly creates a warning or quarantine finding according to policy. It never
 - Only verified structured fields reach scoring.
 - Untrusted free text is excluded from source-signal generation.
 - Source data cannot encode system instructions.
-- Source data cannot select tools or expand a model tool grant.
-- Source data cannot alter policy, scope, permissions, budgets, approvals, publication, or environment state.
+- Source data cannot select tools.
+- Source data cannot alter policy, permissions, approvals, or environment state.
 - Derived signals are generated only by deterministic code with versioned rules.
 
 ---
@@ -1739,7 +1720,7 @@ Never expose stack traces or secrets.
 - Authenticated source data remains untrusted.
 - Strict ranges alone are insufficient; historical anomaly rules are required.
 - Raw free text never reaches deterministic scoring.
-- Source content cannot change instructions, tool/resource grants, policy, scope, permissions, budgets, approvals, publication, or side-effect authority.
+- Source content cannot change instructions, tools, policy, permissions, or approvals.
 - Suspicious prompt-like text is classified and excluded, not obeyed.
 - No LLM security decision may override deterministic hard blocks.
 
@@ -2006,8 +1987,6 @@ scripts/verify-production.sh
 
 ## 25. Delivery plan
 
-This delivery plan is historical. It is not the current production-spine sequence unless a later explicit ruling reactivates the relevant epic.
-
 ### Epic 0: Contract and workspace boundary
 
 Deliver:
@@ -2139,7 +2118,7 @@ Exit gate:
 
 ## 26. Definition of done
 
-The historical increment is complete only when:
+The increment is complete only when:
 
 1. Every inbound source uses the canonical ingestion boundary.
 2. All tenant-scoped data has enforced workspace isolation.
@@ -2160,13 +2139,11 @@ The historical increment is complete only when:
 17. No direct push to `main` occurs.
 18. The final PR includes migration notes, threat-model summary, screenshots, test evidence, and rollback instructions.
 
-This historical Definition of Done does not replace the current production-spine Definition of Done in `docs/PRD.md` and `docs/ARCHITECTURE.md`.
-
 ---
 
 ## 27. Claude Code execution contract
 
-Use this section only if a later explicit ruling reactivates this historical delivery plan.
+Use this section as the execution prompt.
 
 ```text
 You are implementing Secure CRM Ingestion, Event Triggers, and Source Onboarding v1
@@ -2174,33 +2151,22 @@ in the repository Lvvphole/ai-account-prioritization.
 
 Authoritative documents, in order:
 1. AGENTS.md
-2. docs/decisions/ADR-001-hybrid-runtime-drafting.md
-3. docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md
+2. docs/SECURE_CRM_INGESTION_EVENT_TRIGGERS_SOURCE_ONBOARDING_SPEC_V1.md
+3. docs/ARCHITECTURE.md
 4. docs/PRD.md
-5. docs/ARCHITECTURE.md
-6. prd_manifest.yaml
-7. docs/SECURE_CRM_INGESTION_EVENT_TRIGGERS_SOURCE_ONBOARDING_SPEC_V1.md
+5. prd_manifest.yaml
 
 Operating rules:
 - Read AGENTS.md before changing code.
 - Preserve every existing deterministic ranking, verification, human approval,
   audit, schema-generation, and runtime/judge separation invariant.
-- Treat Position B as the approved target architecture, but do not infer current
-  implementation authorization from target-architecture approval.
-- Model-assisted semantic mapping can only propose bounded mappings under an
-  explicitly authorized task contract; deterministic validation and canonical
-  commit retain authority.
-- Do not implement model-controlled candidate-action selection, general tool
-  orchestration, supervisor-worker fan-out, multi-model routing or voting,
-  production caching, or any other deferred current-P4 capability without a new
-  explicit ruling.
 - Do not implement source-specific shortcuts around the canonical ingestion pipeline.
 - Do not write directly to main.
 - Create a feature branch.
 - Begin in plan mode and inspect the repository before proposing file changes.
-- Implement only an epic that the current product plan explicitly authorizes.
-- After each authorized increment, run the smallest relevant verification suite.
-- Run the applicable full Definition of Done gates before requesting review.
+- Implement one epic at a time in the specified order.
+- After each epic, run the smallest relevant verification suite.
+- Run the full Definition of Done gates before requesting review.
 - The executor does not self-certify. Produce evidence for a separate verifier.
 - If a verification command fails, stop, report the exact failing gate, and repair
   from evidence before continuing.
@@ -2208,10 +2174,10 @@ Operating rules:
   downstream service consults that state.
 - Do not display sample telemetry as live.
 - Do not weaken RLS, RBAC, approval, or source verification to make tests pass.
-- Do not add an LLM call to ranking, trigger evaluation, runtime guardrails,
-  source authentication, canonical commit authority, or security decisions.
+- Do not add an LLM call to ingestion, ranking, trigger evaluation, runtime guardrails,
+  source verification, or security decisions.
 
-Historical implementation order if separately reactivated:
+Required implementation order:
 Epic 0: workspace boundary
 Epic 1: canonical ingestion contracts and persistence
 Epic 2: secure CSV pipeline
@@ -2220,7 +2186,7 @@ Epic 4: signed webhook/API
 Epic 5: remote MCP read-only source
 Epic 6: operations, telemetry, and documentation
 
-Historical final commands:
+Required final commands:
 pnpm install
 pnpm generate:schemas
 pnpm build
@@ -2253,6 +2219,6 @@ Implementation should align with:
 - OWASP File Upload Cheat Sheet.
 - OWASP API Security Top 10 2023, especially authorization, unrestricted resource consumption, SSRF, and unsafe consumption of APIs.
 - Current Model Context Protocol transport and authorization specifications.
-- Existing repository `AGENTS.md`, ADR-001, ADR-002, `docs/ARCHITECTURE.md`, `docs/PRD.md`, and schema-generation contract.
+- Existing repository `AGENTS.md`, `docs/ARCHITECTURE.md`, and schema-generation contract.
 
-These sources guide controls. The current authority hierarchy and executable repository tests define acceptance for this product.
+These sources guide controls; the executable repository tests and this specification define acceptance for this product.
