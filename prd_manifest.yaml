@@ -5,13 +5,14 @@ product:
     human-controllable sales work plan for the correct representative.
   planning: Agile Scrum
   philosophy: Strategic Programming (strict)
-  architecture_state: daily_first_bounded_what_how_governing
+  architecture_state: position_b_bounded_what_how_target
   completion_state: NOT_DONE
   completion_reason: >-
     The production-shaped daily spine is not complete until real CRM ingestion,
-    canonical persistence, daily prioritization, bounded LLM work, durable
-    recommendation persistence, the live representative dashboard, protected
-    action approval, and durable outcome or feedback capture work end to end.
+    canonical persistence, daily prioritization, optional bounded P4 model work,
+    durable recommendation persistence, the live representative dashboard,
+    protected action approval, and durable outcome or feedback capture work end
+    to end.
 
 user_story: >-
   As a sales representative managing more accounts and opportunities than I can
@@ -28,6 +29,126 @@ trust_clause:
   - distinguish_model_generated_assistance
   - model_assumptions_never_become_customer_or_opportunity_facts
 
+approved_target_architecture:
+  name: position_b_bounded_what_how
+  status: approved
+  implementation_authorization_implied: false
+  deterministic_software_exclusive:
+    - who
+    - when
+    - where
+    - why
+    - scope
+    - permissions
+    - available_resources
+    - tool_allowlists
+    - budgets
+    - deterministic_postconditions
+    - protected_side_effect_authority
+    - verification_authority
+    - publication_authority
+    - completion_judgment
+  llm_bounded_target:
+    - semantic_interpretation
+    - semantic_mapping_proposal
+    - evidence_synthesis
+    - situation_characterization
+    - strict_schema_artifact_generation
+    - candidate_action_selection_inside_supplied_action_envelope
+    - allowlisted_tool_selection
+    - allowlisted_tool_sequencing
+    - task_decomposition
+    - bounded_subagent_delegation
+    - worker_result_synthesis
+    - bounded_recovery
+  llm_forbidden:
+    - rewrite_goal
+    - expand_tenant_user_batch_account_or_task_scope
+    - create_tools
+    - create_resources
+    - grant_permissions
+    - create_action_classes_outside_supplied_envelope
+    - increase_budgets
+    - bypass_required_validation
+    - approve_protected_side_effect
+    - execute_unapproved_protected_side_effect
+    - authorize_publication
+    - declare_success
+  supervisor_worker_target:
+    same_qualified_pinned_model: true
+    child_contract_must_be_equal_to_or_narrower_than_parent: true
+    child_cannot_infer_omitted_authority: true
+    fanout_required_for_every_task: false
+  verifier_authority: deterministic_software_only
+  terminal_states:
+    - PASS
+    - FAIL
+    - BLOCKED
+
+current_production_spine:
+  mode: daily_batch_first
+  current_next_best_action_selection: deterministic
+  current_model_role:
+    - bounded_drafting
+    - bounded_synthesis
+  deterministic_fallback_or_hold_required: true
+  full_position_b_implemented: false
+  target_architecture_does_not_expand_current_scope: true
+
+p4:
+  name: Provider-Neutral Model Boundary, Variance Control, and Qualification
+  optional_branch: true
+  deterministic_baseline_must_complete_without_model: true
+  authorized_current_spine_work:
+    - refactor_RuntimeModelClient_to_provider_neutral_boundary
+    - remove_Anthropic_specific_types_from_common_policy
+    - support_provider_native_constrained_output
+    - normalize_reasoning_or_effort_without_false_cross_provider_equivalence
+    - remove_hard_coded_temperature_zero_from_Claude_5_compatible_requests
+    - preserve_prompt_schema_policy_and_model_identity_in_audit_evidence
+    - build_offline_cross_model_k_run_qualification
+    - admit_one_qualified_production_configuration_at_a_time
+    - preserve_deterministic_template_fallback_or_hold
+    - prove_acceptance_A_and_acceptance_B
+  deferred_from_current_spine:
+    - model_controlled_candidate_action_selection
+    - capability_resolver_driven_by_model_selected_what
+    - general_tool_orchestration
+    - workflows
+    - side_effecting_model_tools
+    - supervisor_worker_fanout
+    - subagent_delegation
+    - multi_model_routing
+    - majority_voting
+    - second_action_ontology
+    - production_caching_infrastructure
+  deferred_capabilities_remain_target_approved: true
+  deferred_implementation_requires:
+    - new_explicit_human_ruling
+    - applicable_ADR_002_admission_evidence
+  acceptance_profiles:
+    A:
+      name: deterministic_baseline
+      ai_enabled: false
+      requirement: production_shaped_daily_spine_passes_end_to_end
+    B:
+      name: single_qualified_model
+      ai_enabled: true
+      active_production_configurations: 1
+      immutable_authority_fields:
+        - tenant
+        - owner
+        - account
+        - score
+        - rank
+        - reason_codes
+        - permissions
+        - approval_state
+        - publication_authority
+        - side_effect_authority
+        - completion_authority
+      safe_fallback_must_preserve_authority: true
+
 daily_architecture:
   mode: batch_first
   realtime_or_event_driven_required: false
@@ -36,7 +157,7 @@ daily_architecture:
     - authorized_crm_batch
     - validated_canonical_storage
     - deterministic_daily_prioritization
-    - bounded_llm_work_when_required
+    - optional_bounded_p4_drafting_or_synthesis
     - deterministic_postcondition_verification
     - durable_recommendation_persistence
     - live_representative_dashboard
@@ -53,17 +174,24 @@ runtime_authority:
     - account_rank
     - permissions
     - resources
+    - tool_allowlists
     - budgets
     - approval_requirements
     - publication_eligibility
     - side_effect_authority
     - completion_judgment
-  llm_bounded:
+  current_spine_deterministic:
+    - confidence_or_evidence_quality_policy
+    - reason_codes
+    - source_evidence_identifiers
+    - next_best_action_type
+  target_llm_bounded:
     - what
     - how
     - evidence_synthesis
     - situation_characterization
     - strict_schema_artifact_generation
+    - semantic_mapping_proposal
     - candidate_action_selection_inside_supplied_action_envelope
     - allowlisted_tool_selection
     - allowlisted_tool_sequencing
@@ -71,36 +199,39 @@ runtime_authority:
     - bounded_subagent_delegation
     - worker_result_synthesis
     - bounded_recovery
+  current_spine_llm_bounded:
+    - bounded_drafting
+    - bounded_synthesis
   llm_forbidden:
     - rewrite_goal
-    - expand_tenant_user_batch_or_account_scope
+    - expand_tenant_user_batch_account_or_task_scope
     - create_tools
+    - create_resources
     - grant_permissions
     - increase_budgets
     - bypass_required_validation
     - approve_protected_side_effect
     - execute_unapproved_protected_side_effect
+    - authorize_publication
     - declare_success
 
 model_policy:
-  production_models: 1
+  active_production_configurations: 1
   identity: qualified_and_pinned_before_enablement
-  supervisor_worker_same_model: true
-  model_routing: forbidden_in_current_version
-  automatic_model_escalation: forbidden_in_current_version
-  role_differentiation:
-    - task_contract
-    - prompt
-    - strict_schema
-    - context
-    - tool_grant
-    - budgets
+  provider_boundary: provider_neutral_target_for_p4
+  supervisor_worker_same_model_when_later_admitted: true
+  model_routing_current_spine: forbidden
+  automatic_model_escalation_current_spine: forbidden
+  majority_voting_current_spine: forbidden
+  provider_controls_need_not_be_equivalent: true
   invocation_evidence_required:
     - model_identity
+    - provider_identity
+    - effective_model_configuration
     - prompt_identity_and_hash
     - schema_version
     - task_contract_version
-    - tool_grant
+    - policy_identity
     - token_and_time_budgets
     - validation_outcome
     - terminal_state
@@ -121,7 +252,7 @@ probabilistic_task_contract:
     - PASS
     - FAIL
     - BLOCKED
-  child_contract_rule: child_must_be_equal_to_or_narrower_than_parent
+  child_contract_rule_when_delegation_is_admitted: child_must_be_equal_to_or_narrower_than_parent
   model_completion_claim_has_authority: false
   verifier_authority: deterministic_software_only
 
@@ -131,11 +262,11 @@ budgets:
     - output_tokens
     - total_run_tokens
     - model_calls
-    - tool_calls
+    - tool_calls_when_admitted
     - wall_clock_time
     - retries
-    - delegation_depth
-    - worker_count
+    - delegation_depth_when_admitted
+    - worker_count_when_admitted
     - concurrency
   model_may_increase_budget: false
 
@@ -167,8 +298,9 @@ workflow:
       - batch_identity
       - quarantine_location
       - upload_evidence
-    llm_optional:
-      - semantic_field_mapping_inside_allowed_schema
+    target_llm_optional:
+      - semantic_field_mapping_proposal_inside_allowed_schema
+    authoritative_commit_from_model_output: false
     completion: batch_durably_staged_or_explicitly_rejected
 
   - id: phase_2_validate_and_prepare
@@ -184,11 +316,12 @@ workflow:
       - change_set
       - approval_requirements
       - canonical_commit
-    llm_optional:
+    target_llm_optional:
       - ambiguous_text_interpretation
       - bounded_mapping_proposal
       - unstructured_content_extraction
       - finding_explanation
+    authoritative_commit_from_model_output: false
     completion: every_row_has_deterministic_disposition_and_accepted_records_are_committed
 
   - id: phase_3_prioritize_accounts
@@ -202,12 +335,12 @@ workflow:
       - evidence_quality_or_confidence_policy
       - reason_codes
       - source_evidence_identifiers
-    llm_required: false
+    llm_ranking_authorized: false
     completion: eligible_accounts_have_deterministic_priority_state_and_ranked_book_is_persisted
 
   - id: phase_4_analyze_and_prepare
     goal: Perform bounded cognitive work for selected recommendations.
-    deterministic_owns:
+    target_deterministic_owns:
       - account_and_tenant_scope
       - goal
       - verified_evidence_envelope
@@ -219,7 +352,7 @@ workflow:
       - budgets
       - human_approval_requirement
       - terminal_state
-    llm_may:
+    target_llm_may:
       - solve_directly
       - synthesize_evidence
       - characterize_sales_situation
@@ -230,11 +363,12 @@ workflow:
       - fan_out_bounded_workers
       - synthesize_worker_outputs
       - recover_inside_declared_limits
-    subagents:
-      enabled_by_contract: true
-      same_pinned_model_as_supervisor: true
-      child_contract_must_narrow_parent: true
-      fanout_required_for_every_task: false
+    current_spine_llm_may:
+      - bounded_drafting
+      - bounded_synthesis
+    current_spine_next_best_action_selection: deterministic
+    current_spine_general_tool_orchestration: false
+    current_spine_subagents: false
     completion: deterministic_verifier_returns_PASS_FAIL_or_BLOCKED_for_each_item
 
   - id: phase_5_review_and_take_action
@@ -247,14 +381,6 @@ workflow:
       - side_effect_permissions
       - approval_binding_to_visible_payload
       - protected_side_effect_result_verification
-    llm_may:
-      - explain_recommendation
-      - answer_bounded_questions
-      - revise_action_artifact
-      - prepare_call_notes
-      - prepare_email
-      - prepare_meeting_agenda
-      - use_allowlisted_nonprotected_preparatory_tools
     completion: item_reaches_verified_action_terminal_state_or_explicit_FAIL_or_BLOCKED
 
   - id: phase_6_capture_outcome_and_refresh
@@ -265,7 +391,7 @@ workflow:
       - provenance
       - product_metric_calculation
       - next_daily_snapshot_boundary
-    llm_optional:
+    target_llm_optional:
       - bounded_offline_feedback_synthesis
       - bounded_offline_feedback_classification
     completion: available_outcome_or_feedback_is_durable_or_unknown_state_is_recorded
@@ -283,11 +409,11 @@ completion_contract:
       - only_authorized_current_scope_inputs_used
       - strict_output_schema_valid
       - required_factual_claims_resolve_to_allowed_source_identifiers
-      - deterministic_fields_unchanged
-      - tool_calls_allowlisted_with_valid_arguments_and_authorized_resources
+      - software_owned_authority_fields_protected
+      - admitted_tool_calls_allowlisted_with_valid_arguments_and_authorized_resources
       - application_level_postconditions_hold
       - protected_side_effects_have_permission_and_explicit_human_approval
-      - token_call_time_retry_delegation_and_concurrency_budgets_respected
+      - applicable_budgets_respected
       - durable_evidence_exists
       - deterministic_verifier_returns_exactly_one_terminal_state
     model_completion_claim_has_weight: false
@@ -313,28 +439,38 @@ completion_contract:
       - upload_and_validation_succeed
       - accepted_records_become_canonical_facts
       - daily_prioritization_produces_deterministic_ranks_and_reason_codes
-      - phase_4_bounded_llm_work_when_required_satisfies_postconditions
+      - optional_p4_model_work_succeeds_or_safely_falls_back_or_holds
       - verified_recommendations_are_persisted
       - real_recommendations_appear_in_correct_representative_dashboard
       - representative_can_inspect_evidence
       - protected_actions_require_explicit_approval_of_visible_payload
       - outcome_or_feedback_is_durably_recorded
+    required_profiles:
+      - deterministic_baseline
+      - single_qualified_model
     completion_state_until_path_passes: NOT_DONE
 
 summary_statement_of_completion: >-
   The system is done when an authoritative daily CRM batch can be turned into a
   verified, prioritized, human-controllable sales work plan that is visible and
   actionable in the live web application, and every probabilistic step executes
-  inside an explicit deterministic contract that only the harness can mark PASS,
-  FAIL, or BLOCKED.
+  inside an explicit deterministic authority envelope that only the harness can
+  mark PASS, FAIL, or BLOCKED.
 
 implementation_state:
   deterministic_prioritization_core: shipped
+  deterministic_next_best_action_selection: shipped
   bounded_single_call_runtime_drafting: shipped
   production_ingestion_commit_spine: incomplete
   durable_runtime_to_web_bridge: incomplete
   live_dashboard_without_mock_recommendations: incomplete
-  bounded_supervisor_worker_delegation: incomplete
+  p4_provider_neutral_boundary_and_qualification: incomplete
+  model_controlled_candidate_action_selection: deferred
+  general_tool_orchestration: deferred
+  bounded_supervisor_worker_delegation: deferred
+  multi_model_routing_or_voting: deferred
+  second_action_ontology: deferred
+  production_caching_infrastructure: deferred
   production_shaped_daily_spine_acceptance_path: incomplete
 
 repository_verification_commands:
@@ -362,13 +498,21 @@ success_metrics:
   completion_gate: false
   causal_attribution_requires_defensible_intervention_design: true
 
-non_goals:
-  - realtime_or_event_driven_crm_ingestion_for_current_build
+non_goals_current_production_spine:
+  - realtime_or_event_driven_crm_ingestion
   - general_purpose_autonomous_agent_platform
+  - model_controlled_candidate_action_selection
+  - general_tool_orchestration
+  - side_effecting_model_tools
+  - supervisor_worker_fanout
   - multi_model_routing
   - automatic_model_escalation
+  - majority_voting
+  - second_action_ontology
+  - production_caching_infrastructure
   - model_owned_ranking
   - model_owned_eligibility
+  - model_owned_scope
   - model_owned_permissions
   - model_owned_approval
   - model_owned_publication
