@@ -276,9 +276,9 @@ daily spine must pass end to end.
 
 **Acceptance B — single qualified model:** the same spine runs with the one
 qualified production model configuration. Model success or safe fallback must
-never alter tenant, owner, account, score, rank, reason codes, permissions,
-approval state, publication authority, side-effect authority, or completion
-authority.
+never alter tenant, owner, account, eligibility, score, rank, confidence,
+reason codes, source evidence, next-best-action type, permissions, approval
+state, publication authority, side-effect authority, or completion authority.
 
 ### 4.2 Current runtime model contract
 
