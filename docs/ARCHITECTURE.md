@@ -1,316 +1,680 @@
 # Architecture
 
-## Pattern
+## Governing architecture
 
-**Turborepo-based hybrid AI application** using a **co-located agent-module
-pattern**, supported by:
+AI Account Prioritization is a **daily-first, batch-oriented hybrid AI application**.
 
-- deterministic pre-draft decision authority
-- bounded runtime LLM drafting and signal synthesis
-- deterministic template fallback
-- synchronous fail-closed post-draft verification
-- human approval before customer-facing or CRM-write actions
-- asynchronous LLM evaluation outside the runtime path
-- shared-schema contract pattern
-- eval-gated CI/CD
-- MCP-compatible tool registry
+The application treats the LLM as a capable but untrusted cognitive service.
 
-The architecture deliberately separates **decision authority**, **language
-generation**, and **publication verification**. TypeScript decides who is
-prioritized, why, which action is allowed, and which permissions and approvals
-apply. The runtime LLM may only determine how a verified recommendation is
-expressed. A deterministic post-draft verifier decides whether the candidate may
-publish or must be held.
-
-## Minimum-sufficient harness architecture
-
-The canonical harness-economics doctrine is
-`docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`.
-This section records only the architectural consequences of that decision; it
-does not redefine component admission, repair economics, removal economics,
-simplicity precedence, or machine-enforcement rules.
-
-The product's mandatory runtime boundaries remain requirements. Harness economics
-applies to the implementation chosen for each boundary, not to whether a required
-boundary may be omitted.
-
-The runtime responsibility shape is:
+The authority split is:
 
 ```text
-deterministic decision authority
-  -> bounded drafting
-       probabilistic generation when enabled
-       OR approved deterministic fallback
-  -> deterministic post-draft verification
-  -> human approval for customer-facing or side-effecting actions
-  -> publish or hold
+Deterministic software
+  owns Who + When + Where + Why
+  owns permissions + resources + budgets
+  owns side effects + completion
+
+LLM
+  may own bounded What + How
+  may select and sequence allowlisted tools
+  may decompose work
+  may delegate bounded sub-tasks
+
+Deterministic verifier
+  alone returns PASS | FAIL | BLOCKED
 ```
 
-A probabilistic draft never bypasses deterministic post-draft verification.
-These sequential responsibilities are not substitutable control classes.
+This authority model is the governing runtime choice.
 
-For genuinely substitutable control implementations, the architectural preference
-is:
+## Product runtime goal
+
+The system converts one authoritative daily CRM snapshot into a verified, prioritized set of sales actions that the correct representative can inspect, approve, and execute.
+
+Every probabilistic step remains inside a deterministic contract.
+
+The system is not complete until the production path connects CRM ingestion, canonical storage, daily prioritization, bounded LLM work, durable recommendation persistence, the live representative dashboard, protected action approval, and durable outcome or feedback capture.
+
+## Architectural principles
+
+1. Use batch-first processing for this build.
+2. Keep authoritative CRM facts in deterministic storage.
+3. Keep eligibility and ranking deterministic.
+4. Give the LLM the minimum context required for one task.
+5. Permit the LLM to choose bounded What and How only inside an explicit task contract.
+6. Permit only allowlisted tools and resources.
+7. Permit subagent delegation only inside externally enforced limits.
+8. Use one qualified, pinned production model for supervisor and worker roles.
+9. Require deterministic validation after every probabilistic task.
+10. Require explicit human approval before customer-facing sends or CRM writes.
+11. Keep failures item-scoped when a system-level invariant does not require a full stop.
+12. Record durable evidence for every material model, tool, approval, validation, and terminal-state decision.
+13. Use the minimum sufficient harness defined by ADR-002.
+
+## Minimum-sufficient harness doctrine
+
+`docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md` is authoritative for harness-economics semantics.
+
+This architecture applies that doctrine as follows:
 
 ```text
-simple local control
-  > stateful control
-  > orchestration
-  > autonomous control plane
+mandatory invariant
+  -> keep the invariant
+  -> use the smallest sufficient implementation
+
+discretionary capability
+  -> add only when evidence shows that the simpler design is insufficient
 ```
 
-Movement toward a more complex substitutable control class follows ADR-002.
-Whole-system reliability remains the target: reducing model uncertainty while
-introducing greater harness uncertainty is an architectural regression.
+Subagent delegation is permitted by the runtime authority model. It is not mandatory for every task.
 
-## Implementation status
+A single model call remains preferred when it can satisfy the task contract. Fan-out is used only when the task contract permits it and the externally enforced budget allows it.
 
-This document defines the approved target architecture.
+## Authority model
 
-- **Implemented today:** deterministic scoring, stable ranking, closed-set reason
-  codes, deterministic template drafting, synchronous guardrails, approval,
-  audit, observability, and asynchronous judge evaluation.
-- **Approved next implementation:** constrained runtime LLM drafting and bounded
-  signal synthesis between deterministic recommendation creation and
-  deterministic verification.
-- **Not yet complete:** runtime model adapter, generated-draft schema, claim-level
-  grounding validator, model telemetry, runtime-generation evals, and
-  web-to-runtime production bridge.
+### Who — deterministic
 
-Until those components pass their gates, the deterministic template path remains
-the active runtime behavior.
+Software determines:
+
+- tenant;
+- authenticated user;
+- role;
+- representative;
+- account set;
+- batch;
+- task subject; and
+- resource scope.
+
+A model cannot widen these values.
+
+### When — deterministic
+
+Software determines:
+
+- daily processing schedule;
+- batch cutoff;
+- evidence freshness policy;
+- timeouts;
+- retry windows;
+- deadlines; and
+- terminal stop conditions.
+
+### Where — deterministic
+
+Software determines:
+
+- source systems;
+- canonical persistence;
+- tool endpoints;
+- execution environments;
+- allowed resource identifiers;
+- action destinations; and
+- side-effect destinations.
+
+### Why — deterministic
+
+Software supplies:
+
+- the product objective;
+- task goal;
+- eligibility policy;
+- deterministic leading indicators;
+- ranking policy;
+- reason codes; and
+- mandatory acceptance predicates.
+
+A model may interpret these inputs. It cannot rewrite the goal or policy.
+
+### What — bounded probabilistic
+
+When the task contract permits it, the LLM may create or select a candidate cognitive artifact inside the supplied envelope.
+
+Examples:
+
+- evidence synthesis;
+- situation characterization;
+- structured extraction;
+- candidate sales action from an allowed action set;
+- call plan;
+- email draft;
+- meeting agenda;
+- remediation proposal; and
+- worker-task decomposition.
+
+The artifact remains untrusted until deterministic postconditions pass.
+
+### How — bounded probabilistic
+
+When the task contract permits it, the LLM may:
+
+- choose an allowlisted tool;
+- sequence tool calls;
+- create intermediate structured artifacts;
+- decompose a task;
+- fan out bounded workers;
+- synthesize worker outputs; and
+- attempt bounded recovery.
+
+Software validates every tool request and enforces all budgets.
+
+### Completion — deterministic
+
+The model cannot declare a task complete.
+
+Only the deterministic verifier can return:
+
+- `PASS`;
+- `FAIL`; or
+- `BLOCKED`.
+
+## Probabilistic task contract
+
+Every LLM-assisted task must receive an explicit contract before execution.
+
+The contract contains:
+
+```text
+goal
+scope
+  tenant
+  user
+  batch
+  account or item
+
+authorized inputs
+allowlisted tools
+allowed action envelope
+strict output schema
+deterministic postconditions
+budgets
+  input tokens
+  output tokens
+  total run tokens
+  calls
+  time
+  retries
+  delegation depth
+  worker count
+  concurrency
+human approval requirement
+terminal states = PASS | FAIL | BLOCKED
+```
+
+A child subagent contract must be equal to or narrower than the parent contract.
+
+A child cannot inherit an omitted tool or resource by inference.
+
+## Single pinned production model
+
+One qualified, pinned production model is used for all runtime supervisor and worker roles in this version.
+
+The exact model identity is a production configuration value. It must be qualified before enablement and recorded with every invocation.
+
+Supervisor and worker behavior differs through:
+
+- task contract;
+- prompt;
+- strict schema;
+- context;
+- allowlisted tools; and
+- budgets.
+
+The application does not use model routing or automatic model escalation in this version.
+
+A second production model requires a separately admitted architectural change under ADR-002.
+
+## Daily product spine
+
+```text
+Phase 1: Load CRM data
+  -> Phase 2: Validate and prepare canonical data
+  -> Phase 3: Prioritize accounts
+  -> Phase 4: Analyze and prepare sales actions
+  -> Phase 5: Review and take action
+  -> Phase 6: Capture outcome and refresh
+```
+
+The path is batch-first. Real-time or event-driven ingestion is deferred.
+
+## Phase 1 — Load CRM data
+
+### Purpose
+
+Create one authorized daily CRM input batch.
+
+### Deterministic responsibilities
+
+- authorize the uploader;
+- select the tenant;
+- select the import type;
+- enforce file and row limits;
+- create the batch identity;
+- choose the quarantine path; and
+- persist upload evidence.
+
+### Optional model responsibilities
+
+The LLM may assist with semantic field mapping when the task contract permits it.
+
+Model suggestions cannot make data authoritative.
+
+### Completion
+
+Phase 1 returns success only when the batch is durably staged with the correct tenant and batch identity.
+
+An explicit rejection is a valid terminal result for the upload attempt, but it does not advance the batch to Phase 2.
+
+## Phase 2 — Validate and prepare canonical data
+
+### Purpose
+
+Convert the batch into trusted canonical CRM state.
+
+### Deterministic responsibilities
+
+- security scan;
+- bounded parsing;
+- schema validation;
+- canonical type conversion;
+- tenant checks;
+- duplicate handling;
+- row disposition;
+- change-set calculation;
+- approval requirements; and
+- canonical commit.
+
+### Optional model responsibilities
+
+The LLM may:
+
+- interpret ambiguous text;
+- propose a mapping from the allowed schema;
+- structure unstructured content; and
+- explain findings.
+
+The deterministic validator decides whether the result is admissible.
+
+### Completion
+
+Every source row has a deterministic disposition and all accepted records are committed to canonical storage.
+
+## Phase 3 — Prioritize accounts
+
+### Purpose
+
+Create the representative's deterministic daily work order.
+
+### Deterministic responsibilities
+
+- account eligibility;
+- feature derivation;
+- controllable leading indicators;
+- priority score;
+- stable rank;
+- evidence-quality or confidence policy;
+- reason codes; and
+- source evidence identifiers.
+
+### Model responsibilities
+
+No LLM is required for ranking.
+
+### Completion
+
+Every eligible account has deterministic priority state and the full ranked book is durably persisted.
+
+Identical authoritative input, policy, clock, and code revision must produce the same deterministic ranking state.
+
+## Phase 4 — Analyze and prepare sales actions
+
+### Purpose
+
+Perform the bounded cognitive work that is useful after deterministic prioritization.
+
+### Deterministic responsibilities
+
+For each selected account, software constructs the task contract and supplies:
+
+- account scope;
+- goal;
+- verified evidence;
+- deterministic reason codes;
+- allowed action envelope;
+- allowlisted tools;
+- output schema;
+- postconditions;
+- budgets; and
+- human approval requirement.
+
+### Model responsibilities
+
+The pinned model may act as a supervisor.
+
+The supervisor may:
+
+- solve the task directly;
+- synthesize evidence;
+- characterize the sales situation;
+- select a candidate action when the contract permits it;
+- choose and sequence allowlisted tools;
+- create a structured action artifact;
+- decompose work;
+- fan out bounded workers;
+- synthesize worker outputs; and
+- attempt recovery inside the supplied limits.
+
+All workers use the same pinned production model.
+
+### Supervisor-worker pattern
+
+```text
+verified account envelope
+  -> supervisor
+       -> direct solution
+       OR
+       -> bounded worker task A
+       -> bounded worker task B
+       -> bounded worker task N
+  -> supervisor synthesis
+  -> deterministic validation
+  -> PASS | FAIL | BLOCKED
+```
+
+Fan-out does not grant additional authority. Each worker receives a narrower child contract.
+
+### Item-scoped failure
+
+A failed or blocked recommendation does not invalidate unrelated recommendations.
+
+Only a system-level failure, such as loss of tenant isolation or canonical data integrity, may stop the full run.
+
+### Completion
+
+Phase 4 is complete for an item only when deterministic postconditions have been evaluated and the external verifier returns `PASS`, `FAIL`, or `BLOCKED`.
+
+## Phase 5 — Review and take action
+
+### Purpose
+
+Expose the real persisted daily plan to the correct representative and support human-controlled execution.
+
+### Deterministic responsibilities
+
+- authenticate the representative;
+- authorize account access;
+- load persisted recommendations;
+- show evidence and terminal state;
+- enforce side-effect permissions;
+- bind approval to the visible payload; and
+- verify the result of a protected side effect.
+
+### Model responsibilities
+
+The LLM may, inside a task contract:
+
+- explain a recommendation;
+- answer bounded questions;
+- revise an action artifact;
+- prepare call notes;
+- prepare an email;
+- prepare a meeting agenda; or
+- use allowlisted tools to complete non-protected preparatory work.
+
+### Human approval boundary
+
+No customer-facing message or CRM write occurs without explicit human approval of the visible payload.
+
+A previous approval does not authorize a different payload.
+
+### Completion
+
+The item reaches its verified action terminal state, or the system records `FAIL` or `BLOCKED` without hiding other usable items.
+
+## Phase 6 — Capture outcome and refresh
+
+### Purpose
+
+Record what happened and create durable input for later evaluation and the next daily batch.
+
+### Deterministic responsibilities
+
+- persist feedback;
+- persist known outcomes;
+- preserve provenance;
+- compute product metrics from authoritative records; and
+- establish the next daily snapshot boundary.
+
+### Optional model responsibilities
+
+The LLM may perform bounded offline synthesis or classification of feedback.
+
+It cannot change acceptance state, production policy, or authoritative outcomes.
+
+### Completion
+
+The available outcome or feedback is durably recorded, or the system explicitly records that the outcome is not known.
+
+## Tool boundary
+
+Tool use is permitted only through an allowlist supplied by deterministic software.
+
+For every tool call, software validates:
+
+- tool identity;
+- argument schema;
+- tenant and user scope;
+- resource identifiers;
+- permissions;
+- call budget;
+- time budget; and
+- side-effect class.
+
+A model cannot add a tool or construct new resource authority by naming it.
+
+Protected side-effect tools require human approval after the final payload is visible.
+
+## Context boundary
+
+Each task receives the minimum sufficient context for its goal.
+
+Do not load the full CRM batch into a model when an account-scoped packet is sufficient.
+
+Do not give a worker the supervisor's full context by default.
+
+Model-visible context must distinguish:
+
+- authoritative facts;
+- deterministic derivations;
+- missing values;
+- untrusted source text; and
+- model-generated candidate content.
+
+## Schema and grounding boundary
+
+Every required model artifact uses a strict schema.
+
+Unknown fields are rejected unless the task schema explicitly allows them.
+
+A factual claim that requires source support must reference an allowed source identifier.
+
+The deterministic verifier confirms that the source exists, belongs to the current scope, and supports the claim.
+
+## Budget boundary
+
+Software sets and enforces all budgets.
+
+A model cannot increase:
+
+- token limits;
+- model-call limits;
+- tool-call limits;
+- time limits;
+- retry limits;
+- delegation depth;
+- worker count; or
+- concurrency.
+
+A continuation decision that would exceed a budget returns `BLOCKED` or the task-specific bounded fallback state.
+
+## Side-effect boundary
+
+Customer-facing messages and CRM mutations are protected side effects.
+
+The model may prepare a candidate payload.
+
+The user must see and explicitly approve the final payload before execution.
+
+Deterministic software then verifies the write or send result and records evidence.
+
+## Evidence boundary
+
+Durable evidence must include, as applicable:
+
+- batch, tenant, user, run, recommendation, and task identifiers;
+- source references;
+- deterministic policy and schema versions;
+- prompt and model identity;
+- model invocation metadata;
+- worker invocation metadata;
+- tool calls and tool results;
+- validation outcomes;
+- approvals;
+- side-effect results; and
+- final `PASS`, `FAIL`, or `BLOCKED` state.
+
+Model narration is not evidence of completion.
+
+## Completion architecture
+
+Completion has three nested levels.
+
+### A. Runtime task or phase completion
+
+A task is complete only when deterministic software proves all applicable postconditions:
+
+1. the software-supplied goal was not rewritten and is satisfied;
+2. only authorized inputs were used;
+3. the strict schema is valid;
+4. required factual claims are grounded;
+5. deterministic fields remain unchanged;
+6. tool calls were allowlisted and authorized;
+7. application-level postconditions hold;
+8. protected side effects have permission and explicit human approval;
+9. all budgets were respected;
+10. durable evidence exists; and
+11. the verifier returns `PASS`, `FAIL`, or `BLOCKED`.
+
+The model cannot self-certify.
+
+### B. Harness-component completion
+
+A harness component is complete only when:
+
+- its protected behavior is explicit;
+- the model's allowed freedom is explicit;
+- context and authority boundaries are enforced;
+- schema and postconditions are enforced;
+- failure is contained;
+- token, latency, call, retry, delegation, and concurrency limits are enforced;
+- relevant deterministic regressions pass; and
+- the external verifier returns `PASS`.
+
+A claim that the harness improved reliability requires post-change Harness Fitness measurement under ADR-002. Green CI alone is not sufficient for that claim.
+
+### C. Whole web-application completion
+
+The product is complete only when one production-shaped acceptance path proves:
+
+```text
+Authorized CRM batch
+  -> upload
+  -> validation
+  -> canonical commit
+  -> deterministic daily prioritization
+  -> bounded Phase 4 LLM work when required
+  -> deterministic postconditions
+  -> persisted verified recommendations
+  -> correct representative sees real recommendations in the live dashboard
+  -> representative can inspect evidence
+  -> protected action requires explicit approval
+  -> action result, outcome, or feedback is durably recorded
+```
+
+Until this path exists and passes, the web application is `NOT DONE`.
+
+## Current repository status
+
+The repository does not yet satisfy the whole web-application completion contract.
+
+The current product has substantial deterministic prioritization, bounded runtime drafting, verification, security, observability, and web UI capability.
+
+The remaining product-spine gaps include:
+
+- a fully wired production ingestion commit path;
+- durable runtime-to-web recommendation persistence and retrieval;
+- removal of mock recommendation dependence from the live representative path;
+- the Phase 4 bounded supervisor-worker implementation; and
+- one production-shaped end-to-end acceptance path that covers the daily spine.
+
+This specification does not represent those gaps as completed.
 
 ## Monorepo layout
 
 ```text
-apps/agent-runtime       Hybrid runtime with deterministic decision authority
-apps/web                 Next.js UI (rep / manager / account / admin)
-apps/api-python          Isolated FastAPI support service
-packages/shared-schemas  TypeScript/Zod source of truth + JSON Schema generation
+apps/agent-runtime       Daily runtime and bounded LLM execution
+apps/web                 Representative, manager, account, and admin web UI
+apps/api-python          Isolated support service
+packages/shared-schemas  TypeScript/Zod schema source of truth
 packages/security        RBAC, approval, and security policy
-packages/observability   PII-safe events and measured runtime telemetry
-packages/testing-evals   Deterministic evals + planned generative evals + async judge
-packages/config-*        Shared TypeScript / ESLint configuration
-supabase/                Postgres persistence, RLS, audit, and observability
+packages/observability   PII-safe operational evidence and telemetry
+packages/testing-evals   Deterministic and probabilistic evaluation support
+packages/config-*        Shared configuration
+supabase/                Canonical persistence, RLS, audit, and observability
 ```
-
-## Four boundaries
-
-### 1. Pre-draft deterministic authority boundary
-
-The following values are authoritative, model-independent, and immutable before
-runtime generation begins:
-
-- extracted features
-- priority score
-- rank
-- confidence
-- reason codes
-- verified source references
-- next-best-action type
-- permission and approval requirements
-
-No model call may create, replace, or mutate these values.
-
-### 2. Runtime generation boundary
-
-The runtime model is permitted only after the pre-draft authority envelope is
-complete. It may:
-
-- synthesize verified signals into a concise account brief
-- personalize an email draft
-- generate a call objective
-- draft a CRM note
-- adapt wording to the verified account context and selected objective
-
-It may not:
-
-- score or rank accounts
-- create reason codes
-- change the selected action
-- assert facts without verified source references
-- use side-effecting tools
-- approve, verify, publish, send, or write to the CRM
-
-### 3. Post-draft deterministic verification boundary
-
-The candidate model draft or deterministic fallback draft is untrusted input to
-a deterministic verifier. TypeScript computes:
-
-- generated-output schema result
-- claim-grounding result
-- guardrail result
-- permission and approval result
-- verification outcome
-- publish or hold decision
-- explicit failed-gate codes
-
-The model cannot set or override these values. Different candidate drafts may
-legitimately produce different deterministic gate results.
-
-### 4. Evaluation boundary
-
-The LLM-as-a-judge remains asynchronous and outside the customer-facing runtime.
-It assesses system outputs and can block deployment, but it cannot alter a live
-recommendation or authorize publication.
-
-## Target runtime path
-
-```text
-orchestrator.agent.ts
-  → orchestrator.state.ts
-      Zod-validated state machine
-  → account-prioritizer
-      deterministic features, score, rank, signals, reason codes, action type
-  → sales-execution/build-draft-context
-      minimum authorized verified context
-  → inference/runtime-model
-      constrained model call with fixed prompt, schema, timeout, and token cap
-        OR
-      deterministic template fallback
-  → GeneratedDraftSchema
-      strict parsing and pre-draft field reconciliation
-  → sales-execution/validate-draft-grounding
-      every factual claim mapped to verified source IDs
-  → orchestrator.guardrails.ts
-      schema, claims, source verification, confidence, permission
-  → human approval gate
-  → deterministic verification outcome and publish-or-hold decision
-  → audit log + analytics/observability
-```
-
-A failed model call does not bypass verification. Policy selects exactly one of
-two outcomes:
-
-1. use the explicit deterministic template fallback and verify it normally; or
-2. hold the recommendation with a typed failure code.
-
-Silent provider switching, silent heuristic substitution, and model
-self-certification are forbidden.
-
-## Current runtime path
-
-Until the hybrid implementation is complete, the current production behavior is:
-
-```text
-orchestrator.agent.ts
-  → orchestrator.state.ts
-  → account-prioritizer
-  → sales-execution deterministic templates
-  → orchestrator.guardrails.ts
-  → human approval gate
-  → audit + analytics
-  → publish or hold
-```
-
-This current path remains valid as the deterministic fallback and baseline.
-
-## Evaluation path
-
-```text
-packages/testing-evals
-  → deterministic evals
-      scoring, ranking, guardrails, security, golden pre-draft authority envelope
-  → planned runtime-generation evals
-      schema, grounding, field immutability, injection, fallback, budgets
-  → historical and adversarial fixtures
-  → LLM-as-a-judge when enabled and keyed
-  → threshold check
-  → CI/CD deployment gate
-```
-
-The runtime-generation suites become deployment-blocking only after they are
-implemented and registered. The judge is runtime-nonblocking and becomes
-deployment-blocking when required by environment policy.
-
-## Schema path
-
-```text
-packages/shared-schemas/src
-  → pnpm generate:schemas
-    → packages/shared-schemas/generated/json-schema
-    → apps/api-python/src/schemas/generated
-```
-
-TypeScript/Zod remains the only schema source of truth. Python consumes generated
-JSON Schema artifacts only and never imports TypeScript.
-
-The hybrid implementation adds a generated-draft contract that keeps model output
-separate from authoritative recommendation state. A model response must not be
-parsed directly into the recommendation schema without deterministic
-reconciliation.
-
-## Runtime model contract
-
-Each runtime generation call must record:
-
-- run and recommendation identifiers
-- provider and pinned model identifier
-- prompt identifier and hash
-- schema and policy versions
-- authorized source-signal identifiers
-- timeout and token caps
-- measured latency and token usage
-- parse, grounding, and guardrail outcomes
-- fallback or held-state outcome
-
-The prompt must treat CRM fields, notes, emails, uploads, and retrieved text as
-untrusted data. The model receives no general tool registry and no side-effecting
-capabilities.
 
 ## Determinism guarantees
 
-### Pre-draft authority determinism
+### Daily authority determinism
 
-Given the same source snapshot, policy, configuration, schema, injected clock,
-and code revision, the pre-draft authority envelope must be byte-identical. The
-golden eval covers this boundary.
+Given the same authoritative CRM snapshot, policy, configuration, injected clock, and code revision, the following values must be reproducible:
 
-### Post-draft gate determinism
+- eligibility;
+- deterministic features;
+- leading indicators;
+- score;
+- rank;
+- reason codes; and
+- source evidence identifiers.
 
-Given the same pre-draft authority envelope, candidate draft or fallback draft,
-gate-policy versions, approval state, injected clock, and code revision, schema,
-grounding, guardrail, verification, and publish-or-hold outputs must be
-byte-identical.
+### Task-verifier determinism
 
-A different probabilistic candidate may legitimately produce a different gate
-result. The model still has no authority to set that result.
+Given the same task contract, candidate output, tool results, approvals, postcondition policies, clock, and code revision, the task verifier must return the same validation results and terminal state.
 
 ### Generation reliability
 
-Generated wording is not claimed to be bit-identical. Pinned model, temperature
-zero, fixed prompt, and seed reduce variation but do not guarantee identical
-provider output.
+Generated wording and reasoning are not claimed to be byte-identical.
 
-Accepted generated drafts must instead satisfy behavioral invariants:
+The production model is pinned and qualified to reduce drift. Correctness is enforced through contract boundaries and external postconditions, not through a claim of deterministic generation.
 
-- valid strict schema
-- unchanged pre-draft authoritative fields
-- no unsupported or fabricated claims
-- complete claim-to-source grounding
-- no prompt-injection authority change
-- enforced latency, token, retry, and cost budgets
-- deterministic post-draft gate evaluation
+## Evaluation boundary
 
-## Fail-closed behavior
+Deterministic tests own properties that have deterministic oracles.
 
-Any failed gate, including invalid schema, unverified signal, unsupported claim,
-missing source reference, stale evidence, model-authority mutation, missing
-approval, or sub-floor confidence, marks the recommendation unverified and
-prevents publication.
+Probabilistic evaluators may assess residual semantic quality only when a reliable deterministic oracle does not exist.
 
-Failures surface in the manager exception view with explicit failed-gate codes and
-append-only audit evidence.
+An LLM evaluator cannot override a deterministic `FAIL` or `BLOCKED` result and cannot authorize live publication.
 
-## Rollout path
+## Rollout order
 
-1. Connect the deterministic runtime to durable Supabase recommendations and the
-   web workspace.
-2. Add the generated-draft Zod schema and generated JSON Schema artifacts.
-3. Add the bounded runtime model adapter with no tools and no side effects.
-4. Add minimum-context construction and claim-level grounding validation.
-5. Preserve and test the deterministic template fallback.
-6. Add deterministic and model-backed generation evals.
-7. Enable the model path behind an environment policy and measured rollout.
-8. Promote only after the production verification and deployment judge gates
-   pass.
+Use the product spine as the priority order for further work:
+
+1. complete the production ingestion commit path;
+2. connect canonical data to the daily runtime;
+3. persist runtime recommendations durably;
+4. connect the live dashboard to persisted runtime recommendations and remove mocks from the production path;
+5. implement the bounded Phase 4 supervisor-worker capability with one pinned model;
+6. enforce the probabilistic task contract, tool grants, subagent limits, and postconditions;
+7. complete protected side-effect approval and result evidence;
+8. complete durable feedback and outcome capture; and
+9. add one production-shaped end-to-end acceptance path for the complete daily spine.
+
+Do not add real-time ingestion, model routing, or a general autonomous control plane to finish this build.
