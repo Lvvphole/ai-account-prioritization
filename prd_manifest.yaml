@@ -139,9 +139,13 @@ p4:
         - tenant
         - owner
         - account
+        - eligibility
         - score
         - rank
+        - confidence
         - reason_codes
+        - source_evidence
+        - next_best_action_type
         - permissions
         - approval_state
         - publication_authority
@@ -242,12 +246,14 @@ probabilistic_task_contract:
     - authorized_inputs
     - scope
     - allowlisted_tools
+    - allowed_resources
     - allowed_action_envelope
     - strict_output_schema
     - deterministic_postconditions
     - budgets
     - human_approval_requirement
     - terminal_states
+  allowed_resources_empty_grant_required_when_none_authorized: true
   terminal_states:
     - PASS
     - FAIL
@@ -347,6 +353,7 @@ workflow:
       - deterministic_reason_codes
       - allowed_action_envelope
       - tool_allowlist
+      - allowed_resources
       - strict_output_schema
       - postconditions
       - budgets
