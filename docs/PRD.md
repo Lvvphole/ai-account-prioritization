@@ -10,13 +10,61 @@ The runtime treats every LLM as a capable but untrusted cognitive service.
 
 The authority model is:
 
-- deterministic software owns **Who, When, Where, Why, permissions, resources, budgets, side effects, and completion**;
-- the LLM may own bounded **What and How**;
+- deterministic software owns **Who, When, Where, Why, scope, permissions, resources, tool allowlists, budgets, deterministic postconditions, protected side-effect authorization, verification, publication authority, and completion**;
+- the LLM may own bounded **What and How** inside an explicit task contract; and
 - only deterministic software can return `PASS`, `FAIL`, or `BLOCKED`.
 
 The LLM may select and sequence only allowlisted tools. It may decompose a task and delegate bounded work to subagents. Supervisor and worker roles use the same qualified, pinned production model. Role differences come from the task contract, schema, context, and tool grant.
 
-The LLM cannot expand its own scope, rewrite the supplied goal, grant permissions, increase budgets, authorize side effects, or declare success.
+The LLM cannot expand its own scope, rewrite the supplied goal, create tools or permissions, increase budgets, bypass required validation, authorize protected side effects, publish, or declare success.
+
+## Approved target architecture versus current implementation
+
+The full Position B architecture is the approved target architecture. It permits:
+
+- bounded What and How;
+- bounded semantic interpretation and mapping proposals during ingestion;
+- candidate-action selection inside a software-supplied action envelope;
+- allowlisted tool selection and sequencing;
+- task decomposition;
+- bounded supervisor-worker execution and subagent delegation;
+- worker-result synthesis; and
+- bounded recovery.
+
+Target-architecture approval is not implementation authorization.
+
+The current production spine remains narrower. Account eligibility, score, rank, confidence, reason codes, source evidence, and next-best-action type remain deterministic in the current implementation. The current runtime model is limited to bounded drafting and synthesis until a separately approved implementation change admits a wider Position B capability.
+
+### P4 — Provider-Neutral Model Boundary, Variance Control, and Qualification
+
+#### Implementation scope for the current production spine
+
+P4 is optional. The application must be able to complete the daily path with the deterministic fallback when the model is disabled, unavailable, or fails verification.
+
+Authorized current-spine P4 work is limited to:
+
+1. Refactor `RuntimeModelClient` into a provider-neutral boundary.
+2. Remove Anthropic-specific types from the common policy.
+3. Support provider-native constrained output, including Structured Outputs or `output_config.format` when supported.
+4. Normalize reasoning or effort configuration without claiming that providers expose identical controls.
+5. Remove hard-coded `temperature: 0` from Claude-5-compatible requests.
+6. Preserve full prompt, schema, policy, and model identity in audit evidence.
+7. Build offline cross-model k-run qualification.
+8. Admit only one qualified production configuration at a time.
+9. Keep deterministic template fallback or hold as the fail-safe.
+10. Prove both production acceptance profiles defined below.
+
+The following capabilities remain explicitly deferred from the current production spine:
+
+- model-controlled candidate-action selection;
+- a capability resolver driven by model-selected What;
+- general tool orchestration, workflows, or side-effecting model tools;
+- supervisor-worker fan-out or subagent delegation;
+- multi-model routing or majority voting;
+- a second action ontology beyond the current deterministic set; and
+- production caching infrastructure.
+
+These deferred capabilities remain approved under the target architecture. A later implementation requires a new explicit ruling and the applicable ADR-002 admission evidence. No authority-document update can be interpreted as authorization to expand P4 beyond this scope.
 
 ## Problem
 
@@ -51,22 +99,27 @@ The production path must not depend on mock recommendations or sample-only persi
 
 ### Authority remains deterministic
 
-The model never decides:
+The model never decides or expands:
 
 - account eligibility;
 - account rank;
+- tenant, user, account, or batch scope;
 - permissions;
+- available tools or resources;
+- budgets;
 - approval requirements;
 - publication eligibility;
 - spend authority;
-- side-effect authority; or
+- protected side-effect authority; or
 - completion.
 
 Deterministic software supplies and enforces those values.
 
+The target architecture can permit a model to select a candidate action inside a supplied action envelope. This candidate choice does not grant action authority. In the current production spine, next-best-action selection remains deterministic.
+
 ### LLM cognitive freedom is bounded and explicit
 
-For a task that permits model work, the LLM may:
+For a task that permits model work, the target architecture may let the LLM:
 
 - synthesize evidence and characterize the situation;
 - produce structured artifacts against a strict schema;
@@ -81,10 +134,11 @@ The LLM may not:
 
 - change the goal;
 - change the user, tenant, account, or batch scope;
-- create new permissions or tools;
+- create new permissions, tools, resources, or action classes;
 - increase token, time, retry, call, concurrency, or delegation limits;
 - bypass a required validator;
-- approve or execute a protected side effect; or
+- approve or execute an unapproved protected side effect;
+- authorize publication; or
 - declare the task complete.
 
 ### Every probabilistic step has an external postcondition contract
@@ -94,6 +148,7 @@ Before model execution, software supplies:
 - the goal;
 - authorized inputs;
 - the allowlisted tools;
+- the allowed action envelope;
 - the strict output schema;
 - deterministic postconditions;
 - budgets; and
@@ -113,11 +168,13 @@ One recommendation may return `FAIL` or `BLOCKED` without discarding the rest of
 
 Usable recommendations remain available to the representative.
 
-### One pinned production model
+### One pinned production configuration
 
-One qualified, pinned production model is used for supervisor and worker roles.
+Only one qualified production model configuration is active at a time.
 
-The system does not route tasks across models in this version. The exact model identity must be qualified before production enablement and then pinned in runtime configuration and audit evidence.
+The approved target can use the same qualified, pinned model for supervisor and worker roles when supervisor-worker execution is later admitted. The current P4 implementation does not add supervisor-worker fan-out.
+
+The system does not route tasks across production models in this version. Model identity and effective configuration must be qualified before production enablement and recorded in audit evidence.
 
 ### Evidence is durable
 
@@ -125,10 +182,10 @@ The system records and makes inspectable, as applicable:
 
 - source and batch identifiers;
 - authoritative inputs;
-- policy, prompt, schema, tool, and model versions;
+- policy, prompt, schema, tool, task-contract, and model versions;
 - model invocations;
-- subagent invocations;
-- tool calls and tool results;
+- subagent invocations when delegation is implemented;
+- tool calls and tool results when tool use is implemented;
 - validation results;
 - human approvals;
 - side-effect results; and
@@ -150,19 +207,19 @@ Software determines the current tenant, user, role, representative, account set,
 
 ### Deterministic software owns When
 
-Software determines the daily processing schedule, evidence freshness policy, timeouts, retry windows, and deadline rules.
+Software determines the daily processing schedule, evidence freshness policy, timeouts, retry windows, deadline rules, and externally enforced continuation limits.
 
 ### Deterministic software owns Where
 
-Software determines source systems, canonical storage, tool endpoints, execution environments, data destinations, and side-effect destinations.
+Software determines source systems, canonical storage, tool endpoints, execution environments, data destinations, resource identifiers, and side-effect destinations.
 
 ### Deterministic software owns Why
 
-Software supplies the product goal, policy objectives, eligibility rules, deterministic leading indicators, ranking policy, and reason codes that explain why an account is in the daily work plan.
+Software supplies the product goal, policy objectives, eligibility rules, deterministic leading indicators, ranking policy, reason codes, and mandatory acceptance predicates.
 
 ### The LLM may own bounded What
 
-Within a task contract, the LLM may determine the structured cognitive artifact needed to satisfy the supplied goal. Examples include:
+Within a task contract, the target architecture may let the LLM determine the structured cognitive artifact needed to satisfy the supplied goal. Examples include:
 
 - an evidence synthesis;
 - an account situation brief;
@@ -175,9 +232,11 @@ Within a task contract, the LLM may determine the structured cognitive artifact 
 
 The output remains candidate data until deterministic postconditions pass.
 
+Current production-spine P4 does not implement model-controlled candidate-action selection. The next-best-action type remains deterministic in the current runtime.
+
 ### The LLM may own bounded How
 
-Within a task contract, the LLM may:
+Within a task contract, the target architecture may let the LLM:
 
 - select an allowlisted tool;
 - sequence tool calls;
@@ -187,7 +246,9 @@ Within a task contract, the LLM may:
 - combine worker results; and
 - recover from permitted errors.
 
-Software enforces tool, resource, budget, and stop limits at every step.
+Software enforces tool, resource, permission, budget, and stop limits at every step.
+
+General tool orchestration and supervisor-worker fan-out remain deferred from the current production spine.
 
 ## Canonical daily workflow
 
@@ -197,7 +258,7 @@ Software enforces tool, resource, budget, and stop limits at every step.
 
 Deterministic software owns upload permission, accepted formats, file limits, batch identity, quarantine location, and tenant scope.
 
-The LLM is optional. It may assist with semantic field mapping only when the task contract allows it. Deterministic schema and mapping rules decide what is accepted.
+The approved target allows bounded LLM assistance with semantic field mapping when the task contract permits it. Deterministic schema and mapping rules decide what is accepted. A model suggestion cannot make data authoritative.
 
 Phase 1 is complete when the authorized batch is durably staged or explicitly rejected.
 
@@ -207,7 +268,7 @@ Phase 1 is complete when the authorized batch is durably staged or explicitly re
 
 Deterministic software owns security checks, parsing limits, schema validation, canonical types, tenancy, duplicate handling, row dispositions, approval, and commit authority.
 
-The LLM may explain ambiguous data, propose bounded mappings, or structure unstructured content. Model output does not make a row authoritative.
+The approved target may allow the LLM to explain ambiguous data, propose bounded mappings, or structure unstructured content. Model output does not make a row authoritative.
 
 Phase 2 is complete when every input row has a deterministic disposition and all accepted records are committed to canonical storage.
 
@@ -225,7 +286,7 @@ Deterministic software owns:
 - reason codes; and
 - source evidence identifiers.
 
-No LLM is required to rank accounts.
+No LLM is required or authorized to rank accounts.
 
 Phase 3 is complete when every eligible account has deterministic priority state and the ranked daily book is persisted.
 
@@ -233,7 +294,7 @@ Phase 3 is complete when every eligible account has deterministic priority state
 
 **Goal:** perform bounded cognitive work for selected recommendations.
 
-Software supplies, for each task:
+In the approved target architecture, software supplies, for each task:
 
 - the account and tenant scope;
 - the goal;
@@ -245,11 +306,9 @@ Software supplies, for each task:
 - token, time, call, retry, concurrency, and delegation budgets; and
 - the terminal-state contract.
 
-The pinned production model may act as a supervisor. It may solve the task directly or, when the task contract permits and the budgets allow, delegate bounded work to subagents that use the same pinned model.
+The target architecture may permit the pinned production model to act as a supervisor, solve the task directly, or delegate bounded work to subagents that use the same pinned model. A worker receives only the context and tools needed for its sub-task. The supervisor may synthesize worker outputs, but it cannot certify them.
 
-A worker receives only the context and tools needed for its sub-task.
-
-The supervisor may synthesize the worker outputs, but it cannot certify them.
+**Current production-spine rule:** P4 v1 is limited to the ten authorized provider-neutral boundary, constrained-output, qualification, audit, fallback, and acceptance-profile items stated above. Candidate-action selection, general tool orchestration, and supervisor-worker fan-out are not part of the current spine.
 
 Phase 4 is complete for an item only when deterministic software validates all required postconditions and returns `PASS`, `FAIL`, or `BLOCKED`.
 
@@ -259,7 +318,7 @@ Phase 4 is complete for an item only when deterministic software validates all r
 
 The live web application shows persisted recommendations, evidence, model-assisted artifacts, validation state, and required approvals.
 
-The LLM may answer bounded questions, revise an artifact, or prepare a permitted action inside a task contract.
+The target architecture may permit bounded questions, artifact revision, and allowed preparatory actions inside a task contract. The current spine does not grant the model general side-effecting tool authority.
 
 No customer-facing send or CRM write occurs until the representative explicitly approves the visible payload.
 
@@ -271,7 +330,7 @@ Phase 5 is complete for an item when the permitted action reaches its verified t
 
 Deterministic software owns outcome storage, feedback provenance, metric calculations, and the next daily snapshot boundary.
 
-The LLM may perform offline synthesis or classification of feedback when the task contract permits it. It does not change production policy or acceptance state.
+The LLM may perform offline synthesis or classification of feedback when a separately authorized task contract permits it. It does not change production policy or acceptance state.
 
 Phase 6 is complete when the available outcome or feedback is durably recorded, or the system records that the outcome is not yet known.
 
@@ -290,7 +349,7 @@ Every LLM-assisted task must define these fields before execution:
 9. `human_approval_requirement`
 10. `terminal_states = PASS | FAIL | BLOCKED`
 
-A subagent receives a stricter child contract. A child contract cannot widen the parent contract.
+When delegation is implemented, a subagent receives a stricter child contract. A child contract cannot widen the parent contract.
 
 ## Definition of Done
 
@@ -306,11 +365,11 @@ A single LLM-assisted task or phase is complete only when the harness can prove 
 2. Only authorized inputs from the current batch, tenant, user, and task scope were used.
 3. The output parses against the required strict schema.
 4. Every factual claim that requires evidence resolves to an allowed source identifier.
-5. No deterministically controlled field was modified.
-6. Every tool call used an allowlisted tool, valid arguments, and authorized resources.
+5. No software-owned authority field was modified outside the task contract.
+6. Every tool call, when tool use is implemented, used an allowlisted tool, valid arguments, and authorized resources.
 7. Application-level postconditions on the resulting state hold.
-8. Any side effect carried the required permission and explicit human approval.
-9. All token, call, time, retry, delegation-depth, and concurrency budgets were respected.
+8. Any protected side effect carried the required permission and explicit human approval.
+9. All applicable token, call, time, retry, delegation-depth, and concurrency budgets were respected.
 10. Durable evidence of the applicable conditions exists.
 11. The deterministic harness returns exactly one of `PASS`, `FAIL`, or `BLOCKED`.
 
@@ -336,7 +395,7 @@ Authorized CRM batch
   -> upload and validation succeed
   -> accepted records become canonical facts
   -> daily prioritization produces deterministic ranks and reason codes
-  -> Phase 4 bounded LLM work, when required, satisfies its postconditions
+  -> optional P4 bounded drafting/synthesis succeeds or safely falls back/holds
   -> verified recommendations are persisted
   -> real recommendations appear in the correct representative's dashboard
   -> the representative can inspect evidence
@@ -346,9 +405,17 @@ Authorized CRM batch
 
 Until this path exists and passes, the web application is **NOT DONE**, regardless of harness sophistication.
 
+### P4 production acceptance profiles
+
+**Acceptance A — deterministic baseline:** AI is disabled. The full production-shaped daily path must pass end to end using the deterministic baseline and approved fallback behavior.
+
+**Acceptance B — qualified model:** the same spine runs with the single qualified production model configuration. Model success or safe fallback must never alter tenant, owner, account, score, rank, reason codes, permissions, approval state, publication authority, side-effect authority, or completion authority.
+
+The model can be disabled, unavailable, or rejected by verification without breaking the correctness of the daily spine.
+
 ## Summary statement of completion
 
-The system is done when an authoritative daily CRM batch can be turned into a verified, prioritized, human-controllable sales work plan that is visible and actionable in the live web application, and every probabilistic step executes inside an explicit deterministic contract that only the harness can mark `PASS`, `FAIL`, or `BLOCKED`.
+The system is done when an authoritative daily CRM batch can be turned into a verified, prioritized, human-controllable sales work plan that is visible and actionable in the live web application, and every probabilistic step executes inside an explicit deterministic authority envelope that only the harness can mark `PASS`, `FAIL`, or `BLOCKED`.
 
 ## Failure semantics
 
@@ -362,11 +429,13 @@ A failed or blocked recommendation must not erase usable recommendations from th
 
 ## Model policy
 
-This version uses one qualified, pinned production model for all runtime supervisor and worker roles.
+Only one qualified, pinned production configuration is active at a time.
 
-The system must record the model identity for every invocation.
+The system must record effective model identity and configuration for every invocation.
 
-Do not add model routing, automatic model escalation, or a second production model unless a separately admitted change demonstrates that the simpler single-model design is insufficient under ADR-002.
+Do not add model routing, automatic model escalation, majority voting, or a second active production model configuration in the current spine.
+
+The approved target may later use the same qualified model for supervisor and worker roles after that capability receives explicit implementation authorization and ADR-002 admission.
 
 ## Success metrics
 
@@ -385,20 +454,30 @@ Short-horizon movement is not causal evidence by itself. Causal attribution requ
 
 The repository contains substantial parts of the daily runtime and web experience, but the whole product is not complete.
 
+Implemented current-runtime properties include deterministic prioritization and deterministic next-best-action selection followed by bounded single-call drafting or deterministic fallback.
+
 Known completion gaps include:
 
 - the production ingestion commit path is not fully wired end to end;
 - the web application still has mock-backed recommendation surfaces;
-- the durable runtime-to-web recommendation bridge is not complete; and
-- bounded supervisor-worker delegation is an approved runtime capability in this specification but is not yet the completed production path.
+- the durable runtime-to-web recommendation bridge is not complete;
+- the P4 provider-neutral boundary and cross-model qualification work is not complete; and
+- the production-shaped daily acceptance path is not complete.
+
+Approved target capabilities that are not shipped in the current production spine include model-controlled candidate-action selection, general tool orchestration, and supervisor-worker delegation.
 
 The current state is therefore **NOT DONE** under the whole web-application completion contract.
 
-## Non-goals for this build
+## Non-goals for the current production-spine build
 
 - Real-time or event-driven CRM ingestion is not required.
 - A general-purpose autonomous agent platform is not required.
-- Model routing is not required.
-- The model does not own ranking, eligibility, permissions, approval, publication, budgets, side effects, or completion.
+- Model routing or majority voting is not required.
+- Model-controlled candidate-action selection is not part of current P4.
+- General tool orchestration and side-effecting model tools are not part of current P4.
+- Supervisor-worker fan-out is not part of current P4.
+- A second action ontology is not part of current P4.
+- Production caching infrastructure is not part of current P4.
+- The model does not own ranking, eligibility, scope, permissions, approval, publication, budgets, protected side-effect authority, or completion.
 - The model does not send customer messages or write to the CRM without explicit human approval.
 - The product does not claim byte-identical model prose across provider calls.
