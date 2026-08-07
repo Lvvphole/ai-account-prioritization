@@ -1,0 +1,89 @@
+name: Migration Lint
+
+on:
+  pull_request:
+    branches: ["**"]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/config.toml"
+      - "package.json"
+      - "prd_manifest.yaml"
+      - ".github/workflows/migration-lint.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/config.toml"
+      - "package.json"
+      - "prd_manifest.yaml"
+      - ".github/workflows/migration-lint.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Supabase Migration Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:54329/migration_lint?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup pinned Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.111.0
+
+      - name: Verify Supabase CLI version
+        run: test "$(supabase --version)" = "2.111.0"
+
+      - name: Start controlled PostgreSQL
+        run: |
+          docker run --detach \
+            --name migration-lint-postgres \
+            --env POSTGRES_PASSWORD=postgres \
+            --publish 54329:5432 \
+            ghcr.io/supabase/postgres:15.8.1.085@sha256:af083ef64d0408c8f098ee6f5c364a59b26f36fbc0f3a334a62c5c1d57362e9b
+          for attempt in $(seq 1 90); do
+            role_state="$(docker exec migration-lint-postgres \
+              psql -U postgres -d postgres -tAc \
+              "select rolsuper::text from pg_roles where rolname = 'supabase_admin'" \
+              2>/dev/null || true)"
+            if [ "$role_state" = "true" ]; then
+              if docker exec --env PGPASSWORD=postgres migration-lint-postgres \
+                psql -h 127.0.0.1 -U supabase_admin -d postgres -tAc "select 1" \
+                2>/dev/null | grep -qx 1; then
+                exit 0
+              fi
+            fi
+            sleep 1
+          done
+          echo "PostgreSQL did not finish Supabase role initialization." >&2
+          docker logs migration-lint-postgres >&2 || true
+          exit 1
+
+      - name: Create clean lint database
+        run: |
+          docker exec --env PGPASSWORD=postgres migration-lint-postgres \
+            createdb -h 127.0.0.1 -U supabase_admin -T template0 migration_lint
+          docker exec --env PGPASSWORD=postgres migration-lint-postgres \
+            psql -h 127.0.0.1 -U supabase_admin -d migration_lint -tAc "select 1" | grep -qx 1
+
+      - name: Apply and behaviorally verify repository migrations
+        run: pnpm verify:migrations
+
+      - name: Lint migrated public schema
+        run: pnpm db:lint --db-url "$DATABASE_URL"
+
+      - name: Stop controlled PostgreSQL
+        if: always()
+        run: docker rm --force migration-lint-postgres >/dev/null 2>&1 || true
