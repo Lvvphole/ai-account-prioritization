@@ -1,18 +1,43 @@
 import { createHash } from "node:crypto";
+import generatedDraftJsonSchema from "@repo/shared-schemas/json-schema/GeneratedDraft.json";
 import {
   RUNTIME_MODEL_PROVIDERS,
   RUNTIME_REASONING_EFFORTS,
+  type RuntimeJsonSchema,
   type RuntimeModelInvocationConfig,
+  type RuntimeModelOutputFormat,
   type RuntimeModelProvider,
   type RuntimeReasoningEffort,
 } from "../../inference/runtime-model";
-import { IMPLEMENTED_RUNTIME_MODEL_PROVIDERS } from "../../inference/runtime-model-registry";
+import {
+  IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
+  runtimeModelOutputConfigurationForProvider,
+} from "../../inference/runtime-model-registry";
 import { DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS } from "./build-draft-context";
 
 export type DraftFallbackPolicy = "template" | "hold";
 export type RuntimeDraftOutputFormat = "json_schema";
 
 export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v8";
+
+type GeneratedDraftSchemaArtifact = {
+  definitions?: {
+    GeneratedDraft?: RuntimeJsonSchema;
+  };
+};
+
+const GENERATED_DRAFT_PROVIDER_SCHEMA = (
+  generatedDraftJsonSchema as GeneratedDraftSchemaArtifact
+).definitions?.GeneratedDraft;
+
+if (!GENERATED_DRAFT_PROVIDER_SCHEMA) {
+  throw new Error("GeneratedDraft JSON Schema artifact is missing its canonical definition.");
+}
+
+const canonicalRuntimeDraftOutputFormat = (): RuntimeModelOutputFormat => ({
+  type: "json_schema",
+  schema: GENERATED_DRAFT_PROVIDER_SCHEMA as RuntimeJsonSchema,
+});
 
 export interface RuntimeDraftingPolicy {
   enabled: boolean;
@@ -41,7 +66,7 @@ export interface RuntimeDraftingPolicy {
   outputFormat?: RuntimeDraftOutputFormat;
 }
 
-/** Non-secret effective policy persisted with every draft outcome. */
+/** Non-secret effective policy persisted before and after every model call. */
 export interface RuntimeDraftingPolicyAuditSnapshot {
   enabled: boolean;
   provider: RuntimeModelProvider;
@@ -57,6 +82,10 @@ export interface RuntimeDraftingPolicyAuditSnapshot {
   fallback: DraftFallbackPolicy;
   reasoningEffort: RuntimeReasoningEffort;
   outputFormat: RuntimeDraftOutputFormat;
+  /** Full canonical schema supplied by the task contract. */
+  canonicalOutputFormat: RuntimeModelOutputFormat;
+  /** Exact non-secret provider-native output configuration, when admitted. */
+  effectiveProviderOutputConfiguration: Record<string, unknown> | null;
 }
 
 const assertPolicyInteger = (
@@ -149,6 +178,8 @@ export function runtimeDraftingPolicyAuditSnapshot(
   policy: RuntimeDraftingPolicy,
 ): RuntimeDraftingPolicyAuditSnapshot {
   const normalized = normalizeRuntimeDraftingPolicy(policy);
+  const reasoningEffort = normalized.reasoningEffort ?? "provider_default";
+  const canonicalOutputFormat = canonicalRuntimeDraftOutputFormat();
   return {
     enabled: normalized.enabled,
     provider: normalized.provider,
@@ -162,8 +193,14 @@ export function runtimeDraftingPolicyAuditSnapshot(
     maxEvidenceAgeDays: normalized.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
     maxAttempts: normalized.maxAttempts,
     fallback: normalized.fallback,
-    reasoningEffort: normalized.reasoningEffort ?? "provider_default",
+    reasoningEffort,
     outputFormat: normalized.outputFormat ?? "json_schema",
+    canonicalOutputFormat,
+    effectiveProviderOutputConfiguration: runtimeModelOutputConfigurationForProvider(
+      normalized.provider,
+      canonicalOutputFormat,
+      reasoningEffort,
+    ),
   };
 }
 
