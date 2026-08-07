@@ -1,8 +1,13 @@
-import { anthropicRuntimeModelClient } from "./anthropic-runtime-model";
+import {
+  anthropicRuntimeModelClient,
+  buildAnthropicOutputConfig,
+} from "./anthropic-runtime-model";
 import {
   RuntimeModelError,
   type RuntimeModelClient,
+  type RuntimeModelOutputFormat,
   type RuntimeModelProvider,
+  type RuntimeReasoningEffort,
 } from "./runtime-model";
 
 export const IMPLEMENTED_RUNTIME_MODEL_PROVIDERS = ["anthropic"] as const;
@@ -23,5 +28,24 @@ export function runtimeModelClientForProvider(
         "DRAFT_MODEL_CONFIG_ERROR",
         `Runtime model provider ${provider} has no admitted production adapter yet.`,
       );
+  }
+}
+
+/**
+ * Return the exact non-secret provider output configuration for admitted
+ * adapters. Unimplemented providers return null; enabled production policy for
+ * those providers already fails closed during startup.
+ */
+export function runtimeModelOutputConfigurationForProvider(
+  provider: RuntimeModelProvider,
+  outputFormat: RuntimeModelOutputFormat,
+  reasoningEffort: RuntimeReasoningEffort,
+): Record<string, unknown> | null {
+  switch (provider) {
+    case "anthropic":
+      return buildAnthropicOutputConfig(outputFormat, reasoningEffort);
+    case "openai":
+    case "google":
+      return null;
   }
 }
