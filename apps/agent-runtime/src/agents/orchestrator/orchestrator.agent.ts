@@ -170,6 +170,7 @@ async function auditDraftInvocationStart(
         promptHash: invocation.promptHash,
         schemaVersion: invocation.schemaVersion,
         policyVersion: invocation.policyVersion,
+        effectivePolicy: invocation.effectivePolicy,
         effectivePolicyHash: invocation.effectivePolicyHash,
         groundingVersion: invocation.groundingVersion,
         inputTokenUpperBound: invocation.inputTokenUpperBound,
