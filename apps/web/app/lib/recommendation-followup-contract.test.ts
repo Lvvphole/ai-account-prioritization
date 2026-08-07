@@ -72,6 +72,18 @@ test("rejects widened request shapes and invalid kind/code combinations", () => 
       parseRecommendationFollowupRequest({
         workspaceId,
         recommendationId: "rec-1",
+        kind: "not-a-kind",
+        code: "accepted",
+        expectedEventId: null,
+      }),
+    /RECOMMENDATION_FOLLOWUP_INVALID_KIND/,
+  );
+
+  assert.throws(
+    () =>
+      parseRecommendationFollowupRequest({
+        workspaceId,
+        recommendationId: "rec-1",
         kind: "feedback",
         code: "accepted",
         expectedEventId: null,
