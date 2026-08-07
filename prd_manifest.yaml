@@ -470,7 +470,7 @@ implementation_state:
   deterministic_prioritization_core: shipped
   deterministic_next_best_action_selection: shipped
   bounded_single_call_runtime_drafting: shipped
-  production_ingestion_commit_spine: incomplete
+  production_ingestion_commit_spine: shipped
   durable_runtime_to_web_bridge: incomplete
   live_dashboard_without_mock_recommendations: incomplete
   p4_provider_neutral_boundary_and_qualification: incomplete
