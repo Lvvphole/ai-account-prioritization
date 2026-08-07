@@ -1,6 +1,16 @@
 import { RecommendationSchema, type Recommendation } from "@repo/shared-schemas";
 import type { Tables } from "@repo/supabase-client";
 import {
+  buildVisibleActionPayload,
+  isFullyVerifiedPublishedRecommendation,
+  notRequiredApprovalState,
+  parseActionApprovalState,
+  pendingApprovalState,
+  resolveLiveActionScope,
+  type ActionApprovalState,
+  type LiveRecommendationDetailResult,
+} from "./live-action-detail";
+import {
   assembleLiveDashboardData,
   type LiveDashboardAccountSummary,
   type LiveDashboardData,
@@ -43,6 +53,13 @@ type LiveTableClient = {
   from(table: string): {
     select(columns: string): LiveQuery<unknown>;
   };
+};
+
+type LiveRpcClient = {
+  rpc(
+    fn: string,
+    args: Record<string, unknown>,
+  ): PromiseLike<{ data: unknown; error: QueryError | null }>;
 };
 
 const PAGE_SIZE = 1000;
@@ -88,6 +105,17 @@ function toRecommendation(row: LiveRecommendationRow): Recommendation {
   });
 }
 
+function toAccountSummary(row: LiveAccountRow): LiveDashboardAccountSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    industry: row.industry ?? undefined,
+    tier: row.tier,
+    openPipelineUsd: row.open_pipeline_usd,
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
 async function loadLatestPublishedRecommendations(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
@@ -125,6 +153,26 @@ async function loadLatestPublishedRecommendations(
   return rows
     .map(toRecommendation)
     .sort((a, b) => a.rank - b.rank || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+async function loadPayloadApprovalState(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  recommendationId: string,
+  content: string,
+): Promise<ActionApprovalState> {
+  const result = await (supabase as unknown as LiveRpcClient).rpc(
+    "get_action_payload_approval_state",
+    {
+      p_workspace_id: workspaceId,
+      p_runtime_recommendation_id: recommendationId,
+      p_content: content,
+    },
+  );
+  if (result.error) {
+    throw new Error(`LIVE_ACTION_APPROVAL_STATE_FAILED: ${result.error.message}`);
+  }
+  return parseActionApprovalState(result.data);
 }
 
 function createLiveDashboardDataSource(
@@ -182,14 +230,7 @@ function createLiveDashboardDataSource(
             .range(from, to),
       );
 
-      return rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        industry: row.industry ?? undefined,
-        tier: row.tier,
-        openPipelineUsd: row.open_pipeline_usd,
-        updatedAt: new Date(row.updated_at).toISOString(),
-      }));
+      return rows.map(toAccountSummary);
     },
   };
 }
@@ -218,6 +259,80 @@ export async function loadLatestPublishedRecommendationsForCurrentUser(
 
   const supabase = await createClient();
   return loadLatestPublishedRecommendations(supabase, session.userId, normalizedWorkspaceId);
+}
+
+/**
+ * Resolve one exact published recommendation for the authenticated owner. The
+ * workspace, account and runtime recommendation identifiers must all match, and
+ * the current canonical account owner is rechecked before any evidence or
+ * approval state is returned.
+ */
+export async function loadLiveRecommendationDetailForCurrentUser(
+  accountId: string,
+  workspace: string | string[] | undefined,
+  recommendation: string | string[] | undefined,
+): Promise<LiveRecommendationDetailResult> {
+  if (!isSupabaseConfigured()) {
+    throw new Error("LIVE_RECOMMENDATION_DETAIL_REQUIRES_SUPABASE");
+  }
+  const session = await requireSession();
+  const scope = resolveLiveActionScope(accountId, workspace, recommendation);
+  if (scope.status !== "ready") return scope;
+
+  const supabase = await createClient();
+  const recommendationResult = await queryTable<LiveRecommendationRow>(supabase, "recommendations")
+    .eq("workspace_id", scope.scope.workspaceId)
+    .eq("owner_id", session.userId)
+    .eq("account_id", scope.scope.accountId)
+    .eq("runtime_recommendation_id", scope.scope.recommendationId)
+    .eq("published", true)
+    .maybeSingle();
+
+  if (recommendationResult.error) {
+    throw new Error(`LIVE_RECOMMENDATION_DETAIL_FAILED: ${recommendationResult.error.message}`);
+  }
+  if (!recommendationResult.data) return { status: "not_found" };
+
+  const rec = toRecommendation(recommendationResult.data);
+  if (!isFullyVerifiedPublishedRecommendation(rec)) return { status: "not_found" };
+
+  const accountResult = await queryTable<LiveAccountRow>(
+    supabase,
+    "accounts",
+    "id,name,industry,tier,open_pipeline_usd,owner_id,updated_at,workspace_id",
+  )
+    .eq("id", scope.scope.accountId)
+    .eq("workspace_id", scope.scope.workspaceId)
+    .eq("owner_id", session.userId)
+    .maybeSingle();
+
+  if (accountResult.error) {
+    throw new Error(`LIVE_RECOMMENDATION_ACCOUNT_FAILED: ${accountResult.error.message}`);
+  }
+  if (!accountResult.data) return { status: "not_found" };
+
+  const payload = buildVisibleActionPayload(rec);
+  const approval = !payload.requiresApproval
+    ? notRequiredApprovalState()
+    : payload.approvable
+      ? await loadPayloadApprovalState(
+          supabase,
+          scope.scope.workspaceId,
+          rec.id,
+          payload.content,
+        )
+      : pendingApprovalState();
+
+  return {
+    status: "ready",
+    data: {
+      workspaceId: scope.scope.workspaceId,
+      recommendation: rec,
+      account: toAccountSummary(accountResult.data),
+      payload,
+      approval,
+    },
+  };
 }
 
 /**
