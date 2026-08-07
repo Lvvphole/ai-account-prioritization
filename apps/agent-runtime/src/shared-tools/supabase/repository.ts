@@ -138,6 +138,10 @@ type RuntimeRpcClient = {
 type WorkspaceAccountRow = Tables<"accounts"> & { workspace_id: string };
 type RuntimeFilterBuilder<T> = {
   eq(column: string, value: string): RuntimeFilterBuilder<T>;
+  order(
+    column: string,
+    options?: { ascending?: boolean },
+  ): RuntimeFilterBuilder<T>;
   range(
     from: number,
     to: number,
@@ -215,7 +219,11 @@ export function createSupabaseRepository(
 
     async listOwnerScopes() {
       const rows = await fetchAllRows<WorkspaceAccountRow>("read owner scopes", (from, to) => {
-        let query = runtimeAccountsTable(read).select("workspace_id,owner_id");
+        let query = runtimeAccountsTable(read)
+          .select("workspace_id,owner_id")
+          .order("workspace_id", { ascending: true })
+          .order("owner_id", { ascending: true })
+          .order("id", { ascending: true });
         if (ctx.workspaceId) {
           query = query.eq("workspace_id", ctx.workspaceId);
         }
