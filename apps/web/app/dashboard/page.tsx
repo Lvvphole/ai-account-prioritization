@@ -19,6 +19,7 @@ import { exportRows } from "../lib/analytics";
 import ExportButtons from "../components/ExportButtons";
 import { requireSession } from "../lib/auth";
 import {
+  liveDashboardExportRows,
   resolveDashboardDataMode,
   type LiveDashboardData,
   type LiveDashboardWorkspace,
@@ -78,7 +79,7 @@ function LiveDashboard({ data, denied }: { data: LiveDashboardData; denied?: str
       data.status === "no_workspace"
         ? "No authorized workspace is available for this account."
         : data.status === "invalid_workspace"
-          ? "The requested workspace is not authorized for this account."
+          ? "The requested workspace is not authorized or is ambiguous for this account."
           : "Choose a workspace to load your live daily plan.";
     return (
       <section>
@@ -136,12 +137,13 @@ function LiveDashboard({ data, denied }: { data: LiveDashboardData; denied?: str
 
       <div className="toolbar">
         <span className="muted">Export your list</span>
-        <ExportButtons rows={exportRows(recs)} filename="my-accounts" />
+        <ExportButtons rows={liveDashboardExportRows(data)} filename="my-accounts" />
       </div>
 
       {recs.length === 0 ? (
         <p className="alert" role="status">
-          No published recommendations are available for the latest run in this workspace.
+          No published recommendations are available for the latest authorized run in this
+          workspace.
         </p>
       ) : null}
 
@@ -194,9 +196,7 @@ function LiveDashboard({ data, denied }: { data: LiveDashboardData; denied?: str
               <ActionBadge rec={rec} />
             </div>
             <details style={{ marginTop: 10 }}>
-              <summary>
-                Evidence · {rec.sourceSignals.length} verified signal(s)
-              </summary>
+              <summary>Evidence · {rec.sourceSignals.length} verified signal(s)</summary>
               <ul>
                 {rec.sourceSignals.map((signal) => (
                   <li key={`${signal.kind}:${signal.refId}`}>
@@ -318,17 +318,21 @@ async function DemoDashboard({ denied }: { denied?: string }) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ denied?: string; workspace?: string }>;
+  searchParams: Promise<{
+    denied?: string | string[];
+    workspace?: string | string[];
+  }>;
 }) {
   const { denied, workspace } = await searchParams;
+  const deniedValue = Array.isArray(denied) ? denied[0] : denied;
   const mode = resolveDashboardDataMode(process.env.NODE_ENV, isSupabaseConfigured());
 
   if (mode === "live") {
     const data = await loadLiveDashboardForCurrentUser(workspace);
-    return <LiveDashboard data={data} denied={denied} />;
+    return <LiveDashboard data={data} denied={deniedValue} />;
   }
 
-  return <DemoDashboard denied={denied} />;
+  return <DemoDashboard denied={deniedValue} />;
 }
 
 function Kpi({
