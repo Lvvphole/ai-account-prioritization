@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   parseRecommendationFollowupRequest,
   parseRecommendationFollowupState,
+  recommendationFollowupRpcStatus,
 } from "../../lib/recommendation-followup-contract";
 import { getSessionContext } from "../../lib/auth";
 import { isSupabaseConfigured } from "../../lib/supabase/config";
@@ -14,14 +15,6 @@ type RpcClient = {
     args: Record<string, unknown>,
   ): PromiseLike<{ data: unknown; error: RpcError | null }>;
 };
-
-function refusalStatus(code: string | undefined): number {
-  if (code === "42501") return 403;
-  if (code === "P0002") return 404;
-  if (code === "22023") return 400;
-  if (code === "40001") return 409;
-  return 409;
-}
 
 export async function POST(request: Request) {
   const session = await getSessionContext();
@@ -59,7 +52,7 @@ export async function POST(request: Request) {
   if (error) {
     return NextResponse.json(
       { error: "RECOMMENDATION_FOLLOWUP_REFUSED" },
-      { status: refusalStatus(error.code) },
+      { status: recommendationFollowupRpcStatus(error.code) },
     );
   }
 
