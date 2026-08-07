@@ -44,21 +44,40 @@ export {
 } from "./agents/sales-execution/validate-draft-grounding";
 export {
   RUNTIME_DRAFT_POLICY_VERSION,
+  normalizeRuntimeDraftingPolicy,
+  runtimeDraftingPolicyAuditSnapshot,
   runtimeDraftingPolicyFromEnv,
+  runtimeModelInvocationConfigFromDraftingPolicy,
   type RuntimeDraftingPolicy,
+  type RuntimeDraftingPolicyAuditSnapshot,
 } from "./agents/sales-execution/execution.policy";
 export {
   RUNTIME_DRAFT_PROMPT_HASH,
   RUNTIME_DRAFT_PROMPT_VERSION,
 } from "./agents/sales-execution/execution.prompt";
 export {
-  anthropicRuntimeModelClient,
+  RUNTIME_MODEL_PROVIDERS,
+  RUNTIME_REASONING_EFFORTS,
   RuntimeModelError,
+  type RuntimeJsonSchema,
   type RuntimeModelClient,
+  type RuntimeModelInvocationConfig,
+  type RuntimeModelOutputFormat,
+  type RuntimeModelProvider,
   type RuntimeModelRequest,
   type RuntimeModelResult,
   type RuntimeModelTelemetry,
+  type RuntimeReasoningEffort,
 } from "./inference/runtime-model";
+export {
+  anthropicRuntimeModelClient,
+  createAnthropicRuntimeModelClient,
+  sanitizeAnthropicJsonSchema,
+} from "./inference/anthropic-runtime-model";
+export {
+  IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
+  runtimeModelClientForProvider,
+} from "./inference/runtime-model-registry";
 
 // Supabase wiring (Sprint 4). The runtime stays on the in-memory store unless a
 // run supplies an RLS context AND Supabase is configured.

@@ -1,13 +1,48 @@
 import { createHash } from "node:crypto";
+import generatedDraftJsonSchema from "@repo/shared-schemas/json-schema/GeneratedDraft.json";
+import {
+  RUNTIME_MODEL_PROVIDERS,
+  RUNTIME_REASONING_EFFORTS,
+  type RuntimeJsonSchema,
+  type RuntimeModelInvocationConfig,
+  type RuntimeModelOutputFormat,
+  type RuntimeModelProvider,
+  type RuntimeReasoningEffort,
+} from "../../inference/runtime-model";
+import {
+  IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
+  runtimeModelOutputConfigurationForProvider,
+} from "../../inference/runtime-model-registry";
 import { DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS } from "./build-draft-context";
 
 export type DraftFallbackPolicy = "template" | "hold";
+export type RuntimeDraftOutputFormat = "json_schema";
 
-export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v7";
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v8";
+
+type GeneratedDraftSchemaArtifact = {
+  definitions?: {
+    GeneratedDraft?: RuntimeJsonSchema;
+  };
+};
+
+const GENERATED_DRAFT_PROVIDER_SCHEMA = (
+  generatedDraftJsonSchema as GeneratedDraftSchemaArtifact
+).definitions?.GeneratedDraft;
+
+if (!GENERATED_DRAFT_PROVIDER_SCHEMA) {
+  throw new Error("GeneratedDraft JSON Schema artifact is missing its canonical definition.");
+}
+
+const canonicalRuntimeDraftOutputFormat = (): RuntimeModelOutputFormat => ({
+  type: "json_schema",
+  schema: GENERATED_DRAFT_PROVIDER_SCHEMA as RuntimeJsonSchema,
+});
 
 export interface RuntimeDraftingPolicy {
   enabled: boolean;
-  provider: "anthropic";
+  provider: RuntimeModelProvider;
+  /** Opaque provider credential. It is never copied into audit snapshots. */
   apiKey?: string;
   model?: string;
   timeoutMs: number;
@@ -25,12 +60,16 @@ export interface RuntimeDraftingPolicy {
   maxEvidenceAgeDays?: number;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
+  /** Provider-neutral intent. An adapter must reject unsupported mappings. */
+  reasoningEffort?: RuntimeReasoningEffort;
+  /** Current P4 requires a provider-native JSON Schema constraint when invoked. */
+  outputFormat?: RuntimeDraftOutputFormat;
 }
 
-/** Non-secret effective policy persisted with every draft outcome. */
+/** Non-secret effective policy persisted before and after every model call. */
 export interface RuntimeDraftingPolicyAuditSnapshot {
   enabled: boolean;
-  provider: "anthropic";
+  provider: RuntimeModelProvider;
   model: string | null;
   timeoutMs: number;
   maxTokens: number;
@@ -41,6 +80,12 @@ export interface RuntimeDraftingPolicyAuditSnapshot {
   maxEvidenceAgeDays: number;
   maxAttempts: 1;
   fallback: DraftFallbackPolicy;
+  reasoningEffort: RuntimeReasoningEffort;
+  outputFormat: RuntimeDraftOutputFormat;
+  /** Full canonical schema supplied by the task contract. */
+  canonicalOutputFormat: RuntimeModelOutputFormat;
+  /** Exact non-secret provider-native output configuration, when admitted. */
+  effectiveProviderOutputConfiguration: Record<string, unknown> | null;
 }
 
 const assertPolicyInteger = (
@@ -55,6 +100,24 @@ const assertPolicyInteger = (
   return value as number;
 };
 
+const assertProvider = (value: unknown): RuntimeModelProvider => {
+  if (!RUNTIME_MODEL_PROVIDERS.includes(value as RuntimeModelProvider)) {
+    throw new Error(`Unsupported runtime drafting policy provider: ${String(value)}`);
+  }
+  return value as RuntimeModelProvider;
+};
+
+const assertReasoningEffort = (value: unknown): RuntimeReasoningEffort => {
+  if (!RUNTIME_REASONING_EFFORTS.includes(value as RuntimeReasoningEffort)) {
+    throw new Error(`Unsupported runtime drafting reasoning effort: ${String(value)}`);
+  }
+  return value as RuntimeReasoningEffort;
+};
+
+const implementedRuntimeProviders = new Set<RuntimeModelProvider>(
+  IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
+);
+
 /**
  * Normalize and validate any policy regardless of origin. Environment parsing is
  * not a trusted boundary because callers can inject RuntimeDraftingPolicy
@@ -66,9 +129,7 @@ export function normalizeRuntimeDraftingPolicy(
   if (typeof policy.enabled !== "boolean") {
     throw new Error(`Invalid runtime drafting policy enabled: ${String(policy.enabled)}`);
   }
-  if (policy.provider !== "anthropic") {
-    throw new Error(`Unsupported runtime drafting policy provider: ${String(policy.provider)}`);
-  }
+  const provider = assertProvider(policy.provider);
   if (policy.fallback !== "template" && policy.fallback !== "hold") {
     throw new Error(`Unsupported runtime drafting policy fallback: ${String(policy.fallback)}`);
   }
@@ -76,8 +137,17 @@ export function normalizeRuntimeDraftingPolicy(
     throw new Error(`Invalid runtime drafting policy maxAttempts: ${String(policy.maxAttempts)}`);
   }
 
+  const reasoningEffort = assertReasoningEffort(
+    policy.reasoningEffort ?? "provider_default",
+  );
+  const outputFormat = policy.outputFormat ?? "json_schema";
+  if (outputFormat !== "json_schema") {
+    throw new Error(`Unsupported runtime drafting output format: ${String(outputFormat)}`);
+  }
+
   const normalized: RuntimeDraftingPolicy = {
     ...policy,
+    provider,
     timeoutMs: assertPolicyInteger("timeoutMs", policy.timeoutMs, 250, 30000),
     maxTokens: assertPolicyInteger("maxTokens", policy.maxTokens, 64, 2000),
     maxInputTokens: assertPolicyInteger("maxInputTokens", policy.maxInputTokens, 256, 32000),
@@ -91,6 +161,8 @@ export function normalizeRuntimeDraftingPolicy(
       3650,
     ),
     maxAttempts: 1,
+    reasoningEffort,
+    outputFormat,
   };
 
   if (normalized.enabled && (!normalized.apiKey || !normalized.model?.trim())) {
@@ -106,6 +178,8 @@ export function runtimeDraftingPolicyAuditSnapshot(
   policy: RuntimeDraftingPolicy,
 ): RuntimeDraftingPolicyAuditSnapshot {
   const normalized = normalizeRuntimeDraftingPolicy(policy);
+  const reasoningEffort = normalized.reasoningEffort ?? "provider_default";
+  const canonicalOutputFormat = canonicalRuntimeDraftOutputFormat();
   return {
     enabled: normalized.enabled,
     provider: normalized.provider,
@@ -119,6 +193,14 @@ export function runtimeDraftingPolicyAuditSnapshot(
     maxEvidenceAgeDays: normalized.maxEvidenceAgeDays ?? DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS,
     maxAttempts: normalized.maxAttempts,
     fallback: normalized.fallback,
+    reasoningEffort,
+    outputFormat: normalized.outputFormat ?? "json_schema",
+    canonicalOutputFormat,
+    effectiveProviderOutputConfiguration: runtimeModelOutputConfigurationForProvider(
+      normalized.provider,
+      canonicalOutputFormat,
+      reasoningEffort,
+    ),
   };
 }
 
@@ -126,6 +208,25 @@ export function hashRuntimeDraftingPolicy(
   snapshot: RuntimeDraftingPolicyAuditSnapshot,
 ): string {
   return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+}
+
+/** Convert the drafting policy to the provider-neutral call contract. */
+export function runtimeModelInvocationConfigFromDraftingPolicy(
+  policy: RuntimeDraftingPolicy,
+): RuntimeModelInvocationConfig {
+  const normalized = normalizeRuntimeDraftingPolicy(policy);
+  if (!normalized.enabled || !normalized.apiKey || !normalized.model) {
+    throw new Error("Runtime model invocation requires an enabled, fully configured policy.");
+  }
+
+  return {
+    provider: normalized.provider,
+    model: normalized.model,
+    credential: normalized.apiKey,
+    timeoutMs: normalized.timeoutMs,
+    maxOutputTokens: normalized.maxTokens,
+    reasoningEffort: normalized.reasoningEffort ?? "provider_default",
+  };
 }
 
 const intFromEnv = (
@@ -156,11 +257,13 @@ export function runtimeDraftingPolicyFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): RuntimeDraftingPolicy {
   const enabled = boolFromEnv(env.RUNTIME_DRAFTING_ENABLED, false);
-  const provider = env.RUNTIME_DRAFT_PROVIDER ?? "anthropic";
+  const provider = assertProvider(env.RUNTIME_DRAFT_PROVIDER ?? "anthropic");
   const fallback = env.RUNTIME_DRAFT_FALLBACK ?? "template";
 
-  if (provider !== "anthropic") {
-    throw new Error(`Unsupported RUNTIME_DRAFT_PROVIDER: ${provider}`);
+  if (enabled && !implementedRuntimeProviders.has(provider)) {
+    throw new Error(
+      `RUNTIME_DRAFT_PROVIDER ${provider} has no admitted production adapter.`,
+    );
   }
   if (fallback !== "template" && fallback !== "hold") {
     throw new Error(`Unsupported RUNTIME_DRAFT_FALLBACK: ${fallback}`);
@@ -185,6 +288,10 @@ export function runtimeDraftingPolicyFromEnv(
     ),
     maxAttempts: 1,
     fallback,
+    reasoningEffort: assertReasoningEffort(
+      env.RUNTIME_DRAFT_REASONING_EFFORT ?? "provider_default",
+    ),
+    outputFormat: "json_schema",
   });
 }
 

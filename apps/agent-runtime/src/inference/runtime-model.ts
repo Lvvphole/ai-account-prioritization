@@ -1,7 +1,44 @@
-import type { RuntimeDraftingPolicy } from "../agents/sales-execution/execution.policy";
+export const RUNTIME_MODEL_PROVIDERS = ["anthropic", "openai", "google"] as const;
+export type RuntimeModelProvider = (typeof RUNTIME_MODEL_PROVIDERS)[number];
+
+export const RUNTIME_REASONING_EFFORTS = [
+  "provider_default",
+  "low",
+  "medium",
+  "high",
+] as const;
+export type RuntimeReasoningEffort = (typeof RUNTIME_REASONING_EFFORTS)[number];
+
+export type RuntimeJsonSchema = Record<string, unknown>;
+
+export interface RuntimeModelOutputFormat {
+  type: "json_schema";
+  /** Canonical task JSON Schema. Provider adapters may apply deterministic compatibility transforms. */
+  schema: RuntimeJsonSchema;
+}
+
+export interface RuntimeModelRequest {
+  system: string;
+  user: string;
+  outputFormat: RuntimeModelOutputFormat;
+}
+
+/**
+ * Provider-neutral per-call configuration. `credential` is intentionally opaque
+ * to the common boundary and must never be copied into audit evidence.
+ * Provider adapters interpret supported controls and reject unsupported ones.
+ */
+export interface RuntimeModelInvocationConfig {
+  provider: RuntimeModelProvider;
+  model: string;
+  credential: string;
+  timeoutMs: number;
+  maxOutputTokens: number;
+  reasoningEffort: RuntimeReasoningEffort;
+}
 
 export interface RuntimeModelTelemetry {
-  provider: "anthropic";
+  provider: RuntimeModelProvider;
   model: string;
   latencyMs: number;
   inputTokens?: number;
@@ -13,15 +50,15 @@ export interface RuntimeModelResult {
   telemetry: RuntimeModelTelemetry;
 }
 
-export interface RuntimeModelRequest {
-  system: string;
-  user: string;
-}
-
+/**
+ * Common provider-neutral model boundary. The client returns untrusted candidate
+ * data only. Deterministic schema, grounding, permission, approval, and publish
+ * authority remain outside this interface.
+ */
 export interface RuntimeModelClient {
   generate(
     request: RuntimeModelRequest,
-    policy: RuntimeDraftingPolicy,
+    config: RuntimeModelInvocationConfig,
   ): Promise<RuntimeModelResult>;
 }
 
@@ -39,101 +76,3 @@ export class RuntimeModelError extends Error {
     this.name = "RuntimeModelError";
   }
 }
-
-interface AnthropicResponse {
-  content?: Array<{ type?: string; text?: string }>;
-  usage?: { input_tokens?: number; output_tokens?: number };
-}
-
-export const anthropicRuntimeModelClient: RuntimeModelClient = {
-  async generate(request, policy) {
-    if (!policy.enabled || !policy.apiKey || !policy.model) {
-      throw new RuntimeModelError(
-        "DRAFT_MODEL_CONFIG_ERROR",
-        "Runtime model called without enabled, fully configured drafting policy.",
-      );
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), policy.timeoutMs);
-    const started = Date.now();
-    const failureTelemetry = (
-      usage?: AnthropicResponse["usage"],
-    ): RuntimeModelTelemetry => ({
-      provider: "anthropic",
-      model: policy.model as string,
-      latencyMs: Date.now() - started,
-      inputTokens: usage?.input_tokens,
-      outputTokens: usage?.output_tokens,
-    });
-
-    try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": policy.apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: policy.model,
-          max_tokens: policy.maxTokens,
-          temperature: 0,
-          system: request.system,
-          messages: [{ role: "user", content: request.user }],
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new RuntimeModelError(
-          "DRAFT_MODEL_HTTP_ERROR",
-          `Runtime model returned HTTP ${response.status}.`,
-          failureTelemetry(),
-        );
-      }
-
-      const body = (await response.json()) as AnthropicResponse;
-      const text = body.content?.find((item) => item.type === "text")?.text;
-      if (!text) {
-        throw new RuntimeModelError(
-          "DRAFT_MODEL_INVALID_RESPONSE",
-          "Runtime model response contained no text content.",
-          failureTelemetry(body.usage),
-        );
-      }
-
-      let output: unknown;
-      try {
-        output = JSON.parse(text);
-      } catch {
-        throw new RuntimeModelError(
-          "DRAFT_MODEL_INVALID_RESPONSE",
-          "Runtime model response was not strict JSON.",
-          failureTelemetry(body.usage),
-        );
-      }
-
-      return {
-        output,
-        telemetry: failureTelemetry(body.usage),
-      };
-    } catch (error) {
-      if (error instanceof RuntimeModelError) throw error;
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new RuntimeModelError(
-          "DRAFT_MODEL_TIMEOUT",
-          `Runtime model exceeded ${policy.timeoutMs}ms timeout.`,
-          failureTelemetry(),
-        );
-      }
-      throw new RuntimeModelError(
-        "DRAFT_MODEL_HTTP_ERROR",
-        error instanceof Error ? error.message : "Unknown runtime model error.",
-        failureTelemetry(),
-      );
-    } finally {
-      clearTimeout(timeout);
-    }
-  },
-};

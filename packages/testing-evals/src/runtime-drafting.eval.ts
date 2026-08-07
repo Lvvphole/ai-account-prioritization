@@ -344,7 +344,14 @@ describe("runtime drafting contract", () => {
     const client: RuntimeModelClient = {
       async generate() {
         calls += 1;
-        return clientReturning({}).generate({ system: "", user: "" }, basePolicy);
+        return {
+          output: {},
+          telemetry: {
+            provider: "anthropic",
+            model: "pinned-test-model",
+            latencyMs: 1,
+          },
+        };
       },
     };
     const result = await attachHybridActionDraft(recommendation, context, {
@@ -361,7 +368,14 @@ describe("runtime drafting contract", () => {
     const client: RuntimeModelClient = {
       async generate() {
         calls += 1;
-        return clientReturning({}).generate({ system: "", user: "" }, basePolicy);
+        return {
+          output: {},
+          telemetry: {
+            provider: "anthropic",
+            model: "pinned-test-model",
+            latencyMs: 1,
+          },
+        };
       },
     };
     const runBudget = createRuntimeDraftRunBudget(1);
