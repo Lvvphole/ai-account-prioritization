@@ -199,5 +199,5 @@ test("live export rows use canonical account summaries and never demo metadata",
   assert.equal(rows[0]?.tier, "strategic");
   assert.equal(rows[0]?.revenue_usd, 180000);
   assert.equal(rows[0]?.owner_id, OWNER);
-  assert.equal("owner_name" in (rows[0] ?? {}), false);
+  assert.equal(rows[0]?.owner_name, "");
 });
