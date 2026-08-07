@@ -6,6 +6,7 @@ import {
   type RuntimeModelProvider,
   type RuntimeReasoningEffort,
 } from "../../inference/runtime-model";
+import { IMPLEMENTED_RUNTIME_MODEL_PROVIDERS } from "../../inference/runtime-model-registry";
 import { DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS } from "./build-draft-context";
 
 export type DraftFallbackPolicy = "template" | "hold";
@@ -83,6 +84,10 @@ const assertReasoningEffort = (value: unknown): RuntimeReasoningEffort => {
   }
   return value as RuntimeReasoningEffort;
 };
+
+const implementedRuntimeProviders = new Set<RuntimeModelProvider>(
+  IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
+);
 
 /**
  * Normalize and validate any policy regardless of origin. Environment parsing is
@@ -218,6 +223,11 @@ export function runtimeDraftingPolicyFromEnv(
   const provider = assertProvider(env.RUNTIME_DRAFT_PROVIDER ?? "anthropic");
   const fallback = env.RUNTIME_DRAFT_FALLBACK ?? "template";
 
+  if (enabled && !implementedRuntimeProviders.has(provider)) {
+    throw new Error(
+      `RUNTIME_DRAFT_PROVIDER ${provider} has no admitted production adapter.`,
+    );
+  }
   if (fallback !== "template" && fallback !== "hold") {
     throw new Error(`Unsupported RUNTIME_DRAFT_FALLBACK: ${fallback}`);
   }
