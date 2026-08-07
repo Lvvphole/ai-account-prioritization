@@ -67,15 +67,17 @@ test("rejects widened request shapes and invalid kind/code combinations", () => 
     /RECOMMENDATION_FOLLOWUP_INVALID_CODE/,
   );
 
-  assert.throws(() =>
-    parseRecommendationFollowupRequest({
-      workspaceId,
-      recommendationId: "rec-1",
-      kind: "feedback",
-      code: "accepted",
-      expectedEventId: null,
-      accountId: "not-authorized-browser-input",
-    }),
+  assert.throws(
+    () =>
+      parseRecommendationFollowupRequest({
+        workspaceId,
+        recommendationId: "rec-1",
+        kind: "feedback",
+        code: "accepted",
+        expectedEventId: null,
+        accountId: "not-authorized-browser-input",
+      }),
+    /RECOMMENDATION_FOLLOWUP_INVALID_REQUEST/,
   );
 });
 
