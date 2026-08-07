@@ -21,6 +21,11 @@ import {
 import { GeneratedDraftSchema, GeneratedDraftSentenceSchema } from "./generated-draft";
 import { FeedbackSchema } from "./feedback";
 import {
+  RecommendationFollowupRequestSchema,
+  RecommendationFollowupStateSchema,
+  RecommendationOutcomeCodeSchema,
+} from "./recommendation-followup";
+import {
   AnalyticsEventSchema,
   AuditLogEntrySchema,
 } from "./analytics-event";
@@ -76,6 +81,7 @@ export * from "./activity";
 export * from "./recommendation";
 export * from "./generated-draft";
 export * from "./feedback";
+export * from "./recommendation-followup";
 export * from "./analytics-event";
 export * from "./eval-result";
 export * from "./workspace";
@@ -104,6 +110,9 @@ export const SCHEMA_REGISTRY = {
   GeneratedDraft: GeneratedDraftSchema,
   GeneratedDraftSentence: GeneratedDraftSentenceSchema,
   Feedback: FeedbackSchema,
+  RecommendationFollowupRequest: RecommendationFollowupRequestSchema,
+  RecommendationFollowupState: RecommendationFollowupStateSchema,
+  RecommendationOutcomeCode: RecommendationOutcomeCodeSchema,
   AnalyticsEvent: AnalyticsEventSchema,
   AuditLogEntry: AuditLogEntrySchema,
   EvalResult: EvalResultSchema,
