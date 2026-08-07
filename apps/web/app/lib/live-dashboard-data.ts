@@ -65,11 +65,17 @@ export function resolveDashboardDataMode(
 
 export function resolveWorkspaceSelection(
   workspaces: LiveDashboardWorkspace[],
-  requestedWorkspaceId?: string,
+  requestedWorkspaceId?: string | string[],
 ): Pick<LiveDashboardData, "status" | "activeWorkspaceId"> {
   const normalized = normalizeWorkspaces(workspaces);
   if (normalized.length === 0) {
     return { status: "no_workspace", activeWorkspaceId: null };
+  }
+
+  // Repeated workspace query parameters are ambiguous authority input. Reject
+  // them deterministically rather than selecting one value by request order.
+  if (Array.isArray(requestedWorkspaceId)) {
+    return { status: "invalid_workspace", activeWorkspaceId: null };
   }
 
   const requested = requestedWorkspaceId?.trim();
@@ -89,7 +95,7 @@ export function resolveWorkspaceSelection(
 
 export async function assembleLiveDashboardData(
   source: LiveDashboardDataSource,
-  requestedWorkspaceId?: string,
+  requestedWorkspaceId?: string | string[],
 ): Promise<LiveDashboardData> {
   const workspaces = normalizeWorkspaces(await source.listAuthorizedWorkspaces());
   const selection = resolveWorkspaceSelection(workspaces, requestedWorkspaceId);
@@ -109,20 +115,73 @@ export async function assembleLiveDashboardData(
   const accountIds = [...new Set(recommendations.map((recommendation) => recommendation.accountId))]
     .sort(compareText);
   const accounts = await source.loadAccounts(selection.activeWorkspaceId, accountIds);
-  const allowedAccountIds = new Set(accountIds);
+  const requestedAccountIds = new Set(accountIds);
   const accountsById: Record<string, LiveDashboardAccountSummary> = {};
 
   for (const account of accounts.slice().sort((a, b) => compareText(a.id, b.id))) {
-    if (allowedAccountIds.has(account.id)) {
+    if (requestedAccountIds.has(account.id)) {
       accountsById[account.id] = account;
     }
   }
+
+  // Canonical account rows are the current authorization check. A durable
+  // recommendation can outlive an ownership reassignment, so do not expose the
+  // historical recommendation unless the current owner-scoped account query
+  // also returned its account.
+  const authorizedAccountIds = new Set(Object.keys(accountsById));
+  const authorizedRecommendations = recommendations.filter((recommendation) =>
+    authorizedAccountIds.has(recommendation.accountId),
+  );
 
   return {
     status: "ready",
     workspaces,
     activeWorkspaceId: selection.activeWorkspaceId,
-    recommendations,
+    recommendations: authorizedRecommendations,
     accountsById,
   };
+}
+
+/**
+ * Build live export rows only from data that the configured dashboard already
+ * authorized and rendered. Demo metadata is never consulted on this path.
+ */
+export function liveDashboardExportRows(
+  data: LiveDashboardData,
+): Record<string, string | number>[] {
+  const rows: Record<string, string | number>[] = [];
+
+  for (const rec of data.recommendations) {
+    const account = data.accountsById[rec.accountId];
+    if (!account) continue;
+
+    rows.push({
+      rank: rec.rank,
+      account_id: rec.accountId,
+      account_name: account.name,
+      industry: account.industry ?? "",
+      tier: account.tier,
+      owner_id: rec.ownerId,
+      score: rec.score,
+      confidence: rec.confidence,
+      reason_codes: rec.reasonCodes.join("|"),
+      next_action: rec.nextBestAction.type,
+      objective: rec.nextBestAction.objective,
+      revenue_usd: account.openPipelineUsd,
+      approval_status: rec.approvalStatus,
+      evidence_count: rec.sourceSignals.length,
+      evidence_verified: rec.sourceSignals.filter((signal) => signal.verified).length,
+      evidence: rec.sourceSignals
+        .map(
+          (signal) =>
+            `${signal.kind}:${signal.refId}:${signal.description}${signal.verified ? "" : " (UNVERIFIED)"}`,
+        )
+        .join(" | "),
+      verification: rec.verification.status,
+      run_id: rec.runId,
+      created_at: rec.createdAt,
+    });
+  }
+
+  return rows;
 }
