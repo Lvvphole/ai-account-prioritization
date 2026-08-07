@@ -1,0 +1,19 @@
+{
+  "$ref": "#/definitions/RecommendationOutcomeCode",
+  "definitions": {
+    "RecommendationOutcomeCode": {
+      "type": "string",
+      "enum": [
+        "meeting_booked",
+        "opportunity_advanced",
+        "renewal_completed",
+        "expansion",
+        "closed_won",
+        "closed_lost",
+        "churned",
+        "no_response"
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
