@@ -128,12 +128,23 @@ function unwrap<T>(
  * these casts local until generated Supabase types are refreshed from a
  * provisioned database. Zod remains the application DTO source of truth.
  */
-type RuntimeRpcClient = {
+export type RuntimeRpcClient = {
   rpc(
     functionName: string,
     args: Record<string, Json>,
   ): PromiseLike<{ data: unknown; error: { message: string } | null }>;
 };
+
+/**
+ * Narrow test seam for executable repository contract tests. Production callers
+ * omit this object and therefore continue to use the authenticated/runtime and
+ * service-role clients. The seam cannot widen repository authority or bypass
+ * DTO validation; it only supplies the same typed read/RPC ports.
+ */
+export interface SupabaseRepositoryDependencies {
+  readClient?: () => TypedSupabaseClient;
+  rpcClient?: () => RuntimeRpcClient;
+}
 
 type WorkspaceAccountRow = Tables<"accounts"> & { workspace_id: string };
 type RuntimeFilterBuilder<T> = {
@@ -189,19 +200,22 @@ async function fetchAllRows<T>(
 export function createSupabaseRepository(
   ctx: RlsContext,
   nowIso: string,
+  dependencies: SupabaseRepositoryDependencies = {},
 ): RuntimeRepository {
-  // Reads: user mode honors RLS via the user's token; service mode uses the
-  // service-role client and therefore must be narrowed by workspace before
-  // canonical account reads.
-  const read: TypedSupabaseClient =
-    ctx.kind === "user" ? createRuntimeClient(ctx) : getServiceRoleClient();
+  // Resolve clients lazily so an acceptance test that exercises only the
+  // durable RPC write path does not need to create an unrelated HTTP read
+  // client. Production callers omit dependencies and retain the same clients.
+  const readClient = (): TypedSupabaseClient =>
+    dependencies.readClient?.() ??
+    (ctx.kind === "user" ? createRuntimeClient(ctx) : getServiceRoleClient());
+  const rpcClient = (): RuntimeRpcClient => dependencies.rpcClient?.() ?? serviceRpcClient();
 
   return {
     async listAccountsByOwner(ownerId) {
       if (ctx.kind === "service" && !ctx.workspaceId) {
         throw new Error("Service account reads require an explicit workspace scope.");
       }
-
+      const read = readClient();
       const rows = await fetchAllRows<WorkspaceAccountRow>("read accounts", (from, to) => {
         let query = runtimeAccountsTable(read).select("*").eq("owner_id", ownerId);
         if (ctx.workspaceId) {
@@ -218,6 +232,7 @@ export function createSupabaseRepository(
     },
 
     async listOwnerScopes() {
+      const read = readClient();
       const rows = await fetchAllRows<WorkspaceAccountRow>("read owner scopes", (from, to) => {
         let query = runtimeAccountsTable(read)
           .select("workspace_id,owner_id")
@@ -243,6 +258,7 @@ export function createSupabaseRepository(
     },
 
     async listContactsByAccount(accountId) {
+      const read = readClient();
       const rows = await fetchAllRows<Tables<"contacts">>("read contacts", (from, to) =>
         read.from("contacts").select("*").eq("account_id", accountId).range(from, to),
       );
@@ -250,6 +266,7 @@ export function createSupabaseRepository(
     },
 
     async listOpportunitiesByAccount(accountId) {
+      const read = readClient();
       const rows = await fetchAllRows<Tables<"opportunities">>(
         "read opportunities",
         (from, to) =>
@@ -263,6 +280,7 @@ export function createSupabaseRepository(
     },
 
     async listActivitiesByAccount(accountId) {
+      const read = readClient();
       const rows = await fetchAllRows<Tables<"activities">>("read activities", (from, to) =>
         read.from("activities").select("*").eq("account_id", accountId).range(from, to),
       );
@@ -283,7 +301,7 @@ export function createSupabaseRepository(
         evidence: entry.evidence,
         occurredAt: entry.occurredAt,
       };
-      const { error } = await serviceRpcClient().rpc("append_runtime_audit_evidence", {
+      const { error } = await rpcClient().rpc("append_runtime_audit_evidence", {
         p_entry: payload as unknown as Json,
       });
       if (error) {
@@ -307,7 +325,7 @@ export function createSupabaseRepository(
         }
       }
 
-      const { data, error } = await serviceRpcClient().rpc(
+      const { data, error } = await rpcClient().rpc(
         "persist_published_recommendations",
         { p_recommendations: parsed as unknown as Json },
       );
