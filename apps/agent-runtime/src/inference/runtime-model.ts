@@ -37,6 +37,13 @@ export interface RuntimeModelInvocationConfig {
   reasoningEffort: RuntimeReasoningEffort;
 }
 
+/** Non-secret description of what one provider adapter will actually enforce. */
+export interface RuntimeModelInvocationAuditDescriptor {
+  provider: RuntimeModelProvider;
+  model: string;
+  outputConfiguration: Record<string, unknown>;
+}
+
 export interface RuntimeModelTelemetry {
   provider: RuntimeModelProvider;
   model: string;
@@ -56,6 +63,15 @@ export interface RuntimeModelResult {
  * authority remain outside this interface.
  */
 export interface RuntimeModelClient {
+  /**
+   * Optional for injected/offline clients. Production adapters implement this so
+   * durable pre-invocation evidence records the exact provider-native output
+   * configuration before network I/O.
+   */
+  describeEffectiveInvocation?(
+    request: RuntimeModelRequest,
+    config: RuntimeModelInvocationConfig,
+  ): RuntimeModelInvocationAuditDescriptor;
   generate(
     request: RuntimeModelRequest,
     config: RuntimeModelInvocationConfig,
