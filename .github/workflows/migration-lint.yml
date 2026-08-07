@@ -1,0 +1,56 @@
+name: Migration Lint
+
+on:
+  pull_request:
+    branches: ["**"]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/config.toml"
+      - "package.json"
+      - ".github/workflows/migration-lint.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/config.toml"
+      - "package.json"
+      - ".github/workflows/migration-lint.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Supabase Migration Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup pinned Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.111.0
+
+      - name: Verify Supabase CLI version
+        run: test "$(supabase --version)" = "2.111.0"
+
+      - name: Start local Supabase database
+        run: supabase db start
+
+      - name: Apply repository migrations
+        run: supabase migration up --local --include-all
+
+      - name: Lint migrated public schema
+        run: pnpm db:lint
+
+      - name: Stop local Supabase database
+        if: always()
+        run: supabase stop --no-backup
