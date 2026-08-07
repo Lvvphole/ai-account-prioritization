@@ -1,12 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  RECOMMENDATION_FOLLOWUP_CONTRACT_VERSION,
+  RecommendationOutcomeCodeSchema,
+} from "@repo/shared-schemas";
+import {
+  OUTCOME_CODES,
   parseRecommendationFollowupRequest,
   parseRecommendationFollowupState,
+  recommendationFollowupRpcStatus,
 } from "./recommendation-followup-contract";
 
 const workspaceId = "aaaaaaaa-0000-0000-0000-000000000001";
 const eventId = "bbbbbbbb-0000-0000-0000-000000000002";
+
+test("uses the canonical shared follow-up contract and outcome vocabulary", () => {
+  assert.equal(RECOMMENDATION_FOLLOWUP_CONTRACT_VERSION, "recommendation-followup/v1");
+  assert.deepEqual(OUTCOME_CODES, RecommendationOutcomeCodeSchema.options);
+});
 
 test("accepts bounded feedback, outcome, and explicit unknown requests", () => {
   assert.equal(
@@ -108,4 +119,13 @@ test("accepts only deterministic none or recorded result shapes", () => {
       replayed: false,
     }),
   );
+});
+
+test("reserves HTTP 409 for stale follow-up conflicts", () => {
+  assert.equal(recommendationFollowupRpcStatus("40001"), 409);
+  assert.equal(recommendationFollowupRpcStatus("42501"), 403);
+  assert.equal(recommendationFollowupRpcStatus("P0002"), 404);
+  assert.equal(recommendationFollowupRpcStatus("22023"), 400);
+  assert.equal(recommendationFollowupRpcStatus("57014"), 500);
+  assert.equal(recommendationFollowupRpcStatus(undefined), 500);
 });
