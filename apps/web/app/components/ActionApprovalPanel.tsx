@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ACTION_PAYLOAD_MAX_CHARS,
   type ActionApprovalState,
@@ -26,6 +26,7 @@ export default function ActionApprovalPanel({
   initialApproval,
 }: Props) {
   const [content, setContent] = useState(payload.content);
+  const contentRef = useRef(payload.content);
   const [approval, setApproval] = useState(initialApproval);
   const [decidedPayload, setDecidedPayload] = useState<DecidedPayload>({
     content: payload.content,
@@ -35,6 +36,7 @@ export default function ActionApprovalPanel({
   const [error, setError] = useState<string | null>(null);
 
   function updateContent(next: string) {
+    contentRef.current = next;
     setContent(next);
     setError(null);
     if (next === decidedPayload.content) {
@@ -45,6 +47,7 @@ export default function ActionApprovalPanel({
   }
 
   async function decide(decision: "approved" | "rejected") {
+    const submittedContent = content;
     setBusy(true);
     setError(null);
     try {
@@ -54,7 +57,7 @@ export default function ActionApprovalPanel({
         body: JSON.stringify({
           workspaceId,
           recommendationId,
-          content,
+          content: submittedContent,
           decision,
         }),
       });
@@ -66,8 +69,11 @@ export default function ActionApprovalPanel({
         return;
       }
 
-      setApproval(body.approval);
-      setDecidedPayload({ content, approval: body.approval });
+      const decided = { content: submittedContent, approval: body.approval };
+      setDecidedPayload(decided);
+      if (contentRef.current === submittedContent) {
+        setApproval(body.approval);
+      }
     } catch {
       setError("ACTION_APPROVAL_FAILED");
     } finally {
@@ -97,6 +103,7 @@ export default function ActionApprovalPanel({
             rows={10}
             value={content}
             readOnly={!payload.requiresApproval}
+            disabled={busy}
             maxLength={ACTION_PAYLOAD_MAX_CHARS}
             onChange={(event) => updateContent(event.target.value)}
           />
