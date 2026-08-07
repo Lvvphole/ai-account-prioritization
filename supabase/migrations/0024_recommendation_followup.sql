@@ -94,6 +94,7 @@ security definer
 set search_path = public
 as $$
 declare
+  v_contract_version constant text := 'recommendation-followup/v1';
   v_actor_id uuid;
   v_membership_id uuid;
   v_recommendation_id uuid;
@@ -194,6 +195,7 @@ begin
     digest(
       convert_to(
         jsonb_build_object(
+          'contractVersion', v_contract_version,
           'workspaceId', p_workspace_id,
           'actorId', v_actor_id,
           'recommendationId', v_rec.runtime_recommendation_id,
@@ -221,6 +223,7 @@ begin
      and ae.actor_id = v_actor_id::text
      and ae.action = 'recommendation_followup'
      and ae.evidence ->> 'recommendationId' = v_rec.runtime_recommendation_id
+     and ae.evidence ->> 'contractVersion' = v_contract_version
      and ae.evidence ->> 'idempotencyKey' = v_idempotency_key
    limit 1;
 
@@ -278,6 +281,7 @@ begin
     end,
     jsonb_build_object(
       'recommendationId', v_rec.runtime_recommendation_id,
+      'contractVersion', v_contract_version,
       'kind', p_kind,
       'code', p_code,
       'previousEventId', p_expected_event_id,
@@ -305,4 +309,4 @@ grant execute on function public.record_recommendation_followup(uuid, text, text
   to authenticated;
 
 comment on function public.record_recommendation_followup(uuid, text, text, text, uuid) is
-  'Appends provenance-bound representative feedback/outcome evidence for a currently authorized verified recommendation. It never mutates recommendation authority fields.';
+  'Appends versioned, provenance-bound representative feedback/outcome evidence for a currently authorized verified recommendation. It never mutates recommendation authority fields.';
