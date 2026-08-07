@@ -4,6 +4,7 @@ import {
   createAnthropicRuntimeModelClient,
   normalizeRuntimeDraftingPolicy,
   runtimeDraftingPolicyAuditSnapshot,
+  runtimeDraftingPolicyFromEnv,
   runtimeModelClientForProvider,
   runtimeModelInvocationConfigFromDraftingPolicy,
   type RuntimeDraftingPolicy,
@@ -94,6 +95,24 @@ describe("P4 provider-neutral runtime-model boundary", () => {
     expect(invocation.model).toBe("pinned-openai-model");
     expect(invocation.reasoningEffort).toBe("medium");
     expect(invocation.credential).toBe("test-secret");
+  });
+
+  it("fails at startup for an enabled provider without an admitted production adapter", () => {
+    expect(() =>
+      runtimeDraftingPolicyFromEnv({
+        RUNTIME_DRAFTING_ENABLED: "true",
+        RUNTIME_DRAFT_PROVIDER: "openai",
+        RUNTIME_DRAFT_API_KEY: "test-secret",
+        RUNTIME_DRAFT_MODEL: "pinned-openai-model",
+      } as NodeJS.ProcessEnv),
+    ).toThrow("has no admitted production adapter");
+
+    expect(
+      runtimeDraftingPolicyFromEnv({
+        RUNTIME_DRAFTING_ENABLED: "false",
+        RUNTIME_DRAFT_PROVIDER: "openai",
+      } as NodeJS.ProcessEnv).provider,
+    ).toBe("openai");
   });
 
   it("fails closed instead of silently routing an unimplemented provider", () => {
