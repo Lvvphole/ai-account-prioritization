@@ -10,6 +10,13 @@ import {
 } from "@repo/shared-schemas";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REQUEST_KEYS = new Set([
+  "workspaceId",
+  "recommendationId",
+  "kind",
+  "code",
+  "expectedEventId",
+]);
 
 export const FEEDBACK_CODES = FeedbackVerdict.options;
 export const OUTCOME_CODES = RecommendationOutcomeCodeSchema.options;
@@ -28,6 +35,11 @@ export function parseRecommendationFollowupRequest(value: unknown): Recommendati
   }
 
   const input = value as Record<string, unknown>;
+  const keys = Object.keys(input);
+  if (keys.length !== REQUEST_KEYS.size || keys.some((key) => !REQUEST_KEYS.has(key))) {
+    throw new Error("RECOMMENDATION_FOLLOWUP_INVALID_REQUEST");
+  }
+
   const workspaceId = typeof input.workspaceId === "string" ? input.workspaceId.trim() : "";
   const recommendationId =
     typeof input.recommendationId === "string" ? input.recommendationId.trim() : "";
