@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import {
   ACTION_PAYLOAD_MAX_CHARS,
+  approvalStateForSubmittedPayload,
   type ActionApprovalState,
   type VisibleActionPayload,
 } from "../lib/live-action-detail";
@@ -71,9 +72,12 @@ export default function ActionApprovalPanel({
 
       const decided = { content: submittedContent, approval: body.approval };
       setDecidedPayload(decided);
-      if (contentRef.current === submittedContent) {
-        setApproval(body.approval);
-      }
+      const visibleApproval = approvalStateForSubmittedPayload(
+        contentRef.current,
+        submittedContent,
+        body.approval,
+      );
+      if (visibleApproval) setApproval(visibleApproval);
     } catch {
       setError("ACTION_APPROVAL_FAILED");
     } finally {
