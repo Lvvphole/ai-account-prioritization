@@ -1,0 +1,170 @@
+{
+  "$ref": "#/definitions/RecommendationFollowupState",
+  "definitions": {
+    "RecommendationFollowupState": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "none"
+            },
+            "kind": {
+              "type": "null"
+            },
+            "code": {
+              "type": "null"
+            },
+            "eventId": {
+              "type": "null"
+            },
+            "recordedAt": {
+              "type": "null"
+            },
+            "replayed": {
+              "type": "boolean",
+              "const": false
+            }
+          },
+          "required": [
+            "status",
+            "kind",
+            "code",
+            "eventId",
+            "recordedAt",
+            "replayed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "recorded"
+            },
+            "eventId": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            },
+            "recordedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "replayed": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "feedback"
+            },
+            "code": {
+              "type": "string",
+              "enum": [
+                "accepted",
+                "rejected",
+                "snoozed",
+                "completed",
+                "edited"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "eventId",
+            "recordedAt",
+            "replayed",
+            "kind",
+            "code"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "recorded"
+            },
+            "eventId": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            },
+            "recordedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "replayed": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "outcome"
+            },
+            "code": {
+              "type": "string",
+              "enum": [
+                "meeting_booked",
+                "opportunity_advanced",
+                "renewal_completed",
+                "expansion",
+                "closed_won",
+                "closed_lost",
+                "churned",
+                "no_response"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "eventId",
+            "recordedAt",
+            "replayed",
+            "kind",
+            "code"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "recorded"
+            },
+            "eventId": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            },
+            "recordedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "replayed": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "unknown"
+            },
+            "code": {
+              "type": "string",
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "status",
+            "eventId",
+            "recordedAt",
+            "replayed",
+            "kind",
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
