@@ -471,8 +471,8 @@ implementation_state:
   deterministic_next_best_action_selection: shipped
   bounded_single_call_runtime_drafting: shipped
   production_ingestion_commit_spine: shipped
-  durable_runtime_to_web_bridge: incomplete
-  live_dashboard_without_mock_recommendations: incomplete
+  durable_runtime_to_web_bridge: shipped
+  live_dashboard_without_mock_recommendations: shipped
   p4_provider_neutral_boundary_and_qualification: incomplete
   model_controlled_candidate_action_selection: deferred
   general_tool_orchestration: deferred
