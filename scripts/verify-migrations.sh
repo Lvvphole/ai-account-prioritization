@@ -118,4 +118,21 @@ for suite in "$TESTS"/[0-9][0-9]_*.sql; do
   total=$((total + passed))
 done
 
+# Acceptance A reuses this exact migrated database after the standard schema
+# assertions. The fixed hook is deliberately narrow: it runs only the versioned
+# Acceptance A Turbo task and exposes only the current test database connection.
+if [ "${VERIFY_ACCEPTANCE_A_RUNTIME:-false}" = "true" ]; then
+  if [ -z "${DATABASE_URL:-}" ]; then
+    export PGHOST="$PGSOCK"
+    export PGPORT="$PGPORT"
+    export PGUSER="postgres"
+    export PGDATABASE="postgres"
+  fi
+  export ACCEPTANCE_A_DATABASE_BACKED=true
+  export RUNTIME_DRAFTING_ENABLED=false
+  echo "==> Running Acceptance A runtime against the migrated database"
+  (cd "$ROOT" && pnpm turbo run test:acceptance:a --filter=@repo/testing-evals) \
+    || fail "Acceptance A database-backed runtime"
+fi
+
 echo "PASSED: $total schema assertions across $applied migrations."

@@ -13,6 +13,7 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:evals": "turbo run test:evals",
+    "test:acceptance:a": "bash scripts/verify-acceptance-a.sh",
     "test:trajectory": "turbo run test:trajectory --filter=@repo/testing-evals",
     "test:judge": "turbo run test:judge",
     "test:harness-kernel": "node --test scripts/harness-kernel.test.mjs",

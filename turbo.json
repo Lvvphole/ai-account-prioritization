@@ -31,6 +31,11 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
+    "test:acceptance:a": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": []
+    },
     "test:trajectory": {
       "dependsOn": ["^build"],
       "outputs": []

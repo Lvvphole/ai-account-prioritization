@@ -75,7 +75,11 @@ run_gate "Build Python support service" pnpm build:api-python
 run_gate "No Prisma" pnpm check:no-prisma
 run_gate "Security package" pnpm verify:security
 run_gate "Observability package" pnpm verify:observability
-run_gate "Migration invariants" pnpm verify:migrations
+# Acceptance A owns the model-disabled production profile and invokes
+# `pnpm verify:migrations` as its durable database stage. This keeps the
+# canonical migration command inside the Tier 3 verifier without running the
+# same migration suite twice.
+run_gate "Acceptance A — deterministic baseline" pnpm test:acceptance:a
 run_gate "Docker compose config" pnpm docker:config
 run_gate "Docker image build" pnpm docker:build
 run_gate "Git diff check" git diff --check
