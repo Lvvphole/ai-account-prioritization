@@ -55,14 +55,16 @@ test("accepts bounded feedback, outcome, and explicit unknown requests", () => {
 });
 
 test("rejects widened request shapes and invalid kind/code combinations", () => {
-  assert.throws(() =>
-    parseRecommendationFollowupRequest({
-      workspaceId,
-      recommendationId: "rec-1",
-      kind: "outcome",
-      code: "accepted",
-      expectedEventId: null,
-    }),
+  assert.throws(
+    () =>
+      parseRecommendationFollowupRequest({
+        workspaceId,
+        recommendationId: "rec-1",
+        kind: "outcome",
+        code: "accepted",
+        expectedEventId: null,
+      }),
+    /RECOMMENDATION_FOLLOWUP_INVALID_CODE/,
   );
 
   assert.throws(() =>
@@ -74,6 +76,42 @@ test("rejects widened request shapes and invalid kind/code combinations", () => 
       expectedEventId: null,
       accountId: "not-authorized-browser-input",
     }),
+  );
+});
+
+test("preserves bounded request refusal categories around the canonical schema", () => {
+  assert.throws(
+    () =>
+      parseRecommendationFollowupRequest({
+        workspaceId: "not-a-uuid",
+        recommendationId: "rec-1",
+        kind: "feedback",
+        code: "accepted",
+        expectedEventId: null,
+      }),
+    /RECOMMENDATION_FOLLOWUP_INVALID_WORKSPACE/,
+  );
+  assert.throws(
+    () =>
+      parseRecommendationFollowupRequest({
+        workspaceId,
+        recommendationId: "",
+        kind: "feedback",
+        code: "accepted",
+        expectedEventId: null,
+      }),
+    /RECOMMENDATION_FOLLOWUP_INVALID_RECOMMENDATION/,
+  );
+  assert.throws(
+    () =>
+      parseRecommendationFollowupRequest({
+        workspaceId,
+        recommendationId: "rec-1",
+        kind: "feedback",
+        code: "accepted",
+        expectedEventId: "not-a-uuid",
+      }),
+    /RECOMMENDATION_FOLLOWUP_INVALID_EXPECTED_EVENT/,
   );
 });
 
