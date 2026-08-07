@@ -159,6 +159,7 @@ select pg_temp.expect_true(
 select pg_temp.expect_true(
   (select bool_and(
       char_length(evidence ->> 'idempotencyKey') = 64
+      and evidence ->> 'contractVersion' = 'recommendation-followup/v1'
       and evidence ->> 'provenance' = 'authenticated_representative'
       and not (evidence ? 'content')
       and not (evidence ? 'draft')
@@ -168,7 +169,7 @@ select pg_temp.expect_true(
       and account_id = 'c2000000-0000-0000-0000-000000000001'
       and actor_id = '33333333-3333-3333-3333-333333333333'
       and action = 'recommendation_followup'),
-  'follow-up audit evidence carries deterministic provenance without raw action payload duplication');
+  'follow-up audit evidence carries contract version and deterministic provenance without raw action payload duplication');
 
 select pg_temp.expect_true(
   (select score = 78
