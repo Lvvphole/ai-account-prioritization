@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Recommendation } from "@repo/shared-schemas";
 import {
   ACTION_PAYLOAD_MAX_CHARS,
+  approvalStateForSubmittedPayload,
   buildVisibleActionPayload,
   isFullyVerifiedPublishedRecommendation,
   isVisiblePayloadApprovable,
@@ -58,7 +59,7 @@ function recommendation(overrides: Partial<Recommendation> = {}): Recommendation
   };
 }
 
-test("live action scope requires one explicit workspace and recommendation", () => {
+test("live action scope accepts the canonical PostgreSQL UUID form used by durable records", () => {
   assert.deepEqual(resolveLiveActionScope(ACCOUNT, WORKSPACE, "rec-action-1"), {
     status: "ready",
     scope: {
@@ -204,5 +205,21 @@ test("durable approval state parser requires a valid hash for final decisions", 
         decidedAt: NOW,
       }),
     /ACTION_APPROVAL_RESULT_INVALID/,
+  );
+});
+
+test("an async response cannot mark different displayed content as approved", () => {
+  const approved = {
+    status: "approved" as const,
+    payloadHash: "b".repeat(64),
+    decidedAt: NOW,
+  };
+  assert.deepEqual(
+    approvalStateForSubmittedPayload("payload A", "payload A", approved),
+    approved,
+  );
+  assert.equal(
+    approvalStateForSubmittedPayload("payload B", "payload A", approved),
+    null,
   );
 });
