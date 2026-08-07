@@ -7,6 +7,7 @@ on:
       - "supabase/migrations/**"
       - "supabase/config.toml"
       - "package.json"
+      - "prd_manifest.yaml"
       - ".github/workflows/migration-lint.yml"
   push:
     branches: ["main"]
@@ -14,6 +15,7 @@ on:
       - "supabase/migrations/**"
       - "supabase/config.toml"
       - "package.json"
+      - "prd_manifest.yaml"
       - ".github/workflows/migration-lint.yml"
 
 permissions:
@@ -29,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54329/migration_lint
+      DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:54329/migration_lint
     steps:
       - uses: actions/checkout@v4
 
@@ -53,10 +55,10 @@ jobs:
             ghcr.io/supabase/postgres:15.8.1.085@sha256:af083ef64d0408c8f098ee6f5c364a59b26f36fbc0f3a334a62c5c1d57362e9b
           for attempt in $(seq 1 60); do
             if docker exec migration-lint-postgres \
-              psql -U postgres -d postgres -tAc "select 1" 2>/dev/null | grep -qx 1; then
+              psql -U supabase_admin -d postgres -tAc "select 1" 2>/dev/null | grep -qx 1; then
               sleep 2
               if docker exec migration-lint-postgres \
-                psql -U postgres -d postgres -tAc "select 1" 2>/dev/null | grep -qx 1; then
+                psql -U supabase_admin -d postgres -tAc "select 1" 2>/dev/null | grep -qx 1; then
                 exit 0
               fi
             fi
@@ -68,9 +70,9 @@ jobs:
 
       - name: Create clean lint database
         run: |
-          docker exec migration-lint-postgres createdb -U postgres -T template0 migration_lint
+          docker exec migration-lint-postgres createdb -U supabase_admin -T template0 migration_lint
           docker exec migration-lint-postgres \
-            psql -U postgres -d migration_lint -tAc "select 1" | grep -qx 1
+            psql -U supabase_admin -d migration_lint -tAc "select 1" | grep -qx 1
 
       - name: Apply and behaviorally verify repository migrations
         run: pnpm verify:migrations
