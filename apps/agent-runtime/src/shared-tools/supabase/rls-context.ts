@@ -1,14 +1,19 @@
 import { getEnv } from "../../config/env";
 
 /**
- * RLS context — who a runtime read/write executes as against Supabase.
+ * RLS context — who and which workspace a runtime read/write executes as
+ * against Supabase.
  *
  * The orchestrator runs either:
  * - as a signed-in user ("user"): Postgres Row Level Security is enforced via the
- *   user's access token, so a rep only ever reads their own accounts; or
+ *   user's access token, so a rep only reads authorized workspace data; or
  * - as a trusted background actor ("service"): the daily scheduler/orchestrator
- *   reads with the service-role client (RLS bypassed) using an explicit owner
- *   filter, and records a system actor label (text) in audit evidence.
+ *   reads with the service-role client (RLS bypassed), so an explicit workspace
+ *   scope is required before canonical account reads.
+ *
+ * The scheduler may create an unscoped service context only long enough to
+ * enumerate deterministic owner/workspace scopes. It must narrow that context
+ * before an owner run begins.
  *
  * When NO context is supplied the runtime stays on the deterministic, offline
  * in-memory store (evals/CI). See `resolveRepository`.
@@ -16,8 +21,14 @@ import { getEnv } from "../../config/env";
 export type AppRole = "rep" | "manager" | "admin";
 
 export type RlsContext =
-  | { kind: "user"; userId: string; role: AppRole; accessToken: string }
-  | { kind: "service"; actorId: string };
+  | {
+      kind: "user";
+      userId: string;
+      role: AppRole;
+      accessToken: string;
+      workspaceId?: string;
+    }
+  | { kind: "service"; actorId: string; workspaceId?: string };
 
 /**
  * True when the runtime has the credentials to reach Supabase at all. The

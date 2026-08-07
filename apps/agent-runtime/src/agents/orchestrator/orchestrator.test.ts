@@ -1,14 +1,38 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { runDailyPrioritizationForOwner } from "./orchestrator.agent";
+import {
+  buildPrioritizationRunId,
+  runDailyPrioritizationForOwner,
+} from "./orchestrator.agent";
 import { resetStore } from "../../shared-tools/database/client";
 import { __setEnvForTesting } from "../../config/env";
 
 const NOW = "2026-06-25T07:00:00Z";
+const WORKSPACE_A = "aaaaaaaa-0000-0000-0000-000000000001";
+const WORKSPACE_B = "bbbbbbbb-0000-0000-0000-000000000002";
 
 describe("orchestrator daily prioritization", () => {
   beforeEach(() => {
     resetStore();
     __setEnvForTesting({ REQUIRE_HUMAN_APPROVAL: true });
+  });
+
+  it("includes workspace scope in the deterministic run identity", () => {
+    const ownerId = "rep_alex";
+    const runA = buildPrioritizationRunId(ownerId, NOW, {
+      kind: "service",
+      actorId: "daily_scheduler",
+      workspaceId: WORKSPACE_A,
+    });
+    const runB = buildPrioritizationRunId(ownerId, NOW, {
+      kind: "service",
+      actorId: "daily_scheduler",
+      workspaceId: WORKSPACE_B,
+    });
+
+    expect(runA).toBe(`run_${WORKSPACE_A}_${ownerId}_${NOW}`);
+    expect(runB).toBe(`run_${WORKSPACE_B}_${ownerId}_${NOW}`);
+    expect(runA).not.toBe(runB);
+    expect(buildPrioritizationRunId(ownerId, NOW)).toBe(`run_${ownerId}_${NOW}`);
   });
 
   it("produces a deterministic, ranked run", async () => {

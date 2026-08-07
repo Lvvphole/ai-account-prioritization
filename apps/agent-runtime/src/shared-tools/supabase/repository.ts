@@ -1,19 +1,18 @@
-import type {
-  Account,
-  Activity,
-  AnalyticsEvent,
-  AuditLogEntry,
-  Contact,
-  Opportunity,
-} from "@repo/shared-schemas";
 import {
   AccountSchema,
   ActivitySchema,
   ContactSchema,
   OpportunitySchema,
+  RecommendationSchema,
+  type Account,
+  type Activity,
+  type AnalyticsEvent,
+  type AuditLogEntry,
+  type Contact,
+  type Opportunity,
 } from "@repo/shared-schemas";
 import type { Json, Tables, TypedSupabaseClient } from "@repo/supabase-client";
-import type { RuntimeRepository } from "../runtime-repository";
+import type { OwnerScope, RuntimeRepository } from "../runtime-repository";
 import { createRuntimeClient } from "./client";
 import { getServiceRoleClient } from "./service-role-client";
 import type { RlsContext } from "./rls-context";
@@ -22,10 +21,11 @@ import type { RlsContext } from "./rls-context";
  * Supabase-backed runtime repository.
  *
  * Reads source signals through an RLS-aware client (user mode) or the
- * service-role client (background/service mode) and writes immutable audit
- * evidence to `audit_evidence` via the service role. DB rows (snake_case,
- * UUIDs, timestamptz) are mapped into the Zod application schemas, which remain
- * the runtime's DTO source of truth.
+ * service-role client (background/service mode). A service account read is
+ * fail-closed unless the scheduler supplied an explicit workspace scope.
+ * Runtime writes use narrow service-role RPC boundaries that derive tenant
+ * identity from canonical accounts before writing durable audit evidence or
+ * published recommendations.
  *
  * This implementation is used ONLY when an RLS context is supplied AND Supabase
  * is configured; otherwise the runtime stays on the in-memory store. See
@@ -124,6 +124,42 @@ function unwrap<T>(
 }
 
 /**
+ * The committed database types lag migration-only workspace/RPC fields. Keep
+ * these casts local until generated Supabase types are refreshed from a
+ * provisioned database. Zod remains the application DTO source of truth.
+ */
+type RuntimeRpcClient = {
+  rpc(
+    functionName: string,
+    args: Record<string, Json>,
+  ): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+};
+
+type WorkspaceAccountRow = Tables<"accounts"> & { workspace_id: string };
+type RuntimeFilterBuilder<T> = {
+  eq(column: string, value: string): RuntimeFilterBuilder<T>;
+  order(
+    column: string,
+    options?: { ascending?: boolean },
+  ): RuntimeFilterBuilder<T>;
+  range(
+    from: number,
+    to: number,
+  ): PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+};
+type RuntimeAccountsTable = {
+  select(columns: string): RuntimeFilterBuilder<WorkspaceAccountRow>;
+};
+
+function serviceRpcClient(): RuntimeRpcClient {
+  return getServiceRoleClient() as unknown as RuntimeRpcClient;
+}
+
+function runtimeAccountsTable(read: TypedSupabaseClient): RuntimeAccountsTable {
+  return read.from("accounts") as unknown as RuntimeAccountsTable;
+}
+
+/**
  * Supabase/PostgREST caps every response at `max_rows` (supabase/config.toml =
  * 1000), so a single unbounded select silently truncates large result sets.
  * Page through with explicit ranges until a short page signals the end, so the
@@ -155,24 +191,55 @@ export function createSupabaseRepository(
   nowIso: string,
 ): RuntimeRepository {
   // Reads: user mode honors RLS via the user's token; service mode uses the
-  // service-role client with an explicit owner filter (RLS bypassed by design).
+  // service-role client and therefore must be narrowed by workspace before
+  // canonical account reads.
   const read: TypedSupabaseClient =
     ctx.kind === "user" ? createRuntimeClient(ctx) : getServiceRoleClient();
 
   return {
     async listAccountsByOwner(ownerId) {
-      const rows = await fetchAllRows<Tables<"accounts">>("read accounts", (from, to) =>
-        read.from("accounts").select("*").eq("owner_id", ownerId).range(from, to),
-      );
+      if (ctx.kind === "service" && !ctx.workspaceId) {
+        throw new Error("Service account reads require an explicit workspace scope.");
+      }
+
+      const rows = await fetchAllRows<WorkspaceAccountRow>("read accounts", (from, to) => {
+        let query = runtimeAccountsTable(read).select("*").eq("owner_id", ownerId);
+        if (ctx.workspaceId) {
+          query = query.eq("workspace_id", ctx.workspaceId);
+        }
+        return query.range(from, to);
+      });
       return rows.map((r) => toAccount(r, nowIso));
     },
 
     async listAllOwners() {
-      const rows = await fetchAllRows<Pick<Tables<"accounts">, "owner_id">>(
-        "read owners",
-        (from, to) => read.from("accounts").select("owner_id").range(from, to),
+      const scopes = await this.listOwnerScopes();
+      return [...new Set(scopes.map((scope) => scope.ownerId))].sort();
+    },
+
+    async listOwnerScopes() {
+      const rows = await fetchAllRows<WorkspaceAccountRow>("read owner scopes", (from, to) => {
+        let query = runtimeAccountsTable(read)
+          .select("workspace_id,owner_id")
+          .order("workspace_id", { ascending: true })
+          .order("owner_id", { ascending: true })
+          .order("id", { ascending: true });
+        if (ctx.workspaceId) {
+          query = query.eq("workspace_id", ctx.workspaceId);
+        }
+        return query.range(from, to);
+      });
+
+      const unique = new Map<string, OwnerScope>();
+      for (const row of rows) {
+        const key = `${row.workspace_id}:${row.owner_id}`;
+        unique.set(key, { workspaceId: row.workspace_id, ownerId: row.owner_id });
+      }
+      return [...unique.values()].sort(
+        (a, b) =>
+          (a.workspaceId ?? "").localeCompare(b.workspaceId ?? "") ||
+          a.ownerId.localeCompare(b.ownerId),
       );
-      return [...new Set(rows.map((r) => r.owner_id))].sort();
     },
 
     async listContactsByAccount(accountId) {
@@ -203,28 +270,55 @@ export function createSupabaseRepository(
     },
 
     async appendAudit(entry: AuditLogEntry) {
-      // Writes ALWAYS go through the service role: audit_evidence has no INSERT
-      // policy, and the trail must be written regardless of the caller's RLS
-      // scope. The id is left to the DB (gen_random_uuid) — no synthetic UUIDs.
-      const service = getServiceRoleClient();
-      const { error } = await service.from("audit_evidence").insert({
-        run_id: entry.runId ?? null,
-        account_id: entry.accountId ?? null,
-        actor_id: entry.actorId,
+      if (!entry.accountId) {
+        throw new Error("Supabase runtime audit requires accountId for workspace binding.");
+      }
+      const payload = {
+        runId: entry.runId,
+        accountId: entry.accountId,
+        actorId: entry.actorId,
         action: entry.action,
         decision: entry.decision,
         reason: entry.reason,
-        // evidence is JSON-serializable by the AuditLogEntry Zod contract.
-        evidence: entry.evidence as unknown as Json,
-        occurred_at: entry.occurredAt,
+        evidence: entry.evidence,
+        occurredAt: entry.occurredAt,
+      };
+      const { error } = await serviceRpcClient().rpc("append_runtime_audit_evidence", {
+        p_entry: payload as unknown as Json,
       });
-      if (error) throw new Error(`Supabase write audit_evidence failed: ${error.message}`);
+      if (error) {
+        throw new Error(`Supabase write audit_evidence failed: ${error.message}`);
+      }
     },
 
     async appendAnalytics(_event: AnalyticsEvent) {
       // Analytics persistence (observability_events) is owned by the
       // observability sprint. No-op here so Supabase mode never blocks on a
       // table this sprint does not own.
+    },
+
+    async persistPublishedRecommendations(recommendations) {
+      const parsed = recommendations.map((candidate) => RecommendationSchema.parse(candidate));
+      for (const recommendation of parsed) {
+        if (!recommendation.published || recommendation.verification.status !== "passed") {
+          throw new Error(
+            `Recommendation ${recommendation.id} is not eligible for published persistence.`,
+          );
+        }
+      }
+
+      const { data, error } = await serviceRpcClient().rpc(
+        "persist_published_recommendations",
+        { p_recommendations: parsed as unknown as Json },
+      );
+      if (error) {
+        throw new Error(`Supabase persist recommendations failed: ${error.message}`);
+      }
+      if (data !== parsed.length) {
+        throw new Error(
+          `Supabase persisted recommendation count mismatch: expected ${parsed.length}, got ${String(data)}.`,
+        );
+      }
     },
   };
 }

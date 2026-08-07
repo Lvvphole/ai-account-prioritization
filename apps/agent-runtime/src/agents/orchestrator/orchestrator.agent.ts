@@ -49,6 +49,20 @@ export interface RunOptions {
   rlsContext?: RlsContext;
 }
 
+/**
+ * Build the deterministic run identity. A scoped production run includes its
+ * workspace so the same owner and clock cannot reuse one identifier across
+ * tenant boundaries. Offline runs preserve the existing owner/time identity.
+ */
+export function buildPrioritizationRunId(
+  ownerId: string,
+  now: string,
+  rlsContext?: RlsContext,
+): string {
+  const workspaceId = rlsContext?.workspaceId;
+  return workspaceId ? `run_${workspaceId}_${ownerId}_${now}` : `run_${ownerId}_${now}`;
+}
+
 function buildContexts(inputs: OrchestratorInputs): AccountContext[] {
   return inputs.accounts.map((account) => ({
     account,
@@ -226,7 +240,7 @@ export async function runDailyPrioritizationForOwner(
   opts: RunOptions = {},
 ): Promise<PrioritizationRun> {
   const now = opts.now ?? new Date().toISOString();
-  const runId = `run_${ownerId}_${now}`;
+  const runId = buildPrioritizationRunId(ownerId, now, opts.rlsContext);
   const repo = resolveRepository(opts.rlsContext, now);
 
   await trackEvent({ name: "run_started", runId, userId: ownerId, occurredAt: now }, repo);
