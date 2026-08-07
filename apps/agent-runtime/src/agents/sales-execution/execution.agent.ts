@@ -263,7 +263,7 @@ function buildBudgetedDraftRequest(
       user: buildRuntimeDraftUserPrompt(trialContext),
       outputFormat: {
         type: "json_schema",
-        schema: GENERATED_DRAFT_PROVIDER_SCHEMA,
+        schema: GENERATED_DRAFT_PROVIDER_SCHEMA as RuntimeJsonSchema,
       },
     };
     const trialUpperBound = estimateRuntimeModelInputTokensUpperBound(trialRequest);
