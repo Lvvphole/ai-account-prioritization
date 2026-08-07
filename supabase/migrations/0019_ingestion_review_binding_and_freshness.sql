@@ -37,33 +37,29 @@ set search_path = public
 as $$
   with snapshot as (
     select jsonb_build_object(
-      'batch',
-        to_jsonb(b) - array['state', 'business_reason', 'updated_at'],
-      'changeSet',
-        to_jsonb(c),
-      'items',
-        coalesce((
-          select jsonb_agg(
-            jsonb_build_object(
-              'changeSetItem', to_jsonb(i),
-              'stagedRecord', to_jsonb(s)
-            )
-            order by i.id
+      'batch', to_jsonb(b) - array['state', 'business_reason', 'updated_at'],
+      'changeSet', to_jsonb(c),
+      'items', coalesce((
+        select jsonb_agg(
+          jsonb_build_object(
+            'changeSetItem', to_jsonb(i),
+            'stagedRecord', to_jsonb(s)
           )
-            from public.change_set_items i
-            join public.staged_records s
-              on s.id = i.staged_record_id
-             and s.workspace_id = i.workspace_id
-           where i.change_set_id = c.id
-             and i.workspace_id = c.workspace_id
-        ), '[]'::jsonb),
-      'findings',
-        coalesce((
-          select jsonb_agg(to_jsonb(f) order by f.id)
-            from public.ingestion_findings f
-           where f.batch_id = b.id
-             and f.workspace_id = b.workspace_id
-        ), '[]'::jsonb)
+          order by i.id
+        )
+          from public.change_set_items i
+          join public.staged_records s
+            on s.id = i.staged_record_id
+           and s.workspace_id = i.workspace_id
+         where i.change_set_id = c.id
+           and i.workspace_id = c.workspace_id
+      ), '[]'::jsonb),
+      'findings', coalesce((
+        select jsonb_agg(to_jsonb(f) order by f.id)
+          from public.ingestion_findings f
+         where f.batch_id = b.id
+           and f.workspace_id = b.workspace_id
+      ), '[]'::jsonb)
     ) as document
       from public.ingestion_batches b
       join public.change_sets c
@@ -112,21 +108,41 @@ begin
     return new;
   end if;
 
-  if new.review_change_set_id is distinct from old.review_change_set_id
-     or new.review_snapshot_hash is distinct from old.review_snapshot_hash then
+  -- A legacy approval can be bound once after its preview exists. The trigger
+  -- derives both values from persistence; callers cannot choose the binding.
+  if old.review_change_set_id is null and old.review_snapshot_hash is null
+     and (new.review_change_set_id is not null or new.review_snapshot_hash is not null) then
+    select c.id
+      into resolved_change_set_id
+      from public.change_sets c
+     where c.batch_id = old.batch_id
+       and c.workspace_id = old.workspace_id;
+
+    if not found then
+      raise exception 'a persisted change set is required to bind this approval'
+        using errcode = 'check_violation';
+    end if;
+
+    new.review_change_set_id := resolved_change_set_id;
+    new.review_snapshot_hash := public.ingestion_review_snapshot_hash(
+      old.batch_id,
+      resolved_change_set_id
+    );
+  elsif new.review_change_set_id is distinct from old.review_change_set_id
+        or new.review_snapshot_hash is distinct from old.review_snapshot_hash then
     raise exception 'the approval review binding is immutable'
       using errcode = 'check_violation';
   end if;
 
   if new.second_approved_by is distinct from old.second_approved_by
      and new.second_approved_by is not null
-     and old.review_change_set_id is not null then
+     and new.review_change_set_id is not null then
     current_hash := public.ingestion_review_snapshot_hash(
       old.batch_id,
-      old.review_change_set_id
+      new.review_change_set_id
     );
 
-    if current_hash is null or current_hash is distinct from old.review_snapshot_hash then
+    if current_hash is null or current_hash is distinct from new.review_snapshot_hash then
       raise exception 'the reviewed ingestion snapshot changed after the first approval'
         using errcode = 'check_violation';
     end if;
@@ -142,12 +158,11 @@ create trigger trg_import_approvals_bind_review_snapshot
   before insert or update on public.import_approvals
   for each row execute function public.bind_import_approval_review_snapshot();
 
--- Bind any existing approval that already has exactly one persisted change set.
--- Rows without a reviewable change set remain unbound and fail closed at the
--- production commit boundary.
+-- Bind an existing approval only when its batch already has the one persisted
+-- preview allowed by the schema. The trigger derives the hash and ignores any
+-- caller-selected value.
 update public.import_approvals a
-   set review_change_set_id = c.id,
-       review_snapshot_hash = public.ingestion_review_snapshot_hash(a.batch_id, c.id)
+   set review_change_set_id = c.id
   from public.change_sets c
  where c.batch_id = a.batch_id
    and c.workspace_id = a.workspace_id
@@ -211,9 +226,8 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  -- Lock the identity link and the canonical row before checking the previewed
-  -- before-values. These locks remain held through the RPC transaction, so the
-  -- values cannot change between this check and the later operational update.
+  -- Lock the identity link and canonical row before checking the previewed
+  -- before-values. These locks remain held through the RPC transaction.
   for item in
     select c.*
       from public.change_set_items c
