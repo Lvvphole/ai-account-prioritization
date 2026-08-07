@@ -30,7 +30,7 @@ const FollowupRequestScope = {
   expectedEventId: PostgreSqlUuidSchema.nullable(),
 };
 
-export const RecommendationFollowupRequestSchema = z.discriminatedUnion("kind", [
+export const RecommendationFollowupRequestSchema = z.union([
   z
     .object({
       ...FollowupRequestScope,
@@ -74,7 +74,8 @@ const RecordedStateBase = {
   replayed: z.boolean(),
 };
 
-const RecommendationFollowupRecordedStateSchema = z.discriminatedUnion("kind", [
+export const RecommendationFollowupStateSchema = z.union([
+  RecommendationFollowupNoneStateSchema,
   z
     .object({
       ...RecordedStateBase,
@@ -96,10 +97,5 @@ const RecommendationFollowupRecordedStateSchema = z.discriminatedUnion("kind", [
       code: z.literal("unknown"),
     })
     .strict(),
-]);
-
-export const RecommendationFollowupStateSchema = z.union([
-  RecommendationFollowupNoneStateSchema,
-  RecommendationFollowupRecordedStateSchema,
 ]);
 export type RecommendationFollowupState = z.infer<typeof RecommendationFollowupStateSchema>;
