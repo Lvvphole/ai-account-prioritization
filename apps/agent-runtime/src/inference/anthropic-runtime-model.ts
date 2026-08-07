@@ -2,7 +2,9 @@ import {
   RuntimeModelError,
   type RuntimeJsonSchema,
   type RuntimeModelClient,
+  type RuntimeModelInvocationAuditDescriptor,
   type RuntimeModelInvocationConfig,
+  type RuntimeModelRequest,
   type RuntimeModelTelemetry,
 } from "./runtime-model";
 
@@ -28,42 +30,119 @@ const ANTHROPIC_UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
   "format",
 ]);
 
+const SCHEMA_MAP_KEYWORDS = new Set([
+  "properties",
+  "patternProperties",
+  "definitions",
+  "$defs",
+  "dependentSchemas",
+]);
+
+const SCHEMA_DATA_KEYWORDS = new Set(["const", "default", "examples", "enum"]);
+
+const cloneJsonValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(cloneJsonValue);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+      key,
+      cloneJsonValue(child),
+    ]),
+  );
+};
+
 /**
  * Anthropic constrained output supports a JSON Schema subset. Remove only
- * provider-unsupported validation keywords. The canonical Zod parse still runs
- * after generation and remains the authoritative schema gate.
+ * provider-unsupported validation keywords from schema objects. Property names
+ * and literal data are preserved even when their text matches a schema keyword.
+ * The canonical Zod parse still runs after generation and remains authoritative.
  */
 export function sanitizeAnthropicJsonSchema(schema: RuntimeJsonSchema): RuntimeJsonSchema {
-  const visit = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(visit);
+  const visitSchema = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(visitSchema);
     if (value === null || typeof value !== "object") return value;
 
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([key]) => !ANTHROPIC_UNSUPPORTED_SCHEMA_KEYWORDS.has(key))
-        .map(([key, child]) => [key, visit(child)]),
-    );
+    const result: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (ANTHROPIC_UNSUPPORTED_SCHEMA_KEYWORDS.has(key)) continue;
+
+      if (SCHEMA_DATA_KEYWORDS.has(key)) {
+        result[key] = cloneJsonValue(child);
+        continue;
+      }
+
+      if (
+        SCHEMA_MAP_KEYWORDS.has(key) &&
+        child !== null &&
+        typeof child === "object" &&
+        !Array.isArray(child)
+      ) {
+        result[key] = Object.fromEntries(
+          Object.entries(child as Record<string, unknown>).map(
+            ([propertyName, propertySchema]) => [propertyName, visitSchema(propertySchema)],
+          ),
+        );
+        continue;
+      }
+
+      result[key] = visitSchema(child);
+    }
+    return result;
   };
 
-  return visit(schema) as RuntimeJsonSchema;
+  return visitSchema(schema) as RuntimeJsonSchema;
+}
+
+export function assertAnthropicConfig(
+  config: RuntimeModelInvocationConfig,
+): void {
+  if (
+    config.provider !== "anthropic" ||
+    !config.credential ||
+    !config.model.trim()
+  ) {
+    throw new RuntimeModelError(
+      "DRAFT_MODEL_CONFIG_ERROR",
+      "Anthropic runtime adapter requires provider=anthropic, a credential, and a model identity.",
+    );
+  }
+}
+
+function buildAnthropicOutputConfig(
+  request: RuntimeModelRequest,
+  config: RuntimeModelInvocationConfig,
+): Record<string, unknown> {
+  const outputConfig: Record<string, unknown> = {
+    format: {
+      type: "json_schema",
+      schema: sanitizeAnthropicJsonSchema(request.outputFormat.schema),
+    },
+  };
+  if (config.reasoningEffort !== "provider_default") {
+    outputConfig.effort = config.reasoningEffort;
+  }
+  return outputConfig;
+}
+
+export function describeAnthropicEffectiveInvocation(
+  request: RuntimeModelRequest,
+  config: RuntimeModelInvocationConfig,
+): RuntimeModelInvocationAuditDescriptor {
+  assertAnthropicConfig(config);
+  return {
+    provider: "anthropic",
+    model: config.model,
+    outputConfiguration: buildAnthropicOutputConfig(request, config),
+  };
 }
 
 export function createAnthropicRuntimeModelClient(
   fetchImpl: typeof fetch = fetch,
 ): RuntimeModelClient {
   return {
+    describeEffectiveInvocation: describeAnthropicEffectiveInvocation,
     async generate(request, config) {
-      if (
-        config.provider !== "anthropic" ||
-        !config.credential ||
-        !config.model.trim()
-      ) {
-        throw new RuntimeModelError(
-          "DRAFT_MODEL_CONFIG_ERROR",
-          "Anthropic runtime adapter requires provider=anthropic, a credential, and a model identity.",
-        );
-      }
-
+      const effectiveInvocation = describeAnthropicEffectiveInvocation(request, config);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
       const started = Date.now();
@@ -76,16 +155,6 @@ export function createAnthropicRuntimeModelClient(
         inputTokens: usage?.input_tokens,
         outputTokens: usage?.output_tokens,
       });
-
-      const outputConfig: Record<string, unknown> = {
-        format: {
-          type: "json_schema",
-          schema: sanitizeAnthropicJsonSchema(request.outputFormat.schema),
-        },
-      };
-      if (config.reasoningEffort !== "provider_default") {
-        outputConfig.effort = config.reasoningEffort;
-      }
 
       try {
         const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
@@ -100,7 +169,7 @@ export function createAnthropicRuntimeModelClient(
             max_tokens: config.maxOutputTokens,
             system: request.system,
             messages: [{ role: "user", content: request.user }],
-            output_config: outputConfig,
+            output_config: effectiveInvocation.outputConfiguration,
           }),
           signal: controller.signal,
         });
@@ -160,15 +229,3 @@ export function createAnthropicRuntimeModelClient(
 }
 
 export const anthropicRuntimeModelClient = createAnthropicRuntimeModelClient();
-
-/** Verify the adapter refuses a provider-mismatched config before network I/O. */
-export function assertAnthropicConfig(
-  config: RuntimeModelInvocationConfig,
-): void {
-  if (config.provider !== "anthropic") {
-    throw new RuntimeModelError(
-      "DRAFT_MODEL_CONFIG_ERROR",
-      `Anthropic adapter cannot execute provider ${config.provider}.`,
-    );
-  }
-}
