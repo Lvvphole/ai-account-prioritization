@@ -1,16 +1,15 @@
-import type {
-  Account,
-  Activity,
-  AnalyticsEvent,
-  AuditLogEntry,
-  Contact,
-  Opportunity,
-} from "@repo/shared-schemas";
 import {
   AccountSchema,
   ActivitySchema,
   ContactSchema,
   OpportunitySchema,
+  RecommendationSchema,
+  type Account,
+  type Activity,
+  type AnalyticsEvent,
+  type AuditLogEntry,
+  type Contact,
+  type Opportunity,
 } from "@repo/shared-schemas";
 import type { Json, Tables, TypedSupabaseClient } from "@repo/supabase-client";
 import type { RuntimeRepository } from "../runtime-repository";
@@ -22,10 +21,11 @@ import type { RlsContext } from "./rls-context";
  * Supabase-backed runtime repository.
  *
  * Reads source signals through an RLS-aware client (user mode) or the
- * service-role client (background/service mode) and writes immutable audit
- * evidence to `audit_evidence` via the service role. DB rows (snake_case,
- * UUIDs, timestamptz) are mapped into the Zod application schemas, which remain
- * the runtime's DTO source of truth.
+ * service-role client (background/service mode). Runtime writes use narrow
+ * service-role RPC boundaries that derive tenant identity from canonical
+ * accounts before writing durable audit evidence or published recommendations.
+ * DB rows (snake_case, UUIDs, timestamptz) are mapped into the Zod application
+ * schemas, which remain the runtime's DTO source of truth.
  *
  * This implementation is used ONLY when an RLS context is supplied AND Supabase
  * is configured; otherwise the runtime stays on the in-memory store. See
@@ -124,6 +124,22 @@ function unwrap<T>(
 }
 
 /**
+ * The committed database types lag migration-only RPCs. Keep the cast local to
+ * this adapter until generated Supabase types are refreshed from a provisioned
+ * database; application DTO validation remains Zod-owned.
+ */
+type RuntimeRpcClient = {
+  rpc(
+    functionName: string,
+    args: Record<string, Json>,
+  ): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+};
+
+function serviceRpcClient(): RuntimeRpcClient {
+  return getServiceRoleClient() as unknown as RuntimeRpcClient;
+}
+
+/**
  * Supabase/PostgREST caps every response at `max_rows` (supabase/config.toml =
  * 1000), so a single unbounded select silently truncates large result sets.
  * Page through with explicit ranges until a short page signals the end, so the
@@ -203,28 +219,55 @@ export function createSupabaseRepository(
     },
 
     async appendAudit(entry: AuditLogEntry) {
-      // Writes ALWAYS go through the service role: audit_evidence has no INSERT
-      // policy, and the trail must be written regardless of the caller's RLS
-      // scope. The id is left to the DB (gen_random_uuid) — no synthetic UUIDs.
-      const service = getServiceRoleClient();
-      const { error } = await service.from("audit_evidence").insert({
-        run_id: entry.runId ?? null,
-        account_id: entry.accountId ?? null,
-        actor_id: entry.actorId,
+      if (!entry.accountId) {
+        throw new Error("Supabase runtime audit requires accountId for workspace binding.");
+      }
+      const payload = {
+        runId: entry.runId,
+        accountId: entry.accountId,
+        actorId: entry.actorId,
         action: entry.action,
         decision: entry.decision,
         reason: entry.reason,
-        // evidence is JSON-serializable by the AuditLogEntry Zod contract.
-        evidence: entry.evidence as unknown as Json,
-        occurred_at: entry.occurredAt,
+        evidence: entry.evidence,
+        occurredAt: entry.occurredAt,
+      };
+      const { error } = await serviceRpcClient().rpc("append_runtime_audit_evidence", {
+        p_entry: payload as unknown as Json,
       });
-      if (error) throw new Error(`Supabase write audit_evidence failed: ${error.message}`);
+      if (error) {
+        throw new Error(`Supabase write audit_evidence failed: ${error.message}`);
+      }
     },
 
     async appendAnalytics(_event: AnalyticsEvent) {
       // Analytics persistence (observability_events) is owned by the
       // observability sprint. No-op here so Supabase mode never blocks on a
       // table this sprint does not own.
+    },
+
+    async persistPublishedRecommendations(recommendations) {
+      const parsed = recommendations.map((candidate) => RecommendationSchema.parse(candidate));
+      for (const recommendation of parsed) {
+        if (!recommendation.published || recommendation.verification.status !== "passed") {
+          throw new Error(
+            `Recommendation ${recommendation.id} is not eligible for published persistence.`,
+          );
+        }
+      }
+
+      const { data, error } = await serviceRpcClient().rpc(
+        "persist_published_recommendations",
+        { p_recommendations: parsed as unknown as Json },
+      );
+      if (error) {
+        throw new Error(`Supabase persist recommendations failed: ${error.message}`);
+      }
+      if (data !== parsed.length) {
+        throw new Error(
+          `Supabase persisted recommendation count mismatch: expected ${parsed.length}, got ${String(data)}.`,
+        );
+      }
     },
   };
 }

@@ -1,10 +1,12 @@
-import type {
-  Account,
-  Activity,
-  AnalyticsEvent,
-  AuditLogEntry,
-  Contact,
-  Opportunity,
+import {
+  RecommendationSchema,
+  type Account,
+  type Activity,
+  type AnalyticsEvent,
+  type AuditLogEntry,
+  type Contact,
+  type Opportunity,
+  type Recommendation,
 } from "@repo/shared-schemas";
 import { repository as inMemory } from "./database/repository";
 import { isSupabaseConfigured, type RlsContext } from "./supabase/rls-context";
@@ -17,7 +19,8 @@ import { createSupabaseRepository } from "./supabase/repository";
  * - in-memory (default): deterministic, offline; used by evals/CI and any run
  *   without an RLS context. This is the contract-mandated fallback.
  * - Supabase: used ONLY when an RLS context is supplied AND Supabase is
- *   configured (env present). Reads honor RLS; audit evidence is durable.
+ *   configured (env present). Reads honor RLS; audit evidence and published
+ *   recommendations are durable.
  *
  * Methods are async so both implementations share one interface; the in-memory
  * store resolves synchronously underneath, preserving determinism.
@@ -30,6 +33,7 @@ export interface RuntimeRepository {
   listActivitiesByAccount(accountId: string): Promise<Activity[]>;
   appendAudit(entry: AuditLogEntry): Promise<void>;
   appendAnalytics(event: AnalyticsEvent): Promise<void>;
+  persistPublishedRecommendations(recommendations: Recommendation[]): Promise<void>;
 }
 
 /** Async adapter over the deterministic in-memory store. */
@@ -54,6 +58,23 @@ export const inMemoryRepository: RuntimeRepository = {
   },
   async appendAnalytics(event) {
     inMemory.appendAnalytics(event);
+  },
+  async persistPublishedRecommendations(recommendations) {
+    const seen = new Set<string>();
+    for (const candidate of recommendations) {
+      const recommendation = RecommendationSchema.parse(candidate);
+      if (!recommendation.published || recommendation.verification.status !== "passed") {
+        throw new Error(
+          `Recommendation ${recommendation.id} is not eligible for published persistence.`,
+        );
+      }
+      if (seen.has(recommendation.id)) {
+        throw new Error(`Duplicate published recommendation id: ${recommendation.id}.`);
+      }
+      seen.add(recommendation.id);
+    }
+    // Offline/eval mode intentionally has no durable production sink. The
+    // method still validates the same published DTO contract before returning.
   },
 };
 

@@ -10,7 +10,8 @@ import { isSupabaseConfigured } from "../shared-tools/supabase/rls-context";
  *
  * Declares the cron cadence and a runner that fans out the deterministic
  * orchestrator across every owning rep. The scheduler is intentionally a thin
- * wrapper — all logic and gating live in the orchestrator.
+ * wrapper — all logic and gating live in the orchestrator. Durable publication
+ * occurs only after the orchestrator returns a verified published set.
  */
 export const dailyPrioritizationSchedule = {
   name: "daily-prioritization",
@@ -74,7 +75,12 @@ export async function runDailyPrioritizationForAllOwners(
   const owners = await repo.listAllOwners();
   const runs: PrioritizationRun[] = [];
   for (const ownerId of owners) {
-    runs.push(await runDailyPrioritizationForOwner(ownerId, opts));
+    const run = await runDailyPrioritizationForOwner(ownerId, opts);
+    // The canonical daily entrypoint does not surface a completed owner run
+    // until its verified published recommendations are durable. Repository/DB
+    // verification fails closed on tenant, owner, replay, and gate mismatch.
+    await repo.persistPublishedRecommendations(run.recommendations);
+    runs.push(run);
   }
   return runs;
 }

@@ -1,17 +1,22 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { Recommendation } from "@repo/shared-schemas";
 
 /**
- * Supabase wiring tests (Sprint 4).
+ * Supabase wiring tests.
  *
- * Two guarantees:
- *  1. Offline-by-default: without an RLS context (or without Supabase configured)
- *     the runtime resolves the in-memory store, so evals/CI never touch a DB.
- *  2. Correctness of the Supabase repository's row->schema mapping and the
- *     audit_evidence write, exercised against a mocked Supabase client.
+ * Guarantees:
+ *  1. Offline-by-default repository resolution for evals/CI.
+ *  2. Correct DB row -> Zod schema mapping.
+ *  3. Runtime audit writes use the workspace-binding RPC.
+ *  4. Only verified published recommendations reach the durable persistence RPC.
  */
 const h = vi.hoisted(() => {
-  const inserted: Array<{ table: string; payload: Record<string, unknown> }> = [];
+  const rpcCalls: Array<{ functionName: string; args: Record<string, unknown> }> = [];
   const tableData: Record<string, unknown[]> = {};
+  const state: { rpcError: string | null; persistCountOverride: number | null } = {
+    rpcError: null,
+    persistCountOverride: null,
+  };
   const client = {
     from(table: string) {
       const rows = tableData[table] ?? [];
@@ -26,14 +31,28 @@ const h = vi.hoisted(() => {
             range: (from: number, to: number) => page(from, to),
           };
         },
-        insert(payload: Record<string, unknown>) {
-          inserted.push({ table, payload });
-          return Promise.resolve({ error: null });
-        },
       };
     },
+    rpc(functionName: string, args: Record<string, unknown>) {
+      rpcCalls.push({ functionName, args });
+      if (state.rpcError) {
+        return Promise.resolve({ data: null, error: { message: state.rpcError } });
+      }
+      if (functionName === "persist_published_recommendations") {
+        const payload = args.p_recommendations;
+        const count = Array.isArray(payload) ? payload.length : 0;
+        return Promise.resolve({
+          data: state.persistCountOverride ?? count,
+          error: null,
+        });
+      }
+      return Promise.resolve({
+        data: "99999999-9999-9999-9999-999999999999",
+        error: null,
+      });
+    },
   };
-  return { inserted, tableData, client };
+  return { rpcCalls, tableData, state, client };
 });
 
 vi.mock("@repo/supabase-client", () => ({
@@ -48,8 +67,48 @@ import { resolveRepository, inMemoryRepository } from "../runtime-repository";
 const NOW = "2026-06-25T00:00:00Z";
 const SERVICE: RlsContext = { kind: "service", actorId: "orchestrator" };
 
+const PUBLISHED: Recommendation = {
+  id: "rec_run_x_aaaaaaa1-0000-0000-0000-000000000001",
+  runId: "run_x",
+  accountId: "aaaaaaa1-0000-0000-0000-000000000001",
+  ownerId: "11111111-1111-1111-1111-111111111111",
+  score: 70,
+  rank: 1,
+  confidence: 0.9,
+  reasonCodes: ["strategic_tier_account"],
+  reasonNarrative: "Priority #1 based on verified account evidence.",
+  sourceSignals: [
+    {
+      kind: "account",
+      refId: "aaaaaaa1-0000-0000-0000-000000000001",
+      description: "Strategic account tier is authoritative.",
+      verified: true,
+    },
+  ],
+  nextBestAction: {
+    type: "no_action_hold",
+    customerFacing: false,
+    crmWriteBack: false,
+    objective: "Hold until the next verified signal.",
+  },
+  verification: {
+    status: "passed",
+    schemaValid: true,
+    guardrailsPassed: true,
+    sourceSignalsVerified: true,
+    permissionGranted: true,
+    failedGates: [],
+    checkedAt: NOW,
+  },
+  approvalStatus: "not_required",
+  published: true,
+  createdAt: NOW,
+};
+
 beforeEach(() => {
-  h.inserted.length = 0;
+  h.rpcCalls.length = 0;
+  h.state.rpcError = null;
+  h.state.persistCountOverride = null;
   for (const k of Object.keys(h.tableData)) delete h.tableData[k];
 });
 
@@ -64,7 +123,7 @@ describe("offline-by-default repository resolution", () => {
   });
 });
 
-describe("Supabase repository mapping + audit write", () => {
+describe("Supabase repository mapping + durable writes", () => {
   it("maps a DB account row into the Zod Account schema", async () => {
     h.tableData.accounts = [
       {
@@ -99,11 +158,10 @@ describe("Supabase repository mapping + audit write", () => {
     expect(a.lifecycleStage).toBe("open_opportunity");
     expect(a.openPipelineUsd).toBe(180000);
     expect(a.lastContactedAt).toBe("2026-06-01T00:00:00.000Z");
-    // Derived from last_contacted_at relative to NOW (24 days).
     expect(a.daysSinceLastContact).toBe(24);
   });
 
-  it("writes audit evidence with mapped fields and no synthetic id", async () => {
+  it("writes audit evidence through the workspace-binding RPC", async () => {
     const repo = createSupabaseRepository(SERVICE, NOW);
     await repo.appendAudit({
       id: "audit_1_publish_recommendation",
@@ -117,20 +175,70 @@ describe("Supabase repository mapping + audit write", () => {
       occurredAt: NOW,
     });
 
-    expect(h.inserted).toHaveLength(1);
-    const { table, payload } = h.inserted[0]!;
-    expect(table).toBe("audit_evidence");
-    expect(payload).toMatchObject({
-      run_id: "run_x",
-      account_id: "aaaaaaa1-0000-0000-0000-000000000001",
-      actor_id: "orchestrator",
-      action: "publish_recommendation",
-      decision: "allowed",
-      evidence: { score: 70, rank: 1 },
-      occurred_at: NOW,
+    expect(h.rpcCalls).toHaveLength(1);
+    expect(h.rpcCalls[0]).toEqual({
+      functionName: "append_runtime_audit_evidence",
+      args: {
+        p_entry: {
+          runId: "run_x",
+          accountId: "aaaaaaa1-0000-0000-0000-000000000001",
+          actorId: "orchestrator",
+          action: "publish_recommendation",
+          decision: "allowed",
+          reason: "Passed all gates.",
+          evidence: { score: 70, rank: 1 },
+          occurredAt: NOW,
+        },
+      },
     });
-    // The DB generates the uuid id; we must not push the runtime's string id.
-    expect("id" in payload).toBe(false);
+    expect("id" in (h.rpcCalls[0]!.args.p_entry as Record<string, unknown>)).toBe(false);
+  });
+
+  it("fails closed when durable audit has no account workspace binding", async () => {
+    const repo = createSupabaseRepository(SERVICE, NOW);
+    await expect(
+      repo.appendAudit({
+        id: "audit_missing_account",
+        actorId: "orchestrator",
+        action: "test",
+        decision: "allowed",
+        reason: "Test.",
+        evidence: {},
+        occurredAt: NOW,
+      }),
+    ).rejects.toThrow("requires accountId");
+    expect(h.rpcCalls).toHaveLength(0);
+  });
+
+  it("persists only schema-valid verified published recommendations", async () => {
+    const repo = createSupabaseRepository(SERVICE, NOW);
+    await repo.persistPublishedRecommendations([PUBLISHED]);
+
+    expect(h.rpcCalls).toHaveLength(1);
+    expect(h.rpcCalls[0]!.functionName).toBe("persist_published_recommendations");
+    expect(h.rpcCalls[0]!.args.p_recommendations).toEqual([PUBLISHED]);
+  });
+
+  it("rejects an unpublished recommendation before the DB call", async () => {
+    const repo = createSupabaseRepository(SERVICE, NOW);
+    await expect(
+      repo.persistPublishedRecommendations([{ ...PUBLISHED, published: false }]),
+    ).rejects.toThrow("not eligible for published persistence");
+    expect(h.rpcCalls).toHaveLength(0);
+  });
+
+  it("propagates persistence errors and count mismatches", async () => {
+    const repo = createSupabaseRepository(SERVICE, NOW);
+    h.state.rpcError = "tenant mismatch";
+    await expect(repo.persistPublishedRecommendations([PUBLISHED])).rejects.toThrow(
+      "tenant mismatch",
+    );
+
+    h.state.rpcError = null;
+    h.state.persistCountOverride = 0;
+    await expect(repo.persistPublishedRecommendations([PUBLISHED])).rejects.toThrow(
+      "count mismatch",
+    );
   });
 
   it("derives no staleness when last_contacted_at is null", async () => {
@@ -166,7 +274,6 @@ describe("Supabase repository mapping + audit write", () => {
 
   it("pages through results beyond the 1000-row API cap (no silent truncation)", async () => {
     const owner = "11111111-1111-1111-1111-111111111111";
-    // 1500 rows => two pages (1000 + 500); a single select would cap at 1000.
     h.tableData.accounts = Array.from({ length: 1500 }, (_, i) => ({
       id: `acc-${i}`,
       name: `Account ${i}`,
