@@ -152,6 +152,19 @@ export function pendingApprovalState(): ActionApprovalState {
   return { status: "pending_approval", payloadHash: null, decidedAt: null };
 }
 
+/**
+ * A server response may update the visible approval badge only when the content
+ * still displayed is exactly the content that was submitted. This prevents an
+ * approval for payload A from being presented as approval for a later payload B.
+ */
+export function approvalStateForSubmittedPayload(
+  displayedContent: string,
+  submittedContent: string,
+  submittedApproval: ActionApprovalState,
+): ActionApprovalState | null {
+  return displayedContent === submittedContent ? submittedApproval : null;
+}
+
 export function parseActionApprovalRequest(value: unknown): ActionApprovalRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("ACTION_APPROVAL_INVALID_REQUEST");
