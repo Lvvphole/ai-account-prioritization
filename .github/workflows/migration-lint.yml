@@ -53,26 +53,30 @@ jobs:
             --env POSTGRES_PASSWORD=postgres \
             --publish 54329:5432 \
             ghcr.io/supabase/postgres:15.8.1.085@sha256:af083ef64d0408c8f098ee6f5c364a59b26f36fbc0f3a334a62c5c1d57362e9b
-          for attempt in $(seq 1 60); do
-            if docker exec migration-lint-postgres \
-              psql -U supabase_admin -d postgres -tAc "select 1" 2>/dev/null | grep -qx 1; then
-              sleep 2
-              if docker exec migration-lint-postgres \
-                psql -U supabase_admin -d postgres -tAc "select 1" 2>/dev/null | grep -qx 1; then
+          for attempt in $(seq 1 90); do
+            role_state="$(docker exec migration-lint-postgres \
+              psql -U postgres -d postgres -tAc \
+              "select rolsuper::text from pg_roles where rolname = 'supabase_admin'" \
+              2>/dev/null || true)"
+            if [ "$role_state" = "true" ]; then
+              if docker exec --env PGPASSWORD=postgres migration-lint-postgres \
+                psql -h 127.0.0.1 -U supabase_admin -d postgres -tAc "select 1" \
+                2>/dev/null | grep -qx 1; then
                 exit 0
               fi
             fi
             sleep 1
           done
-          echo "PostgreSQL did not reach a stable ready state." >&2
+          echo "PostgreSQL did not finish Supabase role initialization." >&2
           docker logs migration-lint-postgres >&2 || true
           exit 1
 
       - name: Create clean lint database
         run: |
-          docker exec migration-lint-postgres createdb -U supabase_admin -T template0 migration_lint
-          docker exec migration-lint-postgres \
-            psql -U supabase_admin -d migration_lint -tAc "select 1" | grep -qx 1
+          docker exec --env PGPASSWORD=postgres migration-lint-postgres \
+            createdb -h 127.0.0.1 -U supabase_admin -T template0 migration_lint
+          docker exec --env PGPASSWORD=postgres migration-lint-postgres \
+            psql -h 127.0.0.1 -U supabase_admin -d migration_lint -tAc "select 1" | grep -qx 1
 
       - name: Apply and behaviorally verify repository migrations
         run: pnpm verify:migrations
