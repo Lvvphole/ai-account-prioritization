@@ -108,6 +108,17 @@ select pg_temp.expect_true(
   ) ->> 'status' = 'approved',
   'same exact payload resolves to its durable approval');
 
+-- Representatives retrieve approval state only through the narrow SECURITY
+-- DEFINER function. They do not gain direct visibility into manager/admin audit
+-- evidence just because they created one approval decision.
+select pg_temp.expect_true(
+  (select count(*) = 0
+     from public.audit_evidence
+    where action = 'action_payload_approval'),
+  'representative cannot directly read the protected audit store');
+
+reset role;
+
 select pg_temp.expect_true(
   (select count(*) = 1
      from public.audit_evidence
@@ -120,6 +131,9 @@ select pg_temp.expect_true(
       and char_length(evidence ->> 'payloadHash') = 64
       and not (evidence ? 'content')),
   'approval audit stores the binding hash without duplicating visible customer content');
+
+set role authenticated;
+set request.jwt.claims = '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}';
 
 \echo '=== changed content invalidates prior approval ==='
 
