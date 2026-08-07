@@ -28,6 +28,8 @@ jobs:
     name: Supabase Migration Lint
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54329/migration_lint
     steps:
       - uses: actions/checkout@v4
 
@@ -42,15 +44,31 @@ jobs:
       - name: Verify Supabase CLI version
         run: test "$(supabase --version)" = "2.111.0"
 
-      - name: Start local Supabase database
-        run: supabase db start
+      - name: Start controlled PostgreSQL
+        run: |
+          docker run --detach \
+            --name migration-lint-postgres \
+            --env POSTGRES_PASSWORD=postgres \
+            --publish 54329:5432 \
+            ghcr.io/supabase/postgres:15.8.1.085@sha256:af083ef64d0408c8f098ee6f5c364a59b26f36fbc0f3a334a62c5c1d57362e9b
+          for attempt in $(seq 1 30); do
+            if docker exec migration-lint-postgres pg_isready -U postgres >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "PostgreSQL did not become ready." >&2
+          exit 1
 
-      - name: Apply repository migrations
-        run: supabase migration up --local --include-all
+      - name: Create clean lint database
+        run: docker exec migration-lint-postgres createdb -U postgres -T template0 migration_lint
+
+      - name: Apply and behaviorally verify repository migrations
+        run: pnpm verify:migrations
 
       - name: Lint migrated public schema
-        run: pnpm db:lint
+        run: pnpm run db:lint -- --db-url "$DATABASE_URL"
 
-      - name: Stop local Supabase database
+      - name: Stop controlled PostgreSQL
         if: always()
-        run: supabase stop --no-backup
+        run: docker rm --force migration-lint-postgres >/dev/null 2>&1 || true
