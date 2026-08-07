@@ -4,7 +4,10 @@ import type { LiveDashboardAccountSummary } from "./live-dashboard-data";
 
 export const ACTION_PAYLOAD_MAX_CHARS = 12_000;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// PostgreSQL's uuid input accepts the canonical 8-4-4-4-12 hexadecimal form
+// without constraining RFC version or variant bits. Match that storage contract
+// rather than rejecting durable UUID values that PostgreSQL accepts.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PAYLOAD_HASH = /^[0-9a-f]{64}$/;
 
 export type ActionApprovalDecision = "approved" | "rejected";
