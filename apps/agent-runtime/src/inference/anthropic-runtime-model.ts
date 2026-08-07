@@ -2,10 +2,10 @@ import {
   RuntimeModelError,
   type RuntimeJsonSchema,
   type RuntimeModelClient,
-  type RuntimeModelInvocationAuditDescriptor,
   type RuntimeModelInvocationConfig,
-  type RuntimeModelRequest,
+  type RuntimeModelOutputFormat,
   type RuntimeModelTelemetry,
+  type RuntimeReasoningEffort,
 } from "./runtime-model";
 
 interface AnthropicResponse {
@@ -108,41 +108,36 @@ export function assertAnthropicConfig(
   }
 }
 
-function buildAnthropicOutputConfig(
-  request: RuntimeModelRequest,
-  config: RuntimeModelInvocationConfig,
+/**
+ * Build the exact non-secret Anthropic output configuration used on the wire.
+ * The same function is used by durable audit snapshots and the HTTP adapter.
+ */
+export function buildAnthropicOutputConfig(
+  outputFormat: RuntimeModelOutputFormat,
+  reasoningEffort: RuntimeReasoningEffort,
 ): Record<string, unknown> {
   const outputConfig: Record<string, unknown> = {
     format: {
       type: "json_schema",
-      schema: sanitizeAnthropicJsonSchema(request.outputFormat.schema),
+      schema: sanitizeAnthropicJsonSchema(outputFormat.schema),
     },
   };
-  if (config.reasoningEffort !== "provider_default") {
-    outputConfig.effort = config.reasoningEffort;
+  if (reasoningEffort !== "provider_default") {
+    outputConfig.effort = reasoningEffort;
   }
   return outputConfig;
-}
-
-export function describeAnthropicEffectiveInvocation(
-  request: RuntimeModelRequest,
-  config: RuntimeModelInvocationConfig,
-): RuntimeModelInvocationAuditDescriptor {
-  assertAnthropicConfig(config);
-  return {
-    provider: "anthropic",
-    model: config.model,
-    outputConfiguration: buildAnthropicOutputConfig(request, config),
-  };
 }
 
 export function createAnthropicRuntimeModelClient(
   fetchImpl: typeof fetch = fetch,
 ): RuntimeModelClient {
   return {
-    describeEffectiveInvocation: describeAnthropicEffectiveInvocation,
     async generate(request, config) {
-      const effectiveInvocation = describeAnthropicEffectiveInvocation(request, config);
+      assertAnthropicConfig(config);
+      const outputConfig = buildAnthropicOutputConfig(
+        request.outputFormat,
+        config.reasoningEffort,
+      );
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
       const started = Date.now();
@@ -169,7 +164,7 @@ export function createAnthropicRuntimeModelClient(
             max_tokens: config.maxOutputTokens,
             system: request.system,
             messages: [{ role: "user", content: request.user }],
-            output_config: effectiveInvocation.outputConfiguration,
+            output_config: outputConfig,
           }),
           signal: controller.signal,
         });
