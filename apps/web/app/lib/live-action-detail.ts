@@ -9,6 +9,7 @@ export const ACTION_PAYLOAD_MAX_CHARS = 12_000;
 // rather than rejecting durable UUID values that PostgreSQL accepts.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PAYLOAD_HASH = /^[0-9a-f]{64}$/;
+const RESULT_CODE = /^[A-Z0-9_]{1,128}$/;
 
 export type ActionApprovalDecision = "approved" | "rejected";
 export type ActionApprovalStatus =
@@ -16,6 +17,8 @@ export type ActionApprovalStatus =
   | "pending_approval"
   | "approved"
   | "rejected";
+
+export type ActionExecutionTerminalState = "PASS" | "FAIL" | "BLOCKED";
 
 export interface VisibleActionPayload {
   actionType: Recommendation["nextBestAction"]["type"];
@@ -28,6 +31,15 @@ export interface ActionApprovalState {
   status: ActionApprovalStatus;
   payloadHash: string | null;
   decidedAt: string | null;
+}
+
+export interface ActionExecutionState {
+  status: ActionExecutionTerminalState;
+  resultCode: string;
+  executionId: string | null;
+  idempotencyKey: string | null;
+  executedAt: string | null;
+  replayed: boolean;
 }
 
 export interface LiveActionScope {
@@ -66,6 +78,12 @@ export interface ActionApprovalRequest {
   recommendationId: string;
   content: string;
   decision: ActionApprovalDecision;
+}
+
+export interface ActionExecutionRequest {
+  workspaceId: string;
+  recommendationId: string;
+  content: string;
 }
 
 function singleQueryValue(
@@ -153,6 +171,19 @@ export function pendingApprovalState(): ActionApprovalState {
 }
 
 /**
+ * The Unit 5 executor is intentionally narrow. It can execute only the current
+ * deterministic `log_research_note` CRM write-back. Customer-facing sends and
+ * meetings remain blocked until a concrete external executor is authorized.
+ */
+export function canRequestProtectedExecution(payload: VisibleActionPayload): boolean {
+  return (
+    payload.actionType === "log_research_note" &&
+    payload.requiresApproval &&
+    payload.approvable
+  );
+}
+
+/**
  * A server response may update the visible approval badge only when the content
  * still displayed is exactly the content that was submitted. This prevents an
  * approval for payload A from being presented as approval for a later payload B.
@@ -163,6 +194,19 @@ export function approvalStateForSubmittedPayload(
   submittedApproval: ActionApprovalState,
 ): ActionApprovalState | null {
   return displayedContent === submittedContent ? submittedApproval : null;
+}
+
+/**
+ * Apply the same exact-payload display rule to execution results. Even though
+ * the editor is disabled during a request, the result is still bound to the
+ * submitted content rather than to mutable UI state.
+ */
+export function executionStateForSubmittedPayload(
+  displayedContent: string,
+  submittedContent: string,
+  submittedExecution: ActionExecutionState,
+): ActionExecutionState | null {
+  return displayedContent === submittedContent ? submittedExecution : null;
 }
 
 export function parseActionApprovalRequest(value: unknown): ActionApprovalRequest {
@@ -195,6 +239,34 @@ export function parseActionApprovalRequest(value: unknown): ActionApprovalReques
   }
 
   return { workspaceId, recommendationId, content, decision };
+}
+
+export function parseActionExecutionRequest(value: unknown): ActionExecutionRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("ACTION_EXECUTION_INVALID_REQUEST");
+  }
+
+  const input = value as Record<string, unknown>;
+  const allowed = new Set(["workspaceId", "recommendationId", "content"]);
+  const keys = Object.keys(input);
+  if (keys.length !== allowed.size || keys.some((key) => !allowed.has(key))) {
+    throw new Error("ACTION_EXECUTION_INVALID_REQUEST");
+  }
+
+  const workspaceId = typeof input.workspaceId === "string" ? input.workspaceId.trim() : "";
+  const recommendationId =
+    typeof input.recommendationId === "string" ? input.recommendationId.trim() : "";
+  const content = typeof input.content === "string" ? input.content : "";
+
+  if (!UUID.test(workspaceId)) throw new Error("ACTION_EXECUTION_INVALID_WORKSPACE");
+  if (!recommendationId || recommendationId.length > 512) {
+    throw new Error("ACTION_EXECUTION_INVALID_RECOMMENDATION");
+  }
+  if (!isVisiblePayloadApprovable(content)) {
+    throw new Error("ACTION_EXECUTION_INVALID_PAYLOAD");
+  }
+
+  return { workspaceId, recommendationId, content };
 }
 
 export function parseActionApprovalState(value: unknown): ActionApprovalState {
@@ -237,4 +309,89 @@ export function parseActionApprovalState(value: unknown): ActionApprovalState {
   }
 
   return { status, payloadHash: normalizedHash, decidedAt: normalizedDecidedAt };
+}
+
+export function parseActionExecutionState(value: unknown): ActionExecutionState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+
+  const result = value as Record<string, unknown>;
+  const allowed = new Set([
+    "status",
+    "resultCode",
+    "executionId",
+    "idempotencyKey",
+    "executedAt",
+    "replayed",
+  ]);
+  const keys = Object.keys(result);
+  if (keys.length !== allowed.size || keys.some((key) => !allowed.has(key))) {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+
+  const status = result.status;
+  if (status !== "PASS" && status !== "FAIL" && status !== "BLOCKED") {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+
+  const resultCode = typeof result.resultCode === "string" ? result.resultCode : "";
+  if (!RESULT_CODE.test(resultCode)) {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+
+  const executionId =
+    result.executionId === null
+      ? null
+      : typeof result.executionId === "string"
+        ? result.executionId
+        : null;
+  const idempotencyKey =
+    result.idempotencyKey === null
+      ? null
+      : typeof result.idempotencyKey === "string"
+        ? result.idempotencyKey
+        : null;
+  const executedAt =
+    result.executedAt === null
+      ? null
+      : typeof result.executedAt === "string"
+        ? result.executedAt
+        : null;
+  const replayed = result.replayed;
+
+  if (executionId !== null && !UUID.test(executionId)) {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+  if (idempotencyKey !== null && !PAYLOAD_HASH.test(idempotencyKey)) {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+  if (executedAt !== null && Number.isNaN(Date.parse(executedAt))) {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+  if (typeof replayed !== "boolean") {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+
+  if (
+    status === "PASS" &&
+    (executionId === null || idempotencyKey === null || executedAt === null)
+  ) {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+  if (
+    status !== "PASS" &&
+    (executionId !== null || executedAt !== null || replayed)
+  ) {
+    throw new Error("ACTION_EXECUTION_RESULT_INVALID");
+  }
+
+  return {
+    status,
+    resultCode,
+    executionId,
+    idempotencyKey,
+    executedAt,
+    replayed,
+  };
 }

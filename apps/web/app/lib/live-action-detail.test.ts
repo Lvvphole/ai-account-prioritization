@@ -5,16 +5,21 @@ import {
   ACTION_PAYLOAD_MAX_CHARS,
   approvalStateForSubmittedPayload,
   buildVisibleActionPayload,
+  canRequestProtectedExecution,
+  executionStateForSubmittedPayload,
   isFullyVerifiedPublishedRecommendation,
   isVisiblePayloadApprovable,
   parseActionApprovalRequest,
   parseActionApprovalState,
+  parseActionExecutionRequest,
+  parseActionExecutionState,
   resolveLiveActionScope,
 } from "./live-action-detail";
 
 const WORKSPACE = "aaaaaaaa-0000-0000-0000-000000000001";
 const ACCOUNT = "aaaaaaa1-0000-0000-0000-000000000001";
 const OWNER = "11111111-1111-1111-1111-111111111111";
+const EXECUTION_ID = "bbbbbbbb-0000-0000-0000-000000000001";
 const NOW = "2026-08-07T14:00:00.000Z";
 
 function recommendation(overrides: Partial<Recommendation> = {}): Recommendation {
@@ -122,6 +127,21 @@ test("non-protected action uses the persisted objective and needs no payload app
   assert.equal(payload.requiresApproval, false);
 });
 
+test("Unit 5 requests execution only for the admitted deterministic CRM-note action", () => {
+  const crmNote = buildVisibleActionPayload(
+    recommendation({
+      nextBestAction: {
+        type: "log_research_note",
+        customerFacing: false,
+        crmWriteBack: true,
+        objective: "Record verified account research.",
+      },
+    }),
+  );
+  assert.equal(canRequestProtectedExecution(crmNote), true);
+  assert.equal(canRequestProtectedExecution(buildVisibleActionPayload(recommendation())), false);
+});
+
 test("payload approval request parser accepts only the exact authority surface", () => {
   assert.deepEqual(
     parseActionApprovalRequest({
@@ -158,6 +178,33 @@ test("payload approval request parser accepts only the exact authority surface",
         decision: "pending_approval",
       }),
     /ACTION_APPROVAL_INVALID_DECISION/,
+  );
+});
+
+test("protected execution request cannot supply authority fields beyond exact content scope", () => {
+  assert.deepEqual(
+    parseActionExecutionRequest({
+      workspaceId: WORKSPACE,
+      recommendationId: "rec-action-1",
+      content: "Exact visible payload",
+    }),
+    {
+      workspaceId: WORKSPACE,
+      recommendationId: "rec-action-1",
+      content: "Exact visible payload",
+    },
+  );
+
+  assert.throws(
+    () =>
+      parseActionExecutionRequest({
+        workspaceId: WORKSPACE,
+        recommendationId: "rec-action-1",
+        accountId: ACCOUNT,
+        actionType: "log_research_note",
+        content: "Exact visible payload",
+      }),
+    /ACTION_EXECUTION_INVALID_REQUEST/,
   );
 });
 
@@ -208,6 +255,72 @@ test("durable approval state parser requires a valid hash for final decisions", 
   );
 });
 
+test("protected execution result parser enforces terminal-state postconditions", () => {
+  const key = "c".repeat(64);
+  assert.deepEqual(
+    parseActionExecutionState({
+      status: "PASS",
+      resultCode: "CRM_NOTE_WRITTEN",
+      executionId: EXECUTION_ID,
+      idempotencyKey: key,
+      executedAt: NOW,
+      replayed: false,
+    }),
+    {
+      status: "PASS",
+      resultCode: "CRM_NOTE_WRITTEN",
+      executionId: EXECUTION_ID,
+      idempotencyKey: key,
+      executedAt: NOW,
+      replayed: false,
+    },
+  );
+
+  assert.deepEqual(
+    parseActionExecutionState({
+      status: "BLOCKED",
+      resultCode: "APPROVAL_REQUIRED",
+      executionId: null,
+      idempotencyKey: key,
+      executedAt: null,
+      replayed: false,
+    }),
+    {
+      status: "BLOCKED",
+      resultCode: "APPROVAL_REQUIRED",
+      executionId: null,
+      idempotencyKey: key,
+      executedAt: null,
+      replayed: false,
+    },
+  );
+
+  assert.throws(
+    () =>
+      parseActionExecutionState({
+        status: "PASS",
+        resultCode: "CRM_NOTE_WRITTEN",
+        executionId: null,
+        idempotencyKey: key,
+        executedAt: NOW,
+        replayed: false,
+      }),
+    /ACTION_EXECUTION_RESULT_INVALID/,
+  );
+  assert.throws(
+    () =>
+      parseActionExecutionState({
+        status: "BLOCKED",
+        resultCode: "APPROVAL_REQUIRED",
+        executionId: EXECUTION_ID,
+        idempotencyKey: key,
+        executedAt: NOW,
+        replayed: false,
+      }),
+    /ACTION_EXECUTION_RESULT_INVALID/,
+  );
+});
+
 test("an async response cannot mark different displayed content as approved", () => {
   const approved = {
     status: "approved" as const,
@@ -220,6 +333,25 @@ test("an async response cannot mark different displayed content as approved", ()
   );
   assert.equal(
     approvalStateForSubmittedPayload("payload B", "payload A", approved),
+    null,
+  );
+});
+
+test("an execution response cannot mark different displayed content as completed", () => {
+  const execution = {
+    status: "PASS" as const,
+    resultCode: "CRM_NOTE_WRITTEN",
+    executionId: EXECUTION_ID,
+    idempotencyKey: "d".repeat(64),
+    executedAt: NOW,
+    replayed: false,
+  };
+  assert.deepEqual(
+    executionStateForSubmittedPayload("payload A", "payload A", execution),
+    execution,
+  );
+  assert.equal(
+    executionStateForSubmittedPayload("payload B", "payload A", execution),
     null,
   );
 });
