@@ -7,7 +7,9 @@ import {
   runtimeDraftingPolicyFromEnv,
   runtimeModelClientForProvider,
   runtimeModelInvocationConfigFromDraftingPolicy,
+  sanitizeAnthropicJsonSchema,
   type RuntimeDraftingPolicy,
+  type RuntimeJsonSchema,
   type RuntimeModelInvocationConfig,
   type RuntimeModelRequest,
 } from "agent-runtime";
@@ -61,12 +63,7 @@ type CapturedAnthropicBody = {
       type?: unknown;
       schema?: {
         additionalProperties?: unknown;
-        properties?: {
-          value?: {
-            minLength?: unknown;
-            maxLength?: unknown;
-          };
-        };
+        properties?: Record<string, Record<string, unknown>>;
       };
     };
   };
@@ -88,6 +85,8 @@ describe("P4 provider-neutral runtime-model boundary", () => {
     expect(snapshot.model).toBe("pinned-openai-model");
     expect(snapshot.reasoningEffort).toBe("medium");
     expect(snapshot.outputFormat).toBe("json_schema");
+    expect(snapshot.canonicalOutputFormat.type).toBe("json_schema");
+    expect(snapshot.effectiveProviderOutputConfiguration).toBeNull();
     expect(snapshot).not.toHaveProperty("apiKey");
     expect(JSON.stringify(snapshot)).not.toContain("test-secret");
 
@@ -95,6 +94,38 @@ describe("P4 provider-neutral runtime-model boundary", () => {
     expect(invocation.model).toBe("pinned-openai-model");
     expect(invocation.reasoningEffort).toBe("medium");
     expect(invocation.credential).toBe("test-secret");
+  });
+
+  it("records the exact admitted provider schema and output configuration before invocation", async () => {
+    const policy = basePolicy({ reasoningEffort: "medium" });
+    const snapshot = runtimeDraftingPolicyAuditSnapshot(policy);
+    const invocation = runtimeModelInvocationConfigFromDraftingPolicy(policy);
+    let capturedInit: RequestInit | undefined;
+    const fakeFetch: typeof fetch = async (_input, init) => {
+      capturedInit = init;
+      return new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: JSON.stringify({ schemaVersion: "1.0" }) }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await createAnthropicRuntimeModelClient(fakeFetch).generate(
+      {
+        system: "system",
+        user: "user",
+        outputFormat: snapshot.canonicalOutputFormat,
+      },
+      invocation,
+    );
+
+    const body = JSON.parse(String(capturedInit?.body)) as CapturedAnthropicBody;
+    expect(snapshot.canonicalOutputFormat.schema).toEqual(expect.any(Object));
+    expect(snapshot.effectiveProviderOutputConfiguration).toEqual(body.output_config);
+    expect(JSON.stringify(snapshot.effectiveProviderOutputConfiguration)).not.toContain(
+      "test-secret",
+    );
   });
 
   it("fails at startup for an enabled provider without an admitted production adapter", () => {
@@ -122,6 +153,29 @@ describe("P4 provider-neutral runtime-model boundary", () => {
     expect(() => runtimeModelClientForProvider("google")).toThrow(
       "has no admitted production adapter yet",
     );
+  });
+
+  it("preserves property names that match unsupported schema keywords", () => {
+    const schema: RuntimeJsonSchema = {
+      type: "object",
+      properties: {
+        format: { type: "string", minLength: 1 },
+        pattern: { type: "string", maxLength: 20 },
+        minimum: { type: "number", minimum: 1 },
+      },
+      required: ["format", "pattern", "minimum"],
+      additionalProperties: false,
+    };
+
+    const sanitized = sanitizeAnthropicJsonSchema(schema);
+    const properties = sanitized.properties as Record<string, Record<string, unknown>>;
+
+    expect(Object.keys(properties).sort()).toEqual(["format", "minimum", "pattern"]);
+    expect(properties.format?.minLength).toBeUndefined();
+    expect(properties.pattern?.maxLength).toBeUndefined();
+    expect(properties.minimum?.minimum).toBeUndefined();
+    expect(sanitized.required).toEqual(["format", "pattern", "minimum"]);
+    expect(sanitized.additionalProperties).toBe(false);
   });
 
   it("uses Anthropic native constrained output and effort without hard-coded temperature", async () => {
