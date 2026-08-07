@@ -162,6 +162,9 @@ export function liveDashboardExportRows(
       industry: account.industry ?? "",
       tier: account.tier,
       owner_id: rec.ownerId,
+      // No authoritative representative display name is loaded by this view.
+      // Preserve the column without substituting demo identity data.
+      owner_name: "",
       score: rec.score,
       confidence: rec.confidence,
       reason_codes: rec.reasonCodes.join("|"),
