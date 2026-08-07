@@ -11,6 +11,8 @@ import {
   totalRows,
 } from "../../../../lib/imports-data";
 import { formatBytes } from "../../../../lib/import-preflight";
+import { loadLiveImportBatch, type LiveImportBatch } from "../../../../lib/live-imports-data";
+import { isSupabaseConfigured } from "../../../../lib/supabase/config";
 import { Section } from "../../../../components/AdminBits";
 import {
   DispositionBar,
@@ -26,10 +28,9 @@ import CommitPanel from "./CommitPanel";
 /**
  * One import batch, end to end (section 7.2 steps 5 to 10).
  *
- * The order is the order of the decision: what the file is, whether it was safe
- * to read, what parsing found, what the rows mean, what would change, and only
- * then the commit. Putting the change set above the findings would let somebody
- * approve a number without having read what is wrong with the rows behind it.
+ * A configured deployment reads this page from persistence before it can render
+ * the live commit control. Demo fixtures remain isolated to unconfigured sample
+ * mode and never provide ids to the live approval or commit endpoints.
  */
 export default async function ImportBatchPage({
   params,
@@ -38,10 +39,17 @@ export default async function ImportBatchPage({
 }) {
   const ctx = await requireCapability("view_ingestion_batches");
   const { batchId } = await params;
+  const mayCommit = can(ctx.role, "commit_manual_import");
+
+  if (isSupabaseConfigured()) {
+    const batch = await loadLiveImportBatch(batchId);
+    if (!batch) notFound();
+    return <LiveImportDetail batch={batch} mayCommit={mayCommit} />;
+  }
+
   const batch = findBatch(batchId);
   if (!batch) notFound();
 
-  const mayCommit = can(ctx.role, "commit_manual_import");
   const rows = totalRows(batch.dispositions);
   const committable = committableRows(batch.dispositions);
   const blockers = batch.approval?.blockers ?? [];
@@ -155,7 +163,7 @@ export default async function ImportBatchPage({
       {batch.changeSet ? (
         <Section
           title="Change set"
-          sub="Derived only from the staged rows and the current snapshot. What you read here is what a commit applies — nothing is re-queried in between."
+          sub="Derived only from the staged rows and the current snapshot. What you read here is what a commit applies."
         >
           <div className="metric-grid compact">
             <Fact label="New records" value={batch.changeSet.newRecords.toLocaleString("en-US")} />
@@ -255,20 +263,7 @@ export default async function ImportBatchPage({
       ) : null}
 
       {blockers.length > 0 ? (
-        <Section title="Commit refused" sub="These are not approvals that are missing. They are refusals.">
-          <ul className="issue-list">
-            {blockers.map((b) => (
-              <li key={b} className="issue-blocked">
-                <span className="badge tag-bad">{b}</span>
-                <span>
-                  {b === "cross_workspace_reference"
-                    ? "The file references records belonging to another workspace. No number of approvers makes this safe, so it is refused rather than escalated."
-                    : "A hard security finding is present. It is not approvable by anyone."}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Section>
+        <CommitRefusal blockers={blockers} />
       ) : (
         <CommitPanel
           batchId={batch.batchId}
@@ -327,6 +322,143 @@ export default async function ImportBatchPage({
         </Section>
       ) : null}
     </section>
+  );
+}
+
+function LiveImportDetail({ batch, mayCommit }: { batch: LiveImportBatch; mayCommit: boolean }) {
+  const committable = batch.readyRows + batch.warningRows;
+  const commitState = batch.state === "ready_for_review" || batch.state === "awaiting_approval";
+  const liveMayCommit = mayCommit && commitState && batch.changeSet !== null;
+
+  return (
+    <section>
+      <div className="page-header">
+        <h1>
+          {batch.name} <IngestionStatePill state={batch.state} />
+        </h1>
+        <p className="muted">
+          Batch {shortId(batch.batchId)} · created by {batch.createdBy} at {batch.createdAt}
+        </p>
+      </div>
+
+      <DataSubnav />
+
+      <Section
+        title="File"
+        sub="Live persisted evidence for the file and mapping used by this batch."
+      >
+        <dl className="rule-list tight">
+          <div>
+            <dt>Mapping version id</dt>
+            <dd><code>{batch.mappingVersionId ?? "—"}</code></dd>
+          </div>
+          <div>
+            <dt>Original file</dt>
+            <dd>{batch.file?.originalFilename ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>File size</dt>
+            <dd>{batch.file ? formatBytes(batch.file.bytes) : "—"}</dd>
+          </div>
+          <div>
+            <dt>SHA-256</dt>
+            <dd><code className="hash">{batch.file?.sha256 ?? "—"}</code></dd>
+          </div>
+          <div>
+            <dt>Scan status</dt>
+            <dd>{batch.file?.scanStatus ?? "—"}</dd>
+          </div>
+        </dl>
+      </Section>
+
+      <Section
+        title="Rows"
+        sub={`${batch.totalRows.toLocaleString("en-US")} staged. ${committable.toLocaleString("en-US")} can commit.`}
+      >
+        <DispositionBar
+          dispositions={{
+            ready: batch.readyRows,
+            warning: batch.warningRows,
+            quarantined: batch.quarantinedRows,
+            rejected: batch.rejectedRows,
+            duplicate: batch.duplicateRows,
+          }}
+        />
+      </Section>
+
+      {batch.changeSet ? (
+        <Section
+          title="Change set"
+          sub="This persisted preview is the change set that the approval boundary binds before commit."
+        >
+          <div className="metric-grid compact">
+            <Fact label="New records" value={batch.changeSet.newRecords.toLocaleString("en-US")} />
+            <Fact label="Updated" value={batch.changeSet.updatedRecords.toLocaleString("en-US")} />
+            <Fact label="Unchanged" value={batch.changeSet.unchangedRecords.toLocaleString("en-US")} />
+            <Fact
+              label="Ownership changes"
+              value={batch.changeSet.ownerChanges.toLocaleString("en-US")}
+              tone={batch.changeSet.ownerChanges > 0 ? "warn" : undefined}
+            />
+            <Fact
+              label="Referential failures"
+              value={batch.changeSet.referentialFailures.toLocaleString("en-US")}
+              tone={batch.changeSet.referentialFailures > 0 ? "bad" : undefined}
+            />
+            <Fact label="Duplicates" value={batch.changeSet.duplicateRecords.toLocaleString("en-US")} />
+            <Fact
+              label="Pipeline delta"
+              value={formatUsd(batch.changeSet.pipelineDeltaUsd)}
+              tone={batch.changeSet.pipelineDeltaUsd < 0 ? "warn" : undefined}
+            />
+            <Fact
+              label="Predicted guardrail holds"
+              value={batch.changeSet.predictedGuardrailHolds.toLocaleString("en-US")}
+            />
+          </div>
+          {batch.changeSet.concentrationNotes ? (
+            <p className="note">{batch.changeSet.concentrationNotes}</p>
+          ) : null}
+        </Section>
+      ) : (
+        <Section title="Change set" sub="No persisted preview is available.">
+          <p className="note note-bad">Commit stays disabled until a persisted change set exists.</p>
+        </Section>
+      )}
+
+      {batch.blockers.length > 0 ? (
+        <CommitRefusal blockers={batch.blockers} />
+      ) : (
+        <CommitPanel
+          batchId={batch.batchId}
+          state={batch.state}
+          mayCommit={liveMayCommit}
+          committableRows={committable}
+          totalRows={batch.totalRows}
+          approval={batch.approval}
+          thresholds={SECOND_APPROVAL_TRIGGER}
+        />
+      )}
+    </section>
+  );
+}
+
+function CommitRefusal({ blockers }: { blockers: string[] }) {
+  return (
+    <Section title="Commit refused" sub="These are not approvals that are missing. They are refusals.">
+      <ul className="issue-list">
+        {blockers.map((blocker) => (
+          <li key={blocker} className="issue-blocked">
+            <span className="badge tag-bad">{blocker}</span>
+            <span>
+              {blocker === "cross_workspace_reference"
+                ? "The file references records belonging to another workspace. No number of approvers makes this safe, so it is refused rather than escalated."
+                : "A hard security finding is present. It is not approvable by anyone."}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 
