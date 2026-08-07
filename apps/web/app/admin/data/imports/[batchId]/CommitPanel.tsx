@@ -4,22 +4,35 @@ import { useState } from "react";
 import type { IngestionState, SecondApprovalTrigger } from "@repo/shared-schemas";
 import type { ApprovalState } from "../../../../lib/imports-data";
 
+interface ApiResult {
+  status?: unknown;
+  commitId?: unknown;
+  recordsCreated?: unknown;
+  recordsUpdated?: unknown;
+  detail?: unknown;
+  error?: unknown;
+}
+
+async function readResult(response: Response): Promise<ApiResult> {
+  const value = (await response.json().catch(() => ({}))) as unknown;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as ApiResult)
+    : {};
+}
+
+function refusalMessage(result: ApiResult): string {
+  if (typeof result.detail === "string" && result.detail) return result.detail;
+  if (typeof result.error === "string" && result.error) return result.error;
+  return "The server refused the import operation.";
+}
+
 /**
- * Step 9: commit (section 7.2).
+ * Step 9: approve and commit the reviewed change set.
  *
- * Three things this deliberately does not do.
- *
- * It does not pre-fill the business reason. A reason somebody accepted is not a
- * reason somebody gave, and this text is what an incident review reads back.
- *
- * It does not let the first approver name the second. `secondApprovedBy` is a
- * record of who has approved so far, not a promise about who will, so the
- * second approval is a separate action taken by a different person from their
- * own session.
- *
- * It does not enable while a blocker is present — the parent renders a refusal
- * instead of this panel, because a disabled button next to a "request approval"
- * link would suggest the refusal is negotiable.
+ * The browser supplies only the batch id and the business reason. The server
+ * resolves workspace, change set, staged rows, approver identity, approval
+ * threshold, and commit targets from persistence. A second approval is recorded
+ * only when the second administrator acts from their own authenticated session.
  */
 export default function CommitPanel({
   batchId,
@@ -38,8 +51,9 @@ export default function CommitPanel({
   approval: ApprovalState | null;
   thresholds: SecondApprovalTrigger;
 }) {
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(approval?.businessReason ?? "");
   const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<string | null>(null);
 
   const alreadyCommitted =
@@ -49,8 +63,76 @@ export default function CommitPanel({
     state === "rolled_back" ||
     state === "partially_rolled_back";
 
+  const reasonLocked = approval?.approvedBy !== null && approval?.approvedBy !== undefined;
+  const awaitingSecond =
+    approval?.secondApprovalRequired === true &&
+    approval.approvedBy !== null &&
+    approval.secondApprovedBy === null;
   const reasonOk = reason.trim().length >= 10;
-  const ready = mayCommit && !alreadyCommitted && reasonOk && confirmed && committableRows > 0;
+  const ready =
+    mayCommit &&
+    !alreadyCommitted &&
+    !busy &&
+    reasonOk &&
+    confirmed &&
+    committableRows > 0;
+
+  async function approveAndCommit(): Promise<void> {
+    setBusy(true);
+    setOutcome(null);
+    try {
+      const approvalResponse = await fetch(`/api/admin/data/imports/${batchId}/approve`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ businessReason: reason.trim() }),
+      });
+      const approvalResult = await readResult(approvalResponse);
+      if (!approvalResponse.ok) {
+        setOutcome(`Commit refused: ${refusalMessage(approvalResult)}`);
+        return;
+      }
+
+      if (approvalResult.status === "awaiting_second_approval") {
+        setOutcome(
+          "Your approval is recorded. A different workspace administrator must approve this same change set from their own session before it can commit.",
+        );
+        return;
+      }
+
+      if (approvalResult.status !== "approved") {
+        setOutcome("Commit refused: the approval service returned an invalid state.");
+        return;
+      }
+
+      const commitResponse = await fetch(`/api/admin/data/imports/${batchId}/commit`, {
+        method: "POST",
+      });
+      const commitResult = await readResult(commitResponse);
+      if (!commitResponse.ok) {
+        setOutcome(`Commit refused: ${refusalMessage(commitResult)}`);
+        return;
+      }
+
+      if (commitResult.status !== "committed") {
+        setOutcome("Commit refused: the commit service returned an invalid state.");
+        return;
+      }
+
+      const created =
+        typeof commitResult.recordsCreated === "number" ? commitResult.recordsCreated : 0;
+      const updated =
+        typeof commitResult.recordsUpdated === "number" ? commitResult.recordsUpdated : 0;
+      const commitId = typeof commitResult.commitId === "string" ? commitResult.commitId : "unknown";
+      setOutcome(
+        `Committed ${created.toLocaleString("en-US")} new and ${updated.toLocaleString("en-US")} updated records. Commit ${commitId}.`,
+      );
+      setConfirmed(false);
+    } catch {
+      setOutcome("Commit refused: the ingestion service could not be reached.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (alreadyCommitted) {
     return (
@@ -108,8 +190,8 @@ export default function CommitPanel({
       {approval?.secondApprovalRequired ? (
         <div className="note note-warn">
           <span className="badge tag-warn">Second approval required</span>{" "}
-          {approval.reasons.join("; ")}. Your approval is recorded first; a second administrator
-          approves from their own session, and the commit runs only once both are on record.
+          {approval.reasons.join("; ")}. The second administrator must approve the same recorded
+          business reason from their own session.
         </div>
       ) : null}
 
@@ -119,13 +201,15 @@ export default function CommitPanel({
           rows={3}
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          disabled={!mayCommit}
+          disabled={!mayCommit || reasonLocked || busy}
           placeholder="Why this import is being applied, in enough detail that somebody reading it in six months understands the decision."
         />
         <span className="muted small">
-          {reasonOk
-            ? "Recorded on the commit and the audit entry."
-            : "At least 10 characters. This is what an incident review reads back."}
+          {reasonLocked
+            ? "This is the reason already bound to the recorded approval and it cannot be changed."
+            : reasonOk
+              ? "Recorded on the approval, commit, and audit evidence."
+              : "At least 10 characters. This is what an incident review reads back."}
         </span>
       </label>
 
@@ -134,7 +218,7 @@ export default function CommitPanel({
           type="checkbox"
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}
-          disabled={!mayCommit}
+          disabled={!mayCommit || busy}
         />
         <span>
           I have read the change set above and I am approving these writes under my own name.
@@ -146,21 +230,13 @@ export default function CommitPanel({
           type="button"
           className="action-btn btn-primary"
           disabled={!ready}
-          onClick={() =>
-            setOutcome(
-              `This deploy has no ingestion worker attached, so nothing was written. In a wired deployment this would create the approval for batch ${batchId}, run planCommit, and refuse if the plan contained a row that is not ready or warning.`,
-            )
-          }
+          onClick={() => void approveAndCommit()}
         >
-          Commit import
+          {busy ? "Working…" : awaitingSecond ? "Approve and commit import" : "Commit import"}
         </button>
       </div>
 
-      {outcome ? (
-        <p className="note">
-          <span className="badge">Not wired</span> {outcome}
-        </p>
-      ) : null}
+      {outcome ? <p className="note">{outcome}</p> : null}
 
       <details className="thresholds">
         <summary>When a second approver is required</summary>
@@ -181,8 +257,7 @@ export default function CommitPanel({
         </ul>
         <p className="muted small">
           A cross-workspace reference and a hard security finding are not on this list. Neither is
-          a bigger approval — both refuse the commit outright, and listing them here would imply
-          two people could wave one through.
+          a bigger approval. Both refuse the commit outright.
         </p>
       </details>
     </div>
