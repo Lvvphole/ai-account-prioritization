@@ -9,6 +9,8 @@ import {
   type RecommendationFollowupState as SharedRecommendationFollowupState,
 } from "@repo/shared-schemas";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const FEEDBACK_CODES = FeedbackVerdict.options;
 export const OUTCOME_CODES = RecommendationOutcomeCodeSchema.options;
 
@@ -19,10 +21,33 @@ export type RecommendationFollowupState = SharedRecommendationFollowupState;
 
 export function parseRecommendationFollowupRequest(value: unknown): RecommendationFollowupRequest {
   const parsed = RecommendationFollowupRequestSchema.safeParse(value);
-  if (!parsed.success) {
+  if (parsed.success) return parsed.data;
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("RECOMMENDATION_FOLLOWUP_INVALID_REQUEST");
   }
-  return parsed.data;
+
+  const input = value as Record<string, unknown>;
+  const workspaceId = typeof input.workspaceId === "string" ? input.workspaceId.trim() : "";
+  const recommendationId =
+    typeof input.recommendationId === "string" ? input.recommendationId.trim() : "";
+  const kind = input.kind;
+  const expectedEventId = input.expectedEventId;
+
+  if (!UUID.test(workspaceId)) {
+    throw new Error("RECOMMENDATION_FOLLOWUP_INVALID_WORKSPACE");
+  }
+  if (!recommendationId || recommendationId.length > 512) {
+    throw new Error("RECOMMENDATION_FOLLOWUP_INVALID_RECOMMENDATION");
+  }
+  if (kind !== "feedback" && kind !== "outcome" && kind !== "unknown") {
+    throw new Error("RECOMMENDATION_FOLLOWUP_INVALID_KIND");
+  }
+  if (expectedEventId !== null && (typeof expectedEventId !== "string" || !UUID.test(expectedEventId))) {
+    throw new Error("RECOMMENDATION_FOLLOWUP_INVALID_EXPECTED_EVENT");
+  }
+
+  throw new Error("RECOMMENDATION_FOLLOWUP_INVALID_CODE");
 }
 
 export function parseRecommendationFollowupState(value: unknown): RecommendationFollowupState {
