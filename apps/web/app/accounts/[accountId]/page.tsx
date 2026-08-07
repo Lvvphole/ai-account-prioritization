@@ -1,4 +1,5 @@
 import ActionApprovalPanel from "../../components/ActionApprovalPanel";
+import RecommendationFollowupPanel from "../../components/RecommendationFollowupPanel";
 import DemoAccountDetail from "./DemoAccountDetail";
 import {
   NOT_A_WIN_PROBABILITY,
@@ -9,6 +10,7 @@ import {
   priorityTier,
 } from "../../lib/display";
 import { resolveDashboardDataMode } from "../../lib/live-dashboard-data";
+import { loadRecommendationFollowupForCurrentUser } from "../../lib/live-recommendation-followup";
 import { loadLiveRecommendationDetailForCurrentUser } from "../../lib/live-recommendations-data";
 import { isSupabaseConfigured } from "../../lib/supabase/config";
 
@@ -73,6 +75,7 @@ export default async function AccountDetailPage({
   }
 
   const { recommendation: rec, account, workspaceId, payload, approval } = result.data;
+  const followup = await loadRecommendationFollowupForCurrentUser(workspaceId, rec.id);
   const tier = priorityTier(rec.score);
   const band = evidenceBand(rec.confidence);
   const dashboardHref = `/dashboard?workspace=${encodeURIComponent(workspaceId)}`;
@@ -181,6 +184,23 @@ export default async function AccountDetailPage({
           recommendationId={rec.id}
           payload={payload}
           initialApproval={approval}
+        />
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <h3>Outcome and Feedback</h3>
+            <p className="card-sub">
+              Record what happened, recommendation feedback, or that the outcome is not known.
+              The live path stores this as durable representative evidence.
+            </p>
+          </div>
+        </div>
+        <RecommendationFollowupPanel
+          workspaceId={workspaceId}
+          recommendationId={rec.id}
+          initialState={followup}
         />
       </div>
 
