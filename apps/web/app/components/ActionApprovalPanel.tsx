@@ -4,7 +4,10 @@ import { useRef, useState } from "react";
 import {
   ACTION_PAYLOAD_MAX_CHARS,
   approvalStateForSubmittedPayload,
+  canRequestProtectedExecution,
+  executionStateForSubmittedPayload,
   type ActionApprovalState,
+  type ActionExecutionState,
   type VisibleActionPayload,
 } from "../lib/live-action-detail";
 
@@ -20,6 +23,11 @@ interface DecidedPayload {
   approval: ActionApprovalState;
 }
 
+interface ExecutedPayload {
+  content: string;
+  execution: ActionExecutionState;
+}
+
 export default function ActionApprovalPanel({
   workspaceId,
   recommendationId,
@@ -33,6 +41,8 @@ export default function ActionApprovalPanel({
     content: payload.content,
     approval: initialApproval,
   });
+  const [execution, setExecution] = useState<ActionExecutionState | null>(null);
+  const [executedPayload, setExecutedPayload] = useState<ExecutedPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,10 +50,17 @@ export default function ActionApprovalPanel({
     contentRef.current = next;
     setContent(next);
     setError(null);
+
     if (next === decidedPayload.content) {
       setApproval(decidedPayload.approval);
     } else {
       setApproval({ status: "pending_approval", payloadHash: null, decidedAt: null });
+    }
+
+    if (executedPayload?.content === next) {
+      setExecution(executedPayload.execution);
+    } else {
+      setExecution(null);
     }
   }
 
@@ -78,8 +95,49 @@ export default function ActionApprovalPanel({
         body.approval,
       );
       if (visibleApproval) setApproval(visibleApproval);
+      if (decision === "rejected") {
+        setExecution(null);
+        setExecutedPayload(null);
+      }
     } catch {
       setError("ACTION_APPROVAL_FAILED");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function execute() {
+    const submittedContent = content;
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/action-executions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          workspaceId,
+          recommendationId,
+          content: submittedContent,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { execution?: ActionExecutionState; error?: string }
+        | null;
+      if (!response.ok || !body?.execution) {
+        setError(body?.error ?? "ACTION_EXECUTION_FAILED");
+        return;
+      }
+
+      const executed = { content: submittedContent, execution: body.execution };
+      setExecutedPayload(executed);
+      const visibleExecution = executionStateForSubmittedPayload(
+        contentRef.current,
+        submittedContent,
+        body.execution,
+      );
+      if (visibleExecution) setExecution(visibleExecution);
+    } catch {
+      setError("ACTION_EXECUTION_FAILED");
     } finally {
       setBusy(false);
     }
@@ -94,11 +152,21 @@ export default function ActionApprovalPanel({
           ? "Approval is not required for this action"
           : "Awaiting your decision";
 
+  const canExecute = canRequestProtectedExecution(payload);
+  const executionLabel =
+    execution?.status === "PASS"
+      ? "CRM write verified"
+      : execution?.status === "FAIL"
+        ? `Execution failed: ${execution.resultCode}`
+        : execution?.status === "BLOCKED"
+          ? `Execution blocked: ${execution.resultCode}`
+          : null;
+
   return (
     <div className="action-panel">
       <p className="note">
         This is the exact payload you are reviewing. Editing any character creates a new
-        payload that does not reuse a previous approval.
+        payload that does not reuse a previous approval or execution result.
       </p>
       <div className="field">
         <label>
@@ -139,7 +207,7 @@ export default function ActionApprovalPanel({
               disabled={busy || content.trim().length === 0}
               onClick={() => void decide("approved")}
             >
-              {busy ? "Recording…" : "Approve exact payload"}
+              {busy ? "Working…" : "Approve exact payload"}
             </button>
             <button
               className="action-btn"
@@ -156,15 +224,59 @@ export default function ActionApprovalPanel({
         )
       ) : null}
 
+      {canExecute && approval.status === "approved" ? (
+        <div className="actions" style={{ marginTop: 12 }}>
+          <button
+            className="action-btn btn-primary"
+            disabled={busy || content.trim().length === 0}
+            onClick={() => void execute()}
+          >
+            {busy ? "Working…" : "Execute approved CRM write-back"}
+          </button>
+        </div>
+      ) : null}
+
+      {payload.requiresApproval && approval.status === "approved" && !canExecute ? (
+        <p className="note">
+          Approval is recorded, but this action has no authorized in-app external executor.
+          No customer-facing send, call, or meeting is reported as executed.
+        </p>
+      ) : null}
+
+      {executionLabel ? (
+        <div className="chip-row" style={{ marginTop: 12 }}>
+          <span
+            className={`badge ${
+              execution?.status === "PASS"
+                ? "tag-good"
+                : execution?.status === "FAIL"
+                  ? "tag-bad"
+                  : "tag-warn"
+            }`}
+          >
+            {executionLabel}
+          </span>
+          {execution?.executedAt ? (
+            <span className="muted">
+              Executed {new Date(execution.executedAt).toLocaleString()}
+              {execution.replayed ? " · idempotent replay" : ""}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       {error ? (
         <p className="alert" role="alert">
-          Approval could not be recorded. No protected action was executed. ({error})
+          The request could not be completed. No unverified protected action is reported as
+          executed. ({error})
         </p>
       ) : null}
 
       <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
-        This control records approval only. It does not send a customer message, schedule a
-        meeting, or write to the CRM.
+        Execution rechecks current workspace, account owner, recommendation verification,
+        exact-payload approval, and idempotency in PostgreSQL immediately before the write.
+        Unit 5 executes only the deterministic CRM research-note action. Customer-facing
+        external execution remains blocked.
       </p>
     </div>
   );

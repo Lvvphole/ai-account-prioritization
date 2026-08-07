@@ -99,10 +99,11 @@ echo "    $applied migrations applied to an empty database"
 #
 # Order matters: each file builds on the fixtures the previous one created,
 # which keeps the setup honest rather than re-seeding a convenient world for
-# every check.
+# every check. The 00 auth stub is setup only; every later two-digit suite runs.
 
 total=0
-for suite in "$TESTS"/0[1-9]_*.sql; do
+for suite in "$TESTS"/[0-9][0-9]_*.sql; do
+  [ "$(basename "$suite")" = "00_supabase_auth_stub.sql" ] && continue
   name="$(basename "$suite" .sql)"
   output="$("${PSQL[@]}" -q -f "$suite" 2>&1)" || {
     echo "$output" | sed 's/^/    /' >&2
