@@ -21,7 +21,9 @@ const h = vi.hoisted(() => {
   });
   const runDailyPrioritizationForOwner = vi.fn(
     async (requestedOwner: string, opts: { now?: string; rlsContext?: { workspaceId?: string } }) => ({
-      runId: `run_${requestedOwner}_${opts.rlsContext?.workspaceId ?? "offline"}`,
+      // Run identity is owned and regression-tested by the real orchestrator.
+      // This scheduler mock intentionally does not synthesize workspace safety.
+      runId: `mock_run_${requestedOwner}`,
       ownerId: requestedOwner,
       generatedAt: opts.now ?? "2026-08-07T10:00:00.000Z",
       recommendations: [],
