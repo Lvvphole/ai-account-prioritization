@@ -5,9 +5,9 @@
 -- when change-set items exist, from the committable items themselves. This keeps
 -- the final database boundary fail-closed even if an authenticated administrator
 -- bypasses the normal approval endpoint and writes an approval row directly.
--- Hard-block refusal remains in the production commit RPC, where the reviewed
--- import operation is authorized; this trigger is limited to approval completeness
--- so existing lower-level reference-binding tests retain their isolated purpose.
+-- The production commit RPC checks hard blocks itself. Direct authenticated table
+-- writes receive the same hard-block refusal here without changing the purpose of
+-- lower-level superuser reference-binding tests.
 
 create or replace function public.enforce_commit_approval_complete()
 returns trigger
@@ -54,6 +54,17 @@ begin
   -- not reclassified as browser actors by this guard.
   if current_user = 'authenticated' and batch_state <> 'committing' then
     raise exception 'authenticated commit requires a batch in committing state'
+      using errcode = 'check_violation';
+  end if;
+
+  if current_user = 'authenticated' and exists (
+    select 1
+      from public.ingestion_findings f
+     where f.batch_id = new.batch_id
+       and f.workspace_id = new.workspace_id
+       and (f.disposition = 'hard_block' or public.is_hard_block_rule(f.rule_id))
+  ) then
+    raise exception 'a hard-block finding prohibits commit'
       using errcode = 'check_violation';
   end if;
 
