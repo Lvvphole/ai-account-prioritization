@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Recommendation } from "@repo/shared-schemas";
 import {
   assembleLiveDashboardData,
+  liveDashboardExportRows,
   resolveDashboardDataMode,
   type LiveDashboardAccountSummary,
   type LiveDashboardDataSource,
@@ -147,6 +148,16 @@ test("an unauthorized requested workspace fails closed before recommendation rea
   assert.deepEqual(fixture.accountCalls, []);
 });
 
+test("repeated workspace query parameters fail closed before recommendation reads", async () => {
+  const fixture = sourceFor([{ id: WORKSPACE_A, name: "Workspace A" }]);
+  const data = await assembleLiveDashboardData(fixture.source, [WORKSPACE_A, WORKSPACE_B]);
+
+  assert.equal(data.status, "invalid_workspace");
+  assert.equal(data.activeWorkspaceId, null);
+  assert.deepEqual(fixture.recommendationCalls, []);
+  assert.deepEqual(fixture.accountCalls, []);
+});
+
 test("a valid explicit workspace scopes recommendation and account reads", async () => {
   const fixture = sourceFor([
     { id: WORKSPACE_A, name: "Workspace A" },
@@ -159,4 +170,34 @@ test("a valid explicit workspace scopes recommendation and account reads", async
   assert.deepEqual(fixture.recommendationCalls, [WORKSPACE_A]);
   assert.deepEqual(fixture.accountCalls, [{ workspaceId: WORKSPACE_A, accountIds: [ACCOUNT_A] }]);
   assert.equal(data.recommendations[0]?.id, RECOMMENDATION.id);
+});
+
+test("recommendations are removed when the current owner-scoped account read no longer authorizes the account", async () => {
+  const fixture = sourceFor(
+    [{ id: WORKSPACE_A, name: "Workspace A" }],
+    [RECOMMENDATION],
+    [],
+  );
+  const data = await assembleLiveDashboardData(fixture.source, WORKSPACE_A);
+
+  assert.equal(data.status, "ready");
+  assert.deepEqual(data.recommendations, []);
+  assert.deepEqual(data.accountsById, {});
+  assert.deepEqual(fixture.recommendationCalls, [WORKSPACE_A]);
+  assert.deepEqual(fixture.accountCalls, [{ workspaceId: WORKSPACE_A, accountIds: [ACCOUNT_A] }]);
+});
+
+test("live export rows use canonical account summaries and never demo metadata", async () => {
+  const fixture = sourceFor([{ id: WORKSPACE_A, name: "Workspace A" }]);
+  const data = await assembleLiveDashboardData(fixture.source, WORKSPACE_A);
+  const rows = liveDashboardExportRows(data);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.account_id, ACCOUNT_A);
+  assert.equal(rows[0]?.account_name, "Helios Manufacturing");
+  assert.equal(rows[0]?.industry, "Industrial");
+  assert.equal(rows[0]?.tier, "strategic");
+  assert.equal(rows[0]?.revenue_usd, 180000);
+  assert.equal(rows[0]?.owner_id, OWNER);
+  assert.equal("owner_name" in (rows[0] ?? {}), false);
 });
