@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Full production verification: runs every gate and writes a markdown report to
-# verification-reports/. Exits non-zero if any gate fails. The executor never
-# self-certifies — this is the machine-checkable record the verifier owns.
+# Full production verification: runs every required Tier 3 gate and writes a
+# markdown report to verification-reports/. Exits non-zero if any gate fails.
+# The executor never self-certifies; this is the machine-checkable record the
+# verifier owns.
 set -uo pipefail
 
 REPORT_DIR="verification-reports"
@@ -49,8 +50,9 @@ check_files() {
   return $missing
 }
 
-# Generated JSON Schema must already match the committed Zod source — it is the
-# contract the Python service consumes. A non-empty diff means it was not committed.
+# Generated JSON Schema must already match the committed Zod source. A non-empty
+# diff means generation changed tracked artifacts and the committed contract is
+# stale.
 check_schema_drift() {
   git diff --exit-code -- \
     packages/shared-schemas/generated \
@@ -59,21 +61,28 @@ check_schema_drift() {
 
 run_gate "Required files" check_files
 run_gate "Install (frozen lockfile)" pnpm install --frozen-lockfile
-# Scan BEFORE any step that can rewrite tracked files (e.g. schema generation),
-# so the scan reflects the committed tree, not a regenerated one.
+# Scan before any step that can rewrite tracked files so the scan reflects the
+# committed tree, not regenerated output.
 run_gate "Secret scan" pnpm scan:secrets
 run_gate "Generate schemas" pnpm generate:schemas
 run_gate "Schema artifacts committed (no drift)" check_schema_drift
+run_gate "Lint" pnpm lint
 run_gate "Build" pnpm build
 run_gate "Typecheck" pnpm typecheck
+run_gate "Unit tests" pnpm test
 run_gate "Deterministic evals" pnpm test:evals
-run_gate "Judge eval (heuristic offline)" bash -c 'EVAL_JUDGE_ENABLED=true pnpm test:judge'
+run_gate "Build Python support service" pnpm build:api-python
 run_gate "No Prisma" pnpm check:no-prisma
 run_gate "Security package" pnpm verify:security
-run_gate "Migration invariants" pnpm verify:migrations
 run_gate "Observability package" pnpm verify:observability
-run_gate "Docker compose config" docker compose -f infra/compose.yaml config
+run_gate "Migration invariants" pnpm verify:migrations
+run_gate "Docker compose config" pnpm docker:config
+run_gate "Docker image build" pnpm docker:build
+run_gate "Git diff check" git diff --check
 
+# `pnpm verify:production` invokes this script, so the Tier 3 list's
+# verify:production entry is satisfied by this execution rather than recursively
+# invoking itself.
 result="$([ $overall -eq 0 ] && echo '✅ ALL GATES PASSED' || echo '❌ FAILURES PRESENT')"
 {
   echo "# Production verification report"
