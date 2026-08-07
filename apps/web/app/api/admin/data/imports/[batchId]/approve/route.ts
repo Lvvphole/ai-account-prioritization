@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { can } from "@repo/security";
-import { getSessionContext } from "../../../../../../../lib/auth";
-import { isSupabaseConfigured } from "../../../../../../../lib/supabase/config";
-import { createClient } from "../../../../../../../lib/supabase/server";
+import { getSessionContext } from "../../../../../../lib/auth";
+import { isSupabaseConfigured } from "../../../../../../lib/supabase/config";
+import { createClient } from "../../../../../../lib/supabase/server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
