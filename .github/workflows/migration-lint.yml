@@ -82,7 +82,7 @@ jobs:
         run: pnpm verify:migrations
 
       - name: Lint migrated public schema
-        run: pnpm run db:lint -- --db-url "$DATABASE_URL"
+        run: pnpm db:lint --db-url "$DATABASE_URL"
 
       - name: Stop controlled PostgreSQL
         if: always()
