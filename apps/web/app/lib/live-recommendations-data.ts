@@ -122,7 +122,9 @@ async function loadLatestPublishedRecommendations(
         .range(from, to),
   );
 
-  return rows.map(toRecommendation).sort((a, b) => a.rank - b.rank || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return rows
+    .map(toRecommendation)
+    .sort((a, b) => a.rank - b.rank || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 function createLiveDashboardDataSource(
@@ -134,7 +136,11 @@ function createLiveDashboardDataSource(
       const memberships = await fetchAllRows<WorkspaceMembershipRow>(
         "LIVE_DASHBOARD_MEMBERSHIPS_FAILED",
         (from, to) =>
-          queryTable<WorkspaceMembershipRow>(supabase, "workspace_memberships", "workspace_id")
+          queryTable<WorkspaceMembershipRow>(
+            supabase,
+            "workspace_memberships",
+            "workspace_id",
+          )
             .eq("user_id", userId)
             .order("workspace_id", { ascending: true })
             .range(from, to),
@@ -221,7 +227,7 @@ export async function loadLatestPublishedRecommendationsForCurrentUser(
  * workspace selection before recommendation data is read.
  */
 export async function loadLiveDashboardForCurrentUser(
-  selectedWorkspaceId?: string,
+  selectedWorkspaceId?: string | string[],
 ): Promise<LiveDashboardData> {
   if (!isSupabaseConfigured()) {
     throw new Error("LIVE_DASHBOARD_REQUIRES_SUPABASE");
