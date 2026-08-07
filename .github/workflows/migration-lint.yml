@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:54329/migration_lint
+      DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:54329/migration_lint?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
