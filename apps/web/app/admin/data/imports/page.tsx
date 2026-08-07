@@ -1,4 +1,5 @@
 import { can } from "@repo/security";
+import type { IngestionState } from "@repo/shared-schemas";
 import { requireCapability } from "../../../lib/auth";
 import {
   IMPORT_BATCHES,
@@ -9,29 +10,38 @@ import {
   totalRows,
 } from "../../../lib/imports-data";
 import { formatBytes } from "../../../lib/import-preflight";
+import { loadLiveImportList, type LiveImportListRow } from "../../../lib/live-imports-data";
+import { isSupabaseConfigured } from "../../../lib/supabase/config";
 import { IngestionStatePill, SampleNotice } from "../../../components/ImportBits";
 import { Section } from "../../../components/AdminBits";
 import DataSubnav from "../../../components/DataSubnav";
 
 export const metadata = { title: "Imports" };
 
+interface ImportListRow {
+  batchId: string;
+  name: string;
+  detail: string;
+  type: string;
+  state: IngestionState;
+  rows: number;
+  committable: number;
+  uploaded: string;
+  uploadedBy: string;
+}
+
 /**
  * Manual CSV imports (secure-ingestion spec, section 7).
  *
- * The list is the audit surface as much as the working surface: every batch
- * ever started stays here with its disposition counts, including the ones that
- * were refused, because "why did that file not import" is the question this
- * page exists to answer.
- *
- * The capability checks below are the page's own, and today they are the looser
- * of two: the admin layout still gates the whole section on `edit_scoring_config`,
- * which only an admin holds, so the manager read-only path these checks describe
- * is not reachable yet. They are written to the RBAC matrix rather than to the
- * layout so that opening the section to managers is a change in one place.
+ * A configured deployment reads batch history from persistence. Static fixtures
+ * remain available only in explicit demo mode and stay visibly labeled as
+ * sample data.
  */
 export default async function ImportsPage() {
   const ctx = await requireCapability("view_ingestion_batches");
   const mayImport = can(ctx.role, "create_manual_import");
+  const live = isSupabaseConfigured();
+  const rows = live ? liveRows(await loadLiveImportList()) : sampleRows();
 
   return (
     <section>
@@ -58,7 +68,7 @@ export default async function ImportsPage() {
           )
         }
       >
-        {IMPORT_HISTORY_IS_SAMPLE ? <SampleNotice what="The batch history below" /> : null}
+        {!live && IMPORT_HISTORY_IS_SAMPLE ? <SampleNotice what="The batch history below" /> : null}
 
         <div className="table-scroll">
           <table>
@@ -73,35 +83,37 @@ export default async function ImportsPage() {
               </tr>
             </thead>
             <tbody>
-              {IMPORT_BATCHES.map((b) => {
-                const rows = totalRows(b.dispositions);
-                const ok = committableRows(b.dispositions);
-                return (
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="muted">
+                    No persisted import batches are visible to this workspace.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((b) => (
                   <tr key={b.batchId}>
                     <td>
                       <a href={`/admin/data/imports/${b.batchId}`}>{b.name}</a>
-                      <div className="muted small">
-                        {shortId(b.batchId)} · {b.originalFilename} · {formatBytes(b.bytes)}
-                      </div>
+                      <div className="muted small">{b.detail}</div>
                     </td>
-                    <td>{b.mappingVersion}</td>
+                    <td>{b.type}</td>
                     <td>
                       <IngestionStatePill state={b.state} />
                     </td>
-                    <td className="num">{rows.toLocaleString("en-US")}</td>
+                    <td className="num">{b.rows.toLocaleString("en-US")}</td>
                     <td className="num">
-                      {ok.toLocaleString("en-US")}
-                      {rows > 0 && ok < rows ? (
-                        <span className="muted"> of {rows.toLocaleString("en-US")}</span>
+                      {b.committable.toLocaleString("en-US")}
+                      {b.rows > 0 && b.committable < b.rows ? (
+                        <span className="muted"> of {b.rows.toLocaleString("en-US")}</span>
                       ) : null}
                     </td>
                     <td>
-                      {b.uploadedAt}
+                      {b.uploaded}
                       <div className="muted small">{b.uploadedBy}</div>
                     </td>
                   </tr>
-                );
-              })}
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -137,6 +149,37 @@ export default async function ImportsPage() {
       </Section>
     </section>
   );
+}
+
+function liveRows(batches: LiveImportListRow[]): ImportListRow[] {
+  return batches.map((batch) => ({
+    batchId: batch.batchId,
+    name: batch.name,
+    detail: shortId(batch.batchId),
+    type: batch.objectType ?? batch.mappingVersionId ?? "—",
+    state: batch.state,
+    rows: batch.totalRows,
+    committable: batch.committableRows,
+    uploaded: batch.createdAt,
+    uploadedBy: batch.createdBy,
+  }));
+}
+
+function sampleRows(): ImportListRow[] {
+  return IMPORT_BATCHES.map((batch) => {
+    const rows = totalRows(batch.dispositions);
+    return {
+      batchId: batch.batchId,
+      name: batch.name,
+      detail: `${shortId(batch.batchId)} · ${batch.originalFilename} · ${formatBytes(batch.bytes)}`,
+      type: batch.mappingVersion,
+      state: batch.state,
+      rows,
+      committable: committableRows(batch.dispositions),
+      uploaded: batch.uploadedAt,
+      uploadedBy: batch.uploadedBy,
+    };
+  });
 }
 
 function Limit({ label, value }: { label: string; value: string }) {
