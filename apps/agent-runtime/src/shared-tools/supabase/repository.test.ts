@@ -8,12 +8,13 @@ import type { Recommendation } from "@repo/shared-schemas";
  *  1. Offline-by-default repository resolution for evals/CI.
  *  2. Correct DB row -> Zod schema mapping.
  *  3. Runtime service reads fail closed without workspace scope.
- *  4. Owner enumeration preserves workspace partitions.
+ *  4. Owner enumeration preserves workspace partitions and stable page order.
  *  5. Runtime audit writes use the workspace-binding RPC.
  *  6. Only verified published recommendations reach the durable persistence RPC.
  */
 const h = vi.hoisted(() => {
   const rpcCalls: Array<{ functionName: string; args: Record<string, unknown> }> = [];
+  const orderCalls: Array<{ table: string; column: string; ascending: boolean }> = [];
   const tableData: Record<string, Array<Record<string, unknown>>> = {};
   const state: { rpcError: string | null; persistCountOverride: number | null } = {
     rpcError: null,
@@ -23,6 +24,7 @@ const h = vi.hoisted(() => {
   const client = {
     from(table: string) {
       const filters: Array<[string, unknown]> = [];
+      const orders: Array<{ column: string; ascending: boolean }> = [];
       const builder = {
         select() {
           return builder;
@@ -31,12 +33,27 @@ const h = vi.hoisted(() => {
           filters.push([column, value]);
           return builder;
         },
+        order(column: string, options?: { ascending?: boolean }) {
+          const ascending = options?.ascending !== false;
+          orders.push({ column, ascending });
+          orderCalls.push({ table, column, ascending });
+          return builder;
+        },
         range(from: number, to: number) {
           const rows = tableData[table] ?? [];
           const filtered = rows.filter((row) =>
             filters.every(([column, value]) => row[column] === value),
           );
-          return Promise.resolve({ data: filtered.slice(from, to + 1), error: null });
+          const ordered = [...filtered].sort((left, right) => {
+            for (const { column, ascending } of orders) {
+              const leftValue = String(left[column] ?? "");
+              const rightValue = String(right[column] ?? "");
+              const result = leftValue.localeCompare(rightValue);
+              if (result !== 0) return ascending ? result : -result;
+            }
+            return 0;
+          });
+          return Promise.resolve({ data: ordered.slice(from, to + 1), error: null });
         },
       };
       return builder;
@@ -60,7 +77,7 @@ const h = vi.hoisted(() => {
       });
     },
   };
-  return { rpcCalls, tableData, state, client };
+  return { rpcCalls, orderCalls, tableData, state, client };
 });
 
 vi.mock("@repo/supabase-client", () => ({
@@ -149,6 +166,7 @@ function accountRow(
 
 beforeEach(() => {
   h.rpcCalls.length = 0;
+  h.orderCalls.length = 0;
   h.state.rpcError = null;
   h.state.persistCountOverride = null;
   for (const k of Object.keys(h.tableData)) delete h.tableData[k];
@@ -175,14 +193,19 @@ describe("Supabase repository mapping + tenant scope + durable writes", () => {
 
   it("keeps the same owner in separate deterministic workspace scopes", async () => {
     h.tableData.accounts = [
-      accountRow("aaaaaaa1-0000-0000-0000-000000000001", WORKSPACE_A, "A"),
       accountRow("bbbbbbb2-0000-0000-0000-000000000002", WORKSPACE_B, "B"),
+      accountRow("aaaaaaa1-0000-0000-0000-000000000001", WORKSPACE_A, "A"),
     ];
 
     const repo = createSupabaseRepository(SERVICE, NOW);
     await expect(repo.listOwnerScopes()).resolves.toEqual([
       { workspaceId: WORKSPACE_A, ownerId: OWNER },
       { workspaceId: WORKSPACE_B, ownerId: OWNER },
+    ]);
+    expect(h.orderCalls).toEqual([
+      { table: "accounts", column: "workspace_id", ascending: true },
+      { table: "accounts", column: "owner_id", ascending: true },
+      { table: "accounts", column: "id", ascending: true },
     ]);
   });
 
