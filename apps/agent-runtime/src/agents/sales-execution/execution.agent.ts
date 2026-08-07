@@ -4,6 +4,7 @@ import {
   GeneratedDraftSchema,
   type Recommendation,
 } from "@repo/shared-schemas";
+import generatedDraftJsonSchema from "@repo/shared-schemas/json-schema/GeneratedDraft.json";
 import type { AccountContext } from "../account-prioritizer/prioritizer.policy";
 import { generateCallObjective } from "./tools/generate-call-objective";
 import { generateEmailDraft } from "./tools/generate-email-draft";
@@ -24,16 +25,18 @@ import {
   RUNTIME_DRAFT_POLICY_VERSION,
   runtimeDraftingPolicyAuditSnapshot,
   runtimeDraftingPolicyFromEnv,
+  runtimeModelInvocationConfigFromDraftingPolicy,
   type RuntimeDraftingPolicy,
   type RuntimeDraftingPolicyAuditSnapshot,
 } from "./execution.policy";
 import {
-  anthropicRuntimeModelClient,
   RuntimeModelError,
+  type RuntimeJsonSchema,
   type RuntimeModelClient,
   type RuntimeModelRequest,
   type RuntimeModelTelemetry,
 } from "../../inference/runtime-model";
+import { runtimeModelClientForProvider } from "../../inference/runtime-model-registry";
 import {
   DRAFT_GROUNDING_RULES_VERSION,
   renderGroundedDraft,
@@ -42,6 +45,20 @@ import {
 
 export const DETERMINISTIC_DRAFT_FALLBACK_VERSION = "deterministic-template-v1";
 const MODEL_PROTOCOL_TOKEN_OVERHEAD = 64;
+
+type GeneratedDraftSchemaArtifact = {
+  definitions?: {
+    GeneratedDraft?: RuntimeJsonSchema;
+  };
+};
+
+const GENERATED_DRAFT_PROVIDER_SCHEMA = (
+  generatedDraftJsonSchema as GeneratedDraftSchemaArtifact
+).definitions?.GeneratedDraft;
+
+if (!GENERATED_DRAFT_PROVIDER_SCHEMA) {
+  throw new Error("GeneratedDraft JSON Schema artifact is missing its canonical definition.");
+}
 
 /**
  * Deterministic template drafter retained as the offline baseline and explicit
@@ -148,6 +165,7 @@ export interface HybridDraftInvocationStart {
   promptHash: string;
   schemaVersion: string;
   policyVersion: string;
+  effectivePolicy: RuntimeDraftingPolicyAuditSnapshot;
   effectivePolicyHash: string;
   groundingVersion: string;
   inputTokenUpperBound: number;
@@ -201,8 +219,9 @@ const modelDraftable = (type: Recommendation["nextBestAction"]["type"]): boolean
 
 /**
  * Conservative provider-independent upper bound based on UTF-8 payload bytes,
- * plus a fixed allowance for role/message framing. It intentionally overcounts
- * normal text rather than making a second metered provider call just to count.
+ * including the constrained-output schema, plus a fixed allowance for provider
+ * framing. It intentionally overcounts normal text rather than making a second
+ * metered provider call just to count.
  */
 export function estimateRuntimeModelInputTokensUpperBound(
   request: RuntimeModelRequest,
@@ -210,6 +229,7 @@ export function estimateRuntimeModelInputTokensUpperBound(
   return (
     Buffer.byteLength(request.system, "utf8") +
     Buffer.byteLength(request.user, "utf8") +
+    Buffer.byteLength(JSON.stringify(request.outputFormat.schema), "utf8") +
     MODEL_PROTOCOL_TOKEN_OVERHEAD
   );
 }
@@ -241,6 +261,10 @@ function buildBudgetedDraftRequest(
     const trialRequest: RuntimeModelRequest = {
       system: RUNTIME_DRAFT_SYSTEM_PROMPT,
       user: buildRuntimeDraftUserPrompt(trialContext),
+      outputFormat: {
+        type: "json_schema",
+        schema: GENERATED_DRAFT_PROVIDER_SCHEMA,
+      },
     };
     const trialUpperBound = estimateRuntimeModelInputTokensUpperBound(trialRequest);
     if (trialUpperBound <= policy.maxInputTokens) {
@@ -406,6 +430,9 @@ export async function attachHybridActionDraft(
     }
     reservedRunTokens = requestedRunTokens;
 
+    const invocationConfig = runtimeModelInvocationConfigFromDraftingPolicy(policy);
+    const client = options.modelClient ?? runtimeModelClientForProvider(policy.provider);
+
     if (!options.beforeModelInvoke) {
       throw new Error("DRAFT_AUDIT_START_REQUIRED");
     }
@@ -421,6 +448,7 @@ export async function attachHybridActionDraft(
         promptHash: baseOutcome.promptHash,
         schemaVersion: baseOutcome.schemaVersion,
         policyVersion: baseOutcome.policyVersion,
+        effectivePolicy: baseOutcome.effectivePolicy,
         effectivePolicyHash: baseOutcome.effectivePolicyHash,
         groundingVersion: baseOutcome.groundingVersion,
         inputTokenUpperBound,
@@ -430,9 +458,19 @@ export async function attachHybridActionDraft(
       throw new Error("DRAFT_AUDIT_START_FAILED");
     }
 
-    const client = options.modelClient ?? anthropicRuntimeModelClient;
-    const modelResult = await client.generate(prepared.request, policy);
+    const modelResult = await client.generate(prepared.request, invocationConfig);
     modelTelemetry = modelResult.telemetry;
+
+    if (
+      modelTelemetry.provider !== invocationConfig.provider ||
+      modelTelemetry.model !== invocationConfig.model
+    ) {
+      throw new RuntimeModelError(
+        "DRAFT_MODEL_INVALID_RESPONSE",
+        "Runtime model telemetry identity did not match the configured provider and model.",
+        modelTelemetry,
+      );
+    }
 
     const parsed = GeneratedDraftSchema.safeParse(modelResult.output);
     if (!parsed.success) {
