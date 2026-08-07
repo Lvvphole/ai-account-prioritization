@@ -1,0 +1,148 @@
+{
+  "$ref": "#/definitions/RecommendationFollowupRequest",
+  "definitions": {
+    "RecommendationFollowupRequest": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "workspaceId": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            },
+            "recommendationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "expectedEventId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "feedback"
+            },
+            "code": {
+              "type": "string",
+              "enum": [
+                "accepted",
+                "rejected",
+                "snoozed",
+                "completed",
+                "edited"
+              ]
+            }
+          },
+          "required": [
+            "workspaceId",
+            "recommendationId",
+            "expectedEventId",
+            "kind",
+            "code"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "workspaceId": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            },
+            "recommendationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "expectedEventId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "outcome"
+            },
+            "code": {
+              "type": "string",
+              "enum": [
+                "meeting_booked",
+                "opportunity_advanced",
+                "renewal_completed",
+                "expansion",
+                "closed_won",
+                "closed_lost",
+                "churned",
+                "no_response"
+              ]
+            }
+          },
+          "required": [
+            "workspaceId",
+            "recommendationId",
+            "expectedEventId",
+            "kind",
+            "code"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "workspaceId": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            },
+            "recommendationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "expectedEventId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "unknown"
+            },
+            "code": {
+              "type": "string",
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "workspaceId",
+            "recommendationId",
+            "expectedEventId",
+            "kind",
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
