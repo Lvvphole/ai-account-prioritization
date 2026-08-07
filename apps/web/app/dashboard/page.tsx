@@ -105,7 +105,9 @@ function LiveDashboard({ data, denied }: { data: LiveDashboardData; denied?: str
     (sum, rec) => sum + (data.accountsById[rec.accountId]?.openPipelineUsd ?? 0),
     0,
   );
-  const pending = recs.filter((rec) => rec.approvalStatus === "pending_approval").length;
+  const protectedActions = recs.filter(
+    (rec) => rec.nextBestAction.customerFacing || rec.nextBestAction.crmWriteBack,
+  ).length;
 
   return (
     <section>
@@ -130,7 +132,7 @@ function LiveDashboard({ data, denied }: { data: LiveDashboardData; denied?: str
       <div className="kpi-row">
         <Kpi value={String(recs.length)} label="Accounts Today" />
         <Kpi value={formatUsd(pipeline)} label="Revenue in View" />
-        <Kpi value={String(pending)} label="Awaiting Your Approval" tone="warn" />
+        <Kpi value={String(protectedActions)} label="Protected Actions to Review" tone="warn" />
       </div>
 
       <p className="disclaimer">{NOT_A_WIN_PROBABILITY}</p>
@@ -149,6 +151,9 @@ function LiveDashboard({ data, denied }: { data: LiveDashboardData; denied?: str
 
       {recs.map((rec) => {
         const profile = data.accountsById[rec.accountId];
+        const detailHref = `/accounts/${encodeURIComponent(rec.accountId)}?workspace=${encodeURIComponent(
+          data.activeWorkspaceId ?? "",
+        )}&recommendation=${encodeURIComponent(rec.id)}`;
         return (
           <article key={rec.id} className="card">
             <div className="account-card-head">
@@ -205,9 +210,14 @@ function LiveDashboard({ data, denied }: { data: LiveDashboardData; denied?: str
                 ))}
               </ul>
             </details>
+            <div style={{ marginTop: 10 }}>
+              <a className="btn-sm" href={detailHref}>
+                Review action →
+              </a>
+            </div>
             <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
-              Verification: {rec.verification.status} · live action detail remains disabled until
-              its mock-backed context is replaced.
+              Verification: {rec.verification.status} · exact payload approval is rechecked on
+              action detail.
             </div>
           </article>
         );
