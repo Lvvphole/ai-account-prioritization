@@ -12,7 +12,7 @@ import {
   type Opportunity,
 } from "@repo/shared-schemas";
 import type { Json, Tables, TypedSupabaseClient } from "@repo/supabase-client";
-import type { RuntimeRepository } from "../runtime-repository";
+import type { OwnerScope, RuntimeRepository } from "../runtime-repository";
 import { createRuntimeClient } from "./client";
 import { getServiceRoleClient } from "./service-role-client";
 import type { RlsContext } from "./rls-context";
@@ -21,11 +21,11 @@ import type { RlsContext } from "./rls-context";
  * Supabase-backed runtime repository.
  *
  * Reads source signals through an RLS-aware client (user mode) or the
- * service-role client (background/service mode). Runtime writes use narrow
- * service-role RPC boundaries that derive tenant identity from canonical
- * accounts before writing durable audit evidence or published recommendations.
- * DB rows (snake_case, UUIDs, timestamptz) are mapped into the Zod application
- * schemas, which remain the runtime's DTO source of truth.
+ * service-role client (background/service mode). A service account read is
+ * fail-closed unless the scheduler supplied an explicit workspace scope.
+ * Runtime writes use narrow service-role RPC boundaries that derive tenant
+ * identity from canonical accounts before writing durable audit evidence or
+ * published recommendations.
  *
  * This implementation is used ONLY when an RLS context is supplied AND Supabase
  * is configured; otherwise the runtime stays on the in-memory store. See
@@ -124,9 +124,9 @@ function unwrap<T>(
 }
 
 /**
- * The committed database types lag migration-only RPCs. Keep the cast local to
- * this adapter until generated Supabase types are refreshed from a provisioned
- * database; application DTO validation remains Zod-owned.
+ * The committed database types lag migration-only workspace/RPC fields. Keep
+ * these casts local until generated Supabase types are refreshed from a
+ * provisioned database. Zod remains the application DTO source of truth.
  */
 type RuntimeRpcClient = {
   rpc(
@@ -135,8 +135,24 @@ type RuntimeRpcClient = {
   ): PromiseLike<{ data: unknown; error: { message: string } | null }>;
 };
 
+type WorkspaceAccountRow = Tables<"accounts"> & { workspace_id: string };
+type RuntimeFilterBuilder<T> = {
+  eq(column: string, value: string): RuntimeFilterBuilder<T>;
+  range(
+    from: number,
+    to: number,
+  ): PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+};
+type RuntimeAccountsTable = {
+  select(columns: string): RuntimeFilterBuilder<WorkspaceAccountRow>;
+};
+
 function serviceRpcClient(): RuntimeRpcClient {
   return getServiceRoleClient() as unknown as RuntimeRpcClient;
+}
+
+function runtimeAccountsTable(read: TypedSupabaseClient): RuntimeAccountsTable {
+  return read.from("accounts") as unknown as RuntimeAccountsTable;
 }
 
 /**
@@ -171,24 +187,51 @@ export function createSupabaseRepository(
   nowIso: string,
 ): RuntimeRepository {
   // Reads: user mode honors RLS via the user's token; service mode uses the
-  // service-role client with an explicit owner filter (RLS bypassed by design).
+  // service-role client and therefore must be narrowed by workspace before
+  // canonical account reads.
   const read: TypedSupabaseClient =
     ctx.kind === "user" ? createRuntimeClient(ctx) : getServiceRoleClient();
 
   return {
     async listAccountsByOwner(ownerId) {
-      const rows = await fetchAllRows<Tables<"accounts">>("read accounts", (from, to) =>
-        read.from("accounts").select("*").eq("owner_id", ownerId).range(from, to),
-      );
+      if (ctx.kind === "service" && !ctx.workspaceId) {
+        throw new Error("Service account reads require an explicit workspace scope.");
+      }
+
+      const rows = await fetchAllRows<WorkspaceAccountRow>("read accounts", (from, to) => {
+        let query = runtimeAccountsTable(read).select("*").eq("owner_id", ownerId);
+        if (ctx.workspaceId) {
+          query = query.eq("workspace_id", ctx.workspaceId);
+        }
+        return query.range(from, to);
+      });
       return rows.map((r) => toAccount(r, nowIso));
     },
 
     async listAllOwners() {
-      const rows = await fetchAllRows<Pick<Tables<"accounts">, "owner_id">>(
-        "read owners",
-        (from, to) => read.from("accounts").select("owner_id").range(from, to),
+      const scopes = await this.listOwnerScopes();
+      return [...new Set(scopes.map((scope) => scope.ownerId))].sort();
+    },
+
+    async listOwnerScopes() {
+      const rows = await fetchAllRows<WorkspaceAccountRow>("read owner scopes", (from, to) => {
+        let query = runtimeAccountsTable(read).select("workspace_id,owner_id");
+        if (ctx.workspaceId) {
+          query = query.eq("workspace_id", ctx.workspaceId);
+        }
+        return query.range(from, to);
+      });
+
+      const unique = new Map<string, OwnerScope>();
+      for (const row of rows) {
+        const key = `${row.workspace_id}:${row.owner_id}`;
+        unique.set(key, { workspaceId: row.workspace_id, ownerId: row.owner_id });
+      }
+      return [...unique.values()].sort(
+        (a, b) =>
+          (a.workspaceId ?? "").localeCompare(b.workspaceId ?? "") ||
+          a.ownerId.localeCompare(b.ownerId),
       );
-      return [...new Set(rows.map((r) => r.owner_id))].sort();
     },
 
     async listContactsByAccount(accountId) {
