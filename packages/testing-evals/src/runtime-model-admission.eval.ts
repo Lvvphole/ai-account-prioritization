@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  normalizeRuntimeDraftingPolicy,
   productionModelAdmissionHash,
   runtimeDraftingPolicyAuditSnapshot,
   runtimeDraftingPolicyFromEnv,
+  type RuntimeDraftingPolicy,
 } from "agent-runtime";
 import {
   CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
@@ -182,6 +184,24 @@ const productionEnv = (path: string): NodeJS.ProcessEnv => ({
   P4_PRODUCTION_MODEL_ADMISSION: path,
 });
 
+const injectedRuntimePolicy = (): RuntimeDraftingPolicy => ({
+  enabled: true,
+  provider: "anthropic",
+  apiKey: "test-secret",
+  model: "pinned-test-model",
+  timeoutMs: 1000,
+  maxTokens: 200,
+  maxInputTokens: 4000,
+  maxSignals: 2,
+  maxConcurrent: 1,
+  maxRunTokens: 20000,
+  maxEvidenceAgeDays: 90,
+  maxAttempts: 1,
+  fallback: "template",
+  reasoningEffort: "medium",
+  outputFormat: "json_schema",
+});
+
 describe("P4 production model admission", () => {
   it("builds one explicit human-selected admission from a matching QUALIFIED report", () => {
     const config = fixedConfig();
@@ -198,6 +218,45 @@ describe("P4 production model admission", () => {
       qualificationPolicyHashForConfig(config),
     );
     expect(productionModelAdmissionHash(admission)).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("rejects fabricated aggregate metrics when run evidence does not cover the epoch", () => {
+    const config = fixedConfig();
+    const report = qualifiedReport(config);
+    const firstRun = report.candidates[0]!.runs[0]!;
+    report.candidates[0]!.runs = Array.from(
+      { length: report.candidates[0]!.runs.length },
+      () => ({ ...firstRun }),
+    );
+    report.candidates[0]!.metrics.modelVerifierPassRate = 1;
+    report.candidates[0]!.metrics.falseAcceptRate = 0;
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/unit3/test",
+      }),
+    ).toThrow("run coverage is invalid");
+  });
+
+  it("recomputes verifier and false-accept evidence from each run", () => {
+    const config = fixedConfig();
+    const report = qualifiedReport(config);
+    report.candidates[0]!.runs[0] = {
+      ...report.candidates[0]!.runs[0]!,
+      qualificationOracleCorrect: false,
+      falseAccept: false,
+    };
+    report.candidates[0]!.metrics.falseAcceptRate = 0;
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/unit3/test",
+      }),
+    ).toThrow("inconsistent false-accept evidence");
   });
 
   it("does not admit a candidate that is not qualified", () => {
@@ -232,6 +291,19 @@ describe("P4 production model admission", () => {
         P4_PRODUCTION_MODEL_ADMISSION: "",
       }),
     ).toThrow("requires P4_PRODUCTION_MODEL_ADMISSION");
+  });
+
+  it("blocks an admission-less policy injected directly into a production process", () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      expect(() => normalizeRuntimeDraftingPolicy(injectedRuntimePolicy())).toThrow(
+        "requires a qualified production model admission",
+      );
+    } finally {
+      if (previous === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous;
+    }
   });
 
   it("fails closed when runtime configuration differs from the admitted configuration", () => {

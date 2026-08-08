@@ -193,6 +193,20 @@ export function normalizeRuntimeDraftingPolicy(
     );
   }
 
+  // Directly injected policies are an untrusted runtime boundary too. An
+  // enabled production process cannot bypass admission by avoiding env parsing.
+  // Offline qualification and deterministic tests run outside NODE_ENV=production
+  // and therefore retain their explicit unadmitted evaluation seam.
+  if (
+    normalized.enabled &&
+    process.env.NODE_ENV === "production" &&
+    !normalized.productionAdmission
+  ) {
+    throw new Error(
+      "Enabled production runtime drafting requires a qualified production model admission.",
+    );
+  }
+
   if (normalized.productionAdmission) {
     assertRuntimeDraftingPolicyMatchesAdmission(normalized, normalized.productionAdmission);
   }
@@ -312,9 +326,8 @@ export function runtimeDraftingPolicyFromEnv(
       "Production runtime drafting requires P4_PRODUCTION_MODEL_ADMISSION from a real qualified admission decision.",
     );
   }
-  const productionAdmission = enabled && admissionPath
-    ? loadProductionModelAdmission(admissionPath)
-    : undefined;
+  const productionAdmission =
+    enabled && admissionPath ? loadProductionModelAdmission(admissionPath) : undefined;
 
   return normalizeRuntimeDraftingPolicy({
     enabled,
