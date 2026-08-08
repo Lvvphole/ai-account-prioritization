@@ -84,7 +84,7 @@ const staleAccount: Account = {
   id: "qual_acc_stale",
   name: "Qualification Stale Account",
   ownerId: "qual_rep",
-  tier: "growth",
+  tier: "mid_market",
   lifecycleStage: "customer",
   openPipelineUsd: 0,
   intentSignals: [],
