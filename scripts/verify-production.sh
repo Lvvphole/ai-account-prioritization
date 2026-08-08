@@ -80,6 +80,20 @@ run_gate "Observability package" pnpm verify:observability
 # canonical migration command inside the Tier 3 verifier without running the
 # same migration suite twice.
 run_gate "Acceptance A — deterministic baseline" pnpm test:acceptance:a
+
+# Acceptance B becomes a required production gate only after a real
+# qualification epoch and explicit human admission create one active admission
+# artifact. Before that point the repository must remain model-optional and must
+# not manufacture a candidate, threshold, credential, or PASS result.
+if [ -n "${P4_PRODUCTION_MODEL_ADMISSION:-}" ]; then
+  run_gate "Acceptance B — single qualified model" pnpm test:acceptance:b
+elif [ -f "config/production-model-admission.json" ]; then
+  export P4_PRODUCTION_MODEL_ADMISSION="$PWD/config/production-model-admission.json"
+  run_gate "Acceptance B — single qualified model" pnpm test:acceptance:b
+else
+  rows+=("| Acceptance B — single qualified model | ⏭ not active; no production model admitted |")
+fi
+
 run_gate "Docker compose config" pnpm docker:config
 run_gate "Docker image build" pnpm docker:build
 run_gate "Git diff check" git diff --check
