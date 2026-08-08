@@ -14,6 +14,7 @@
     "test": "turbo run test",
     "test:evals": "turbo run test:evals",
     "test:acceptance:a": "bash scripts/verify-acceptance-a.sh",
+    "qualify:models": "pnpm build && pnpm exec tsx packages/testing-evals/src/model-qualification/qualification-cli.ts",
     "test:trajectory": "turbo run test:trajectory --filter=@repo/testing-evals",
     "test:judge": "turbo run test:judge",
     "test:harness-kernel": "node --test scripts/harness-kernel.test.mjs",

@@ -23,6 +23,7 @@ export function runtimeModelClientForProvider(
     case "anthropic":
       return anthropicRuntimeModelClient;
     case "openai":
+    case "xai":
     case "google":
       throw new RuntimeModelError(
         "DRAFT_MODEL_CONFIG_ERROR",
@@ -45,6 +46,7 @@ export function runtimeModelOutputConfigurationForProvider(
     case "anthropic":
       return buildAnthropicOutputConfig(outputFormat, reasoningEffort);
     case "openai":
+    case "xai":
     case "google":
       return null;
   }

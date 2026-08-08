@@ -31,6 +31,7 @@ export {
   attachHybridActionDraft,
   createRuntimeDraftRunBudget,
   estimateRuntimeModelInputTokensUpperBound,
+  type HybridDraftInvocationStart,
   type HybridDraftOptions,
   type HybridDraftOutcome,
   type HybridDraftResult,
@@ -71,6 +72,7 @@ export {
 } from "./inference/runtime-model";
 export {
   anthropicRuntimeModelClient,
+  buildAnthropicOutputConfig,
   createAnthropicRuntimeModelClient,
   sanitizeAnthropicJsonSchema,
 } from "./inference/anthropic-runtime-model";
