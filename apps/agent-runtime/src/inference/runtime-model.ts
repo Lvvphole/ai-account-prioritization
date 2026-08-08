@@ -1,4 +1,4 @@
-export const RUNTIME_MODEL_PROVIDERS = ["anthropic", "openai", "google"] as const;
+export const RUNTIME_MODEL_PROVIDERS = ["anthropic", "openai", "xai", "google"] as const;
 export type RuntimeModelProvider = (typeof RUNTIME_MODEL_PROVIDERS)[number];
 
 export const RUNTIME_REASONING_EFFORTS = [
@@ -42,7 +42,9 @@ export interface RuntimeModelTelemetry {
   model: string;
   latencyMs: number;
   inputTokens?: number;
+  cachedInputTokens?: number;
   outputTokens?: number;
+  modelRevisionOrFingerprint?: string;
 }
 
 export interface RuntimeModelResult {
