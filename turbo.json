@@ -8,7 +8,23 @@
     "EVAL_JUDGE_MODEL",
     "SUPABASE_URL",
     "SUPABASE_ANON_KEY",
-    "SUPABASE_SERVICE_ROLE_KEY"
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "P4_PRODUCTION_MODEL_ADMISSION",
+    "RUNTIME_DRAFTING_ENABLED",
+    "RUNTIME_DRAFT_PROVIDER",
+    "RUNTIME_DRAFT_API_KEY",
+    "RUNTIME_DRAFT_MODEL",
+    "RUNTIME_DRAFT_REASONING_EFFORT",
+    "RUNTIME_DRAFT_TIMEOUT_MS",
+    "RUNTIME_DRAFT_MAX_TOKENS",
+    "RUNTIME_DRAFT_MAX_INPUT_TOKENS",
+    "RUNTIME_DRAFT_MAX_SIGNALS",
+    "RUNTIME_DRAFT_MAX_EVIDENCE_AGE_DAYS",
+    "RUNTIME_DRAFT_MAX_CONCURRENT",
+    "RUNTIME_DRAFT_MAX_RUN_TOKENS",
+    "RUNTIME_DRAFT_FALLBACK",
+    "VERIFY_ACCEPTANCE_B_RUNTIME",
+    "ACCEPTANCE_B_DATABASE_BACKED"
   ],
   "tasks": {
     "build": {
@@ -32,6 +48,11 @@
       "outputs": []
     },
     "test:acceptance:a": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": []
+    },
+    "test:acceptance:b": {
       "dependsOn": ["^build"],
       "cache": false,
       "outputs": []

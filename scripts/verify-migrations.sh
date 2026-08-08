@@ -135,4 +135,22 @@ if [ "${VERIFY_ACCEPTANCE_A_RUNTIME:-false}" = "true" ]; then
     || fail "Acceptance A database-backed runtime"
 fi
 
+# Acceptance B uses the same migrated database, but only when a real production
+# admission and live provider configuration are explicitly supplied by its root
+# gate. It runs the admitted model adapter once, checks authority against the
+# deterministic baseline, and persists the resulting recommendation through the
+# same durable representative path.
+if [ "${VERIFY_ACCEPTANCE_B_RUNTIME:-false}" = "true" ]; then
+  if [ -z "${DATABASE_URL:-}" ]; then
+    export PGHOST="$PGSOCK"
+    export PGPORT="$PGPORT"
+    export PGUSER="postgres"
+    export PGDATABASE="postgres"
+  fi
+  export ACCEPTANCE_B_DATABASE_BACKED=true
+  echo "==> Running Acceptance B runtime against the migrated database"
+  (cd "$ROOT" && pnpm turbo run test:acceptance:b --filter=@repo/testing-evals) \
+    || fail "Acceptance B database-backed runtime"
+fi
+
 echo "PASSED: $total schema assertions across $applied migrations."

@@ -22,6 +22,17 @@ export { runGuardrails } from "./agents/orchestrator/orchestrator.guardrails";
 export { prioritizeAccounts } from "./agents/account-prioritizer/prioritizer.agent";
 export { RUNTIME_CONFIG } from "./config/runtime";
 export { getEnv } from "./config/env";
+export {
+  P4_PRODUCTION_MODEL_ADMISSION_CONTRACT_VERSION,
+  assertRuntimeDraftingPolicyMatchesAdmission,
+  loadProductionModelAdmission,
+  parseProductionModelAdmission,
+  productionModelAdmissionHash,
+  type AdmissionComparableRuntimeDraftingPolicy,
+  type ProductionModelAdmission,
+  type ProductionModelAdmissionBudgets,
+  type ProductionModelQualificationEvidence,
+} from "./config/production-model-admission";
 export { mcpRegistry } from "./shared-tools/mcp/registry";
 export { createInProcessMcpClient } from "./shared-tools/mcp/client";
 export { ORCHESTRATOR_CONTRACT } from "./agents/orchestrator/orchestrator.prompt";
@@ -51,6 +62,7 @@ export {
   runtimeModelInvocationConfigFromDraftingPolicy,
   type RuntimeDraftingPolicy,
   type RuntimeDraftingPolicyAuditSnapshot,
+  type RuntimeProductionAdmissionAuditSnapshot,
 } from "./agents/sales-execution/execution.policy";
 export {
   RUNTIME_DRAFT_PROMPT_HASH,

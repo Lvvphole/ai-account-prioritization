@@ -13,12 +13,18 @@ import {
   IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
   runtimeModelOutputConfigurationForProvider,
 } from "../../inference/runtime-model-registry";
+import {
+  assertRuntimeDraftingPolicyMatchesAdmission,
+  loadProductionModelAdmission,
+  productionModelAdmissionHash,
+  type ProductionModelAdmission,
+} from "../../config/production-model-admission";
 import { DEFAULT_DRAFT_EVIDENCE_MAX_AGE_DAYS } from "./build-draft-context";
 
 export type DraftFallbackPolicy = "template" | "hold";
 export type RuntimeDraftOutputFormat = "json_schema";
 
-export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v8";
+export const RUNTIME_DRAFT_POLICY_VERSION = "runtime-draft-policy-v9";
 
 type GeneratedDraftSchemaArtifact = {
   definitions?: {
@@ -64,6 +70,20 @@ export interface RuntimeDraftingPolicy {
   reasoningEffort?: RuntimeReasoningEffort;
   /** Current P4 requires a provider-native JSON Schema constraint when invoked. */
   outputFormat?: RuntimeDraftOutputFormat;
+  /**
+   * Non-secret evidence that this exact production configuration was selected
+   * from a real qualification epoch. Offline qualification policies omit it.
+   */
+  productionAdmission?: ProductionModelAdmission;
+}
+
+export interface RuntimeProductionAdmissionAuditSnapshot {
+  candidateId: string;
+  decisionRef: string;
+  admissionHash: string;
+  qualificationPolicyHash: string;
+  qualificationReportHash: string;
+  qualificationCorpusHash: string;
 }
 
 /** Non-secret effective policy persisted before and after every model call. */
@@ -86,6 +106,8 @@ export interface RuntimeDraftingPolicyAuditSnapshot {
   canonicalOutputFormat: RuntimeModelOutputFormat;
   /** Exact non-secret provider-native output configuration, when admitted. */
   effectiveProviderOutputConfiguration: Record<string, unknown> | null;
+  /** Qualification/admission identity for the one active production model. */
+  productionAdmission: RuntimeProductionAdmissionAuditSnapshot | null;
 }
 
 const assertPolicyInteger = (
@@ -171,6 +193,24 @@ export function normalizeRuntimeDraftingPolicy(
     );
   }
 
+  // Directly injected policies are an untrusted runtime boundary too. An
+  // enabled production process cannot bypass admission by avoiding env parsing.
+  // Offline qualification and deterministic tests run outside NODE_ENV=production
+  // and therefore retain their explicit unadmitted evaluation seam.
+  if (
+    normalized.enabled &&
+    process.env.NODE_ENV === "production" &&
+    !normalized.productionAdmission
+  ) {
+    throw new Error(
+      "Enabled production runtime drafting requires a qualified production model admission.",
+    );
+  }
+
+  if (normalized.productionAdmission) {
+    assertRuntimeDraftingPolicyMatchesAdmission(normalized, normalized.productionAdmission);
+  }
+
   return normalized;
 }
 
@@ -180,6 +220,7 @@ export function runtimeDraftingPolicyAuditSnapshot(
   const normalized = normalizeRuntimeDraftingPolicy(policy);
   const reasoningEffort = normalized.reasoningEffort ?? "provider_default";
   const canonicalOutputFormat = canonicalRuntimeDraftOutputFormat();
+  const admission = normalized.productionAdmission;
   return {
     enabled: normalized.enabled,
     provider: normalized.provider,
@@ -201,6 +242,16 @@ export function runtimeDraftingPolicyAuditSnapshot(
       canonicalOutputFormat,
       reasoningEffort,
     ),
+    productionAdmission: admission
+      ? {
+          candidateId: admission.candidateId,
+          decisionRef: admission.decisionRef,
+          admissionHash: productionModelAdmissionHash(admission),
+          qualificationPolicyHash: admission.qualification.qualificationPolicyHash,
+          qualificationReportHash: admission.qualification.reportHash,
+          qualificationCorpusHash: admission.qualification.corpusHash,
+        }
+      : null,
   };
 }
 
@@ -269,6 +320,15 @@ export function runtimeDraftingPolicyFromEnv(
     throw new Error(`Unsupported RUNTIME_DRAFT_FALLBACK: ${fallback}`);
   }
 
+  const admissionPath = env.P4_PRODUCTION_MODEL_ADMISSION?.trim();
+  if (enabled && env.NODE_ENV === "production" && !admissionPath) {
+    throw new Error(
+      "Production runtime drafting requires P4_PRODUCTION_MODEL_ADMISSION from a real qualified admission decision.",
+    );
+  }
+  const productionAdmission =
+    enabled && admissionPath ? loadProductionModelAdmission(admissionPath) : undefined;
+
   return normalizeRuntimeDraftingPolicy({
     enabled,
     provider,
@@ -292,6 +352,7 @@ export function runtimeDraftingPolicyFromEnv(
       env.RUNTIME_DRAFT_REASONING_EFFORT ?? "provider_default",
     ),
     outputFormat: "json_schema",
+    productionAdmission,
   });
 }
 
