@@ -75,7 +75,7 @@ const contextFromRequest = (request: RuntimeModelRequest) => {
 };
 
 const resolverWithFingerprint = (
-  fingerprint: string | undefined = "test-fingerprint",
+  fingerprint: string | undefined,
 ): QualificationClientResolver => (candidate) => ({
   credential: "test-secret",
   effectiveProviderConfiguration: (request, config) => ({
@@ -112,7 +112,7 @@ const resolverWithFingerprint = (
   },
 });
 
-const passingResolver = resolverWithFingerprint();
+const passingResolver = resolverWithFingerprint("test-fingerprint");
 
 describe("P4 offline cross-model qualification", () => {
   it("runs exact k-runs on the frozen current-spine corpus and returns machine qualification evidence", async () => {
@@ -207,16 +207,15 @@ describe("P4 offline cross-model qualification", () => {
   });
 
   it("shares the candidate run-token budget across cases and repeated runs", async () => {
-    const report = await runCurrentSpineModelQualification(fixedConfig(), passingResolver);
-    const reservations = report.candidates[0]!.runs
-      .filter((run) => run.providerInvoked)
-      .map((run) => run.reservedRunTokens)
-      .filter((value): value is number => value !== null);
+    const config = fixedConfig();
+    config.budgets.maxRunTokens = 3000;
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const runs = report.candidates[0]!.runs;
 
-    expect(reservations.length).toBeGreaterThan(1);
-    for (let index = 1; index < reservations.length; index += 1) {
-      expect(reservations[index]).toBeGreaterThan(reservations[index - 1]!);
-    }
+    expect(runs.filter((run) => run.providerInvoked)).toHaveLength(1);
+    expect(
+      runs.filter((run) => run.failureCode === "DRAFT_RUN_BUDGET_EXCEEDED").length,
+    ).toBeGreaterThan(0);
   });
 
   it("blocks when a required model revision cannot be observed", async () => {
