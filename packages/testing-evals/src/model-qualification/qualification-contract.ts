@@ -43,6 +43,7 @@ export interface QualificationBudgets {
   maxInputTokens: number;
   maxSignals: number;
   maxConcurrent: number;
+  /** Shared candidate-level reservation budget across every case and k-run. */
   maxRunTokens: number;
   maxEvidenceAgeDays: number;
 }
@@ -108,6 +109,22 @@ const nonEmptyString = (value: unknown, path: string): string => {
     throw new Error(`${path} must be a non-empty string.`);
   }
   return value;
+};
+
+const boundedSafeInteger = (
+  value: unknown,
+  path: string,
+  min: number,
+  max: number,
+): number => {
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < min ||
+    (value as number) > max
+  ) {
+    throw new Error(`${path} must be a safe integer from ${min} through ${max}.`);
+  }
+  return value as number;
 };
 
 const positiveSafeInteger = (value: unknown, path: string): number => {
@@ -263,18 +280,37 @@ export function parseModelQualificationConfig(value: unknown): ModelQualificatio
     k: positiveSafeInteger(raw.k, "k"),
     fallback,
     budgets: {
-      timeoutMs: positiveSafeInteger(budgetsRaw.timeoutMs, "budgets.timeoutMs"),
-      maxOutputTokens: positiveSafeInteger(
+      timeoutMs: boundedSafeInteger(budgetsRaw.timeoutMs, "budgets.timeoutMs", 250, 30000),
+      maxOutputTokens: boundedSafeInteger(
         budgetsRaw.maxOutputTokens,
         "budgets.maxOutputTokens",
+        64,
+        2000,
       ),
-      maxInputTokens: positiveSafeInteger(budgetsRaw.maxInputTokens, "budgets.maxInputTokens"),
-      maxSignals: positiveSafeInteger(budgetsRaw.maxSignals, "budgets.maxSignals"),
-      maxConcurrent: positiveSafeInteger(budgetsRaw.maxConcurrent, "budgets.maxConcurrent"),
-      maxRunTokens: positiveSafeInteger(budgetsRaw.maxRunTokens, "budgets.maxRunTokens"),
-      maxEvidenceAgeDays: positiveSafeInteger(
+      maxInputTokens: boundedSafeInteger(
+        budgetsRaw.maxInputTokens,
+        "budgets.maxInputTokens",
+        256,
+        32000,
+      ),
+      maxSignals: boundedSafeInteger(budgetsRaw.maxSignals, "budgets.maxSignals", 1, 32),
+      maxConcurrent: boundedSafeInteger(
+        budgetsRaw.maxConcurrent,
+        "budgets.maxConcurrent",
+        1,
+        16,
+      ),
+      maxRunTokens: boundedSafeInteger(
+        budgetsRaw.maxRunTokens,
+        "budgets.maxRunTokens",
+        256,
+        500000,
+      ),
+      maxEvidenceAgeDays: boundedSafeInteger(
         budgetsRaw.maxEvidenceAgeDays,
         "budgets.maxEvidenceAgeDays",
+        1,
+        3650,
       ),
     },
     thresholds: {

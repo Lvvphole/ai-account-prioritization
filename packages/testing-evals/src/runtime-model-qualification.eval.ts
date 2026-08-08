@@ -74,7 +74,9 @@ const contextFromRequest = (request: RuntimeModelRequest) => {
   };
 };
 
-const passingResolver: QualificationClientResolver = (candidate) => ({
+const resolverWithFingerprint = (
+  fingerprint: string | undefined = "test-fingerprint",
+): QualificationClientResolver => (candidate) => ({
   credential: "test-secret",
   effectiveProviderConfiguration: (request, config) => ({
     provider: candidate.provider,
@@ -103,12 +105,14 @@ const passingResolver: QualificationClientResolver = (candidate) => ({
           inputTokens: 100,
           cachedInputTokens: 20,
           outputTokens: 20,
-          modelRevisionOrFingerprint: "test-fingerprint",
+          modelRevisionOrFingerprint: fingerprint,
         },
       };
     },
   },
 });
+
+const passingResolver = resolverWithFingerprint();
 
 describe("P4 offline cross-model qualification", () => {
   it("runs exact k-runs on the frozen current-spine corpus and returns machine qualification evidence", async () => {
@@ -128,11 +132,47 @@ describe("P4 offline cross-model qualification", () => {
     expect(candidate.metrics.modelVerifierPassRate).toBe(1);
     expect(candidate.metrics.fallbackRate).toBe(0);
     expect(candidate.metrics.falseAcceptRate).toBe(0);
+    expect(candidate.metrics.qualificationOracleCorrectRuns).toBe(4);
     expect(candidate.metrics.requestIdentityStable).toBe(true);
     expect(candidate.metrics.measuredTokenRuns).toBe(4);
     expect(candidate.metrics.costPerVerifiedPassUsd).not.toBeNull();
     expect(candidate.metrics.canonicalWhatCorrectness).toBeNull();
     expect(new Set(candidate.runs.map((run) => run.invocationStartHash)).has(null)).toBe(false);
+  });
+
+  it("detects an accepted grounded draft that violates the independent frozen-case oracle", async () => {
+    const oracleFailingResolver: QualificationClientResolver = (candidate) => ({
+      credential: "test-secret",
+      effectiveProviderConfiguration: () => ({ provider: candidate.provider }),
+      client: {
+        async generate(request, config) {
+          const visible = contextFromRequest(request);
+          const selected = visible.signals[1] ?? visible.signals[0]!;
+          return {
+            output: {
+              schemaVersion: "1.0",
+              actionType: visible.actionType,
+              sentences: [{ text: selected.description, sourceSignalIds: [selected.id] }],
+            },
+            telemetry: {
+              provider: config.provider,
+              model: config.model,
+              latencyMs: 5,
+              inputTokens: 10,
+              outputTokens: 5,
+            },
+          };
+        },
+      },
+    });
+
+    const report = await runCurrentSpineModelQualification(fixedConfig(), oracleFailingResolver);
+    const candidate = report.candidates[0]!;
+    expect(candidate.metrics.modelVerifierPassRate).toBe(1);
+    expect(candidate.metrics.falseAccepts).toBe(2);
+    expect(candidate.metrics.falseAcceptRate).toBe(0.5);
+    expect(candidate.verdict).toBe("DISQUALIFIED");
+    expect(candidate.reasons).toContain("FALSE_ACCEPT_BOUND_FAILED");
   });
 
   it("disqualifies a candidate that cannot satisfy the current deterministic action boundary", async () => {
@@ -166,6 +206,49 @@ describe("P4 offline cross-model qualification", () => {
     expect(report.candidates[0]?.metrics.falseAccepts).toBe(0);
   });
 
+  it("shares the candidate run-token budget across cases and repeated runs", async () => {
+    const report = await runCurrentSpineModelQualification(fixedConfig(), passingResolver);
+    const reservations = report.candidates[0]!.runs
+      .filter((run) => run.providerInvoked)
+      .map((run) => run.reservedRunTokens)
+      .filter((value): value is number => value !== null);
+
+    expect(reservations.length).toBeGreaterThan(1);
+    for (let index = 1; index < reservations.length; index += 1) {
+      expect(reservations[index]).toBeGreaterThan(reservations[index - 1]!);
+    }
+  });
+
+  it("blocks when a required model revision cannot be observed", async () => {
+    const config = fixedConfig();
+    config.candidates[0] = {
+      ...config.candidates[0]!,
+      modelRevisionOrFingerprint: "expected-fingerprint",
+    };
+    const report = await runCurrentSpineModelQualification(
+      config,
+      resolverWithFingerprint(undefined),
+    );
+    expect(report.verdict).toBe("BLOCKED");
+    expect(report.candidates[0]?.reasons).toEqual(["MODEL_REVISION_EVIDENCE_MISSING"]);
+    expect(report.candidates[0]?.runs[0]?.observedModelRevisionOrFingerprint).toBeNull();
+  });
+
+  it("disqualifies an explicit model revision mismatch", async () => {
+    const config = fixedConfig();
+    config.candidates[0] = {
+      ...config.candidates[0]!,
+      modelRevisionOrFingerprint: "expected-fingerprint",
+    };
+    const report = await runCurrentSpineModelQualification(
+      config,
+      resolverWithFingerprint("unexpected-fingerprint"),
+    );
+    expect(report.verdict).toBe("FAIL");
+    expect(report.candidates[0]?.verdict).toBe("DISQUALIFIED");
+    expect(report.candidates[0]?.reasons).toContain("MODEL_REVISION_MISMATCH");
+  });
+
   it("returns BLOCKED when a configured candidate dependency is unavailable", async () => {
     const missing: QualificationClientResolver = () => {
       throw new QualificationDependencyError("MISSING_CREDENTIAL", "missing");
@@ -180,6 +263,12 @@ describe("P4 offline cross-model qualification", () => {
     const raw = JSON.parse(JSON.stringify(fixedConfig())) as Record<string, unknown>;
     (raw.thresholds as Record<string, unknown>).maxFalseAcceptRate = 0.01;
     expect(() => parseModelQualificationConfig(raw)).toThrow("must be 0");
+  });
+
+  it("validates qualification budgets against the production runtime bounds", () => {
+    const raw = JSON.parse(JSON.stringify(fixedConfig())) as Record<string, unknown>;
+    (raw.budgets as Record<string, unknown>).timeoutMs = 1;
+    expect(() => parseModelQualificationConfig(raw)).toThrow("250 through 30000");
   });
 
   it("keeps xAI qualification-only until a production adapter is separately admitted", () => {

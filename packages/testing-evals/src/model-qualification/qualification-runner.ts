@@ -26,16 +26,27 @@ import {
   type CurrentSpineQualificationCase,
 } from "./qualification-corpus";
 
+export type QualificationRevisionEvidence =
+  | "not_required"
+  | "not_observed_no_call"
+  | "matched"
+  | "mismatched"
+  | "missing";
+
 export interface QualificationRunRecord {
   candidateId: string;
   caseId: string;
   runIndex: number;
   requestIdentityHash: string | null;
   invocationStartHash: string | null;
+  inputTokenUpperBound: number | null;
+  reservedRunTokens: number | null;
   effectiveProviderConfiguration: Record<string, unknown> | null;
+  providerInvoked: boolean;
   source: "model" | "template" | "template_fallback" | "held";
   schemaValidation: "not_run" | "passed" | "failed";
   groundingValidation: "not_run" | "passed" | "failed";
+  qualificationOracleCorrect: boolean | null;
   authorityImmutable: boolean;
   verifierPass: boolean;
   falseAccept: boolean;
@@ -48,6 +59,7 @@ export interface QualificationRunRecord {
   costUsd: number | null;
   acceptedArtifactHash: string | null;
   observedModelRevisionOrFingerprint: string | null;
+  revisionEvidence: QualificationRevisionEvidence;
 }
 
 export interface QualificationMetrics {
@@ -59,6 +71,7 @@ export interface QualificationMetrics {
   falseAccepts: number;
   falseAcceptRate: number;
   authorityViolations: number;
+  qualificationOracleCorrectRuns: number;
   schemaPassRate: number;
   groundingPassRate: number;
   requestIdentityStable: boolean;
@@ -118,6 +131,40 @@ const authorityIsImmutable = (before: Recommendation, after: Recommendation): bo
   hashQualificationMaterial(authorityProjection(before)) ===
   hashQualificationMaterial(authorityProjection(after));
 
+const normalizedText = (value: string): string =>
+  value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
+
+const acceptedDraftMatchesOracle = (
+  item: CurrentSpineQualificationCase,
+  citations: readonly { text: string; sourceSignalIds: string[] }[],
+): boolean => {
+  if (citations.length === 0) return false;
+  const citedEvidence = new Set(citations.flatMap((citation) => citation.sourceSignalIds));
+  if (item.oracle.requiredEvidenceIds.some((id) => !citedEvidence.has(id))) return false;
+  const text = normalizedText(citations.map((citation) => citation.text).join(" "));
+  if (
+    item.oracle.requiredTextFragments.some(
+      (fragment) => !text.includes(normalizedText(fragment)),
+    )
+  ) {
+    return false;
+  }
+  return item.oracle.forbiddenTextFragments.every(
+    (fragment) => !text.includes(normalizedText(fragment)),
+  );
+};
+
+const revisionEvidenceFor = (
+  candidate: QualificationCandidate,
+  providerInvoked: boolean,
+  observed: string | undefined,
+): QualificationRevisionEvidence => {
+  if (!candidate.modelRevisionOrFingerprint) return "not_required";
+  if (!providerInvoked) return "not_observed_no_call";
+  if (!observed) return "missing";
+  return observed === candidate.modelRevisionOrFingerprint ? "matched" : "mismatched";
+};
+
 const roundMoney = (value: number): number => Number(value.toFixed(12));
 
 const costForRun = (
@@ -160,6 +207,7 @@ const emptyMetrics = (): QualificationMetrics => ({
   falseAccepts: 0,
   falseAcceptRate: 0,
   authorityViolations: 0,
+  qualificationOracleCorrectRuns: 0,
   schemaPassRate: 0,
   groundingPassRate: 0,
   requestIdentityStable: false,
@@ -189,6 +237,7 @@ const aggregateMetrics = (
   const fallbackRuns = runs.filter((run) => run.source !== "model").length;
   const falseAccepts = runs.filter((run) => run.falseAccept).length;
   const authorityViolations = runs.filter((run) => !run.authorityImmutable).length;
+  const oracleCorrect = runs.filter((run) => run.qualificationOracleCorrect === true).length;
   const schemaPasses = runs.filter((run) => run.schemaValidation === "passed").length;
   const groundingPasses = runs.filter((run) => run.groundingValidation === "passed").length;
   const latencies = runs.flatMap((run) => (run.latencyMs === null ? [] : [run.latencyMs]));
@@ -201,10 +250,14 @@ const aggregateMetrics = (
 
   for (const item of cases) {
     const caseRuns = runs.filter((run) => run.caseId === item.id);
+    const invokedRuns = caseRuns.filter((run) => run.providerInvoked);
     const identities = new Set(
-      caseRuns.flatMap((run) => (run.requestIdentityHash ? [run.requestIdentityHash] : [])),
+      invokedRuns.flatMap((run) => (run.requestIdentityHash ? [run.requestIdentityHash] : [])),
     );
-    if (identities.size !== 1 || caseRuns.some((run) => run.requestIdentityHash === null)) {
+    if (
+      invokedRuns.length > 0 &&
+      (identities.size !== 1 || invokedRuns.some((run) => run.requestIdentityHash === null))
+    ) {
       requestIdentityStable = false;
     }
     variants[item.id] = new Set(
@@ -226,6 +279,7 @@ const aggregateMetrics = (
     falseAccepts,
     falseAcceptRate: ratio(falseAccepts, runs.length),
     authorityViolations,
+    qualificationOracleCorrectRuns: oracleCorrect,
     schemaPassRate: ratio(schemaPasses, runs.length),
     groundingPassRate: ratio(groundingPasses, runs.length),
     requestIdentityStable,
@@ -279,6 +333,12 @@ const classifyCandidate = (
     return { verdict: "BLOCKED", reasons: ["PROVIDER_OR_MODEL_UNAVAILABLE"] };
   }
 
+  if (runs.some((run) => run.revisionEvidence === "missing")) {
+    return { verdict: "BLOCKED", reasons: ["MODEL_REVISION_EVIDENCE_MISSING"] };
+  }
+  if (runs.some((run) => run.revisionEvidence === "mismatched")) {
+    reasons.push("MODEL_REVISION_MISMATCH");
+  }
   if (metrics.falseAcceptRate > config.thresholds.maxFalseAcceptRate) {
     reasons.push("FALSE_ACCEPT_BOUND_FAILED");
   }
@@ -361,6 +421,9 @@ const runCandidate = async (
   const cases = [...CURRENT_SPINE_QUALIFICATION_CORPUS].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
+  // One candidate receives one shared reservation budget for the complete frozen
+  // case set and all repeated runs. A repeated call cannot reset spend authority.
+  const runBudget = createRuntimeDraftRunBudget(config.budgets.maxRunTokens);
 
   for (const item of cases) {
     for (let runIndex = 1; runIndex <= config.k; runIndex += 1) {
@@ -391,7 +454,7 @@ const runCandidate = async (
       const result = await attachHybridActionDraft(item.recommendation, item.context, {
         policy,
         now: item.now,
-        runBudget: createRuntimeDraftRunBudget(config.budgets.maxRunTokens),
+        runBudget,
         modelClient: capturingClient,
         beforeModelInvoke: async (start) => {
           invocationStart = start;
@@ -400,12 +463,24 @@ const runCandidate = async (
 
       const telemetry = result.outcome.telemetry;
       const immutable = authorityIsImmutable(item.recommendation, result.recommendation);
+      const oracleCorrect =
+        result.outcome.source === "model"
+          ? acceptedDraftMatchesOracle(item, result.outcome.claimCitations)
+          : null;
       const verifierPass =
         result.outcome.source === "model" &&
         result.outcome.schemaValidation === "passed" &&
         result.outcome.groundingValidation === "passed" &&
         immutable;
-      const falseAccept = result.outcome.source === "model" && !verifierPass;
+      const falseAccept =
+        result.outcome.source === "model" && verifierPass && oracleCorrect === false;
+      const providerInvoked = request !== undefined && invocationConfig !== undefined;
+      const observedRevision = telemetry?.modelRevisionOrFingerprint;
+      const revisionEvidence = revisionEvidenceFor(
+        candidate,
+        providerInvoked,
+        observedRevision,
+      );
       const nonSecretInvocation =
         request && invocationConfig
           ? {
@@ -444,10 +519,14 @@ const runCandidate = async (
           ? hashQualificationMaterial(nonSecretInvocation)
           : null,
         invocationStartHash: invocationStart ? hashQualificationMaterial(invocationStart) : null,
+        inputTokenUpperBound: invocationStart?.inputTokenUpperBound ?? null,
+        reservedRunTokens: invocationStart?.reservedRunTokens ?? null,
         effectiveProviderConfiguration: providerConfig,
+        providerInvoked,
         source: result.outcome.source,
         schemaValidation: result.outcome.schemaValidation,
         groundingValidation: result.outcome.groundingValidation,
+        qualificationOracleCorrect: oracleCorrect,
         authorityImmutable: immutable,
         verifierPass,
         falseAccept,
@@ -459,8 +538,8 @@ const runCandidate = async (
         outputTokens: telemetry?.outputTokens ?? null,
         costUsd: costForRun(candidate, telemetry),
         acceptedArtifactHash,
-        observedModelRevisionOrFingerprint:
-          telemetry?.modelRevisionOrFingerprint ?? candidate.modelRevisionOrFingerprint ?? null,
+        observedModelRevisionOrFingerprint: observedRevision ?? null,
+        revisionEvidence,
       });
     }
   }

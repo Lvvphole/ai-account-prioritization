@@ -7,11 +7,21 @@ import {
 
 type AccountContext = Parameters<typeof attachHybridActionDraft>[1];
 
+export interface CurrentSpineQualificationOracle {
+  /** Evidence that an accepted model draft must cite for this frozen case. */
+  requiredEvidenceIds: readonly string[];
+  /** Case-specific factual fragments that must occur in accepted claim text. */
+  requiredTextFragments: readonly string[];
+  /** Case-specific fragments that make an accepted model draft incorrect. */
+  forbiddenTextFragments: readonly string[];
+}
+
 export interface CurrentSpineQualificationCase {
   id: string;
   recommendation: Recommendation;
   context: AccountContext;
   now: string;
+  oracle: CurrentSpineQualificationOracle;
 }
 
 const ISO = "2026-08-01T05:00:00.000Z";
@@ -57,6 +67,12 @@ const pipelineRecommendation: Recommendation = {
       kind: "opportunity",
       refId: pipelineOpportunity.id,
       description: "Qualification Pipeline Account has 50000 in open pipeline",
+      verified: true,
+    },
+    {
+      kind: "account",
+      refId: pipelineAccount.id,
+      description: "Qualification Pipeline Account is a strategic account",
       verified: true,
     },
   ],
@@ -142,6 +158,11 @@ export const CURRENT_SPINE_QUALIFICATION_CORPUS: readonly CurrentSpineQualificat
       activities: [],
     },
     now: ISO,
+    oracle: {
+      requiredEvidenceIds: [pipelineOpportunity.id],
+      requiredTextFragments: ["50000", "open pipeline"],
+      forbiddenTextFragments: ["no open pipeline"],
+    },
   },
   {
     id: "stale-account-research-note",
@@ -153,6 +174,11 @@ export const CURRENT_SPINE_QUALIFICATION_CORPUS: readonly CurrentSpineQualificat
       activities: [],
     },
     now: ISO,
+    oracle: {
+      requiredEvidenceIds: [staleAccount.id],
+      requiredTextFragments: ["45 days"],
+      forbiddenTextFragments: ["contacted today"],
+    },
   },
 ] as const;
 
