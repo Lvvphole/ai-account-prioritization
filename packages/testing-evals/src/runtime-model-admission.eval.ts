@@ -13,7 +13,9 @@ import {
 } from "agent-runtime";
 import {
   prepareProductionAdmissionOutput,
+  prepareQualificationOutputPaths,
   writeProductionAdmissionOutput,
+  writeQualificationReportOutput,
 } from "./model-qualification/admission-output-lifecycle";
 import {
   parseModelQualificationConfig,
@@ -179,6 +181,11 @@ describe("P4 locked one-process qualification and admission", () => {
     expect(result.admission?.candidateId).toBe(first.id);
     expect(result.admission?.modelId).toBe(first.modelId);
     expect(result.report.candidates.every((candidate) => candidate.verdict === "QUALIFIED")).toBe(true);
+    expect(result.report.admissionSelection).toEqual({
+      ...decision,
+      selectedCandidateId: first.id,
+      nonAdmittableQualifiedCandidateIds: [],
+    });
     expect(productionModelAdmissionHash(result.admission!)).toMatch(/^[a-f0-9]{64}$/);
   });
 
@@ -224,7 +231,39 @@ describe("P4 locked one-process qualification and admission", () => {
     expect(result.admission?.modelId).toBe(second.modelId);
   });
 
-  it("returns BLOCK/template and creates no admission when no candidate qualifies", async () => {
+  it("preserves a qualified non-admittable candidate and selects the next admittable candidate", async () => {
+    const config = lockedConfig();
+    const admittable = config.candidates[0]!;
+    const qualificationOnly = {
+      ...admittable,
+      id: "qualification-only-openai",
+      provider: "openai" as const,
+      modelId: "gpt-qualification-test",
+      credentialEnv: "OPENAI_API_KEY",
+    };
+    const mixedConfig: ModelQualificationConfig = {
+      ...config,
+      candidates: [qualificationOnly, admittable],
+    };
+
+    const result = await runLockedP4QualificationEpoch(
+      mixedConfig,
+      resolver(() => "pass"),
+      decision,
+    );
+
+    expect(
+      result.report.candidates.find((candidate) => candidate.candidate.id === qualificationOnly.id)
+        ?.verdict,
+    ).toBe("QUALIFIED");
+    expect(result.report.admissionSelection.nonAdmittableQualifiedCandidateIds).toEqual([
+      qualificationOnly.id,
+    ]);
+    expect(result.selectedCandidateId).toBe(admittable.id);
+    expect(result.admission?.candidateId).toBe(admittable.id);
+  });
+
+  it("returns BLOCK/template and retains decision attribution when no candidate qualifies", async () => {
     const result = await runLockedP4QualificationEpoch(
       lockedConfig(),
       resolver(() => "fail"),
@@ -234,6 +273,42 @@ describe("P4 locked one-process qualification and admission", () => {
     expect(result.verdict).toBe("BLOCKED");
     expect(result.selectedCandidateId).toBeNull();
     expect(result.admission).toBeNull();
+    expect(result.report.admissionSelection).toEqual({
+      ...decision,
+      selectedCandidateId: null,
+      nonAdmittableQualifiedCandidateIds: [],
+    });
+  });
+
+  it("rejects colliding report and admission paths before qualification", () => {
+    const dir = mkdtempSync(join(tmpdir(), "p4-output-collision-"));
+    const path = join(dir, "artifact.json");
+
+    try {
+      expect(() => prepareQualificationOutputPaths(path, path)).toThrow(
+        "must resolve to different paths",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps qualification reports immutable", () => {
+    const dir = mkdtempSync(join(tmpdir(), "p4-report-output-"));
+    const reportPath = join(dir, "report.json");
+    const admissionPath = join(dir, "admission.json");
+
+    try {
+      prepareQualificationOutputPaths(reportPath, admissionPath);
+      writeQualificationReportOutput(reportPath, "first-report\n");
+      expect(() => prepareQualificationOutputPaths(reportPath, admissionPath)).toThrow(
+        "Qualification report output already exists",
+      );
+      expect(() => writeQualificationReportOutput(reportPath, "second-report\n")).toThrow();
+      expect(readFileSync(reportPath, "utf8")).toBe("first-report\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("never overwrites or revokes an existing admission artifact", () => {
