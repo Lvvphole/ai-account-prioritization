@@ -20,6 +20,7 @@
     {
       "id": "agent-engineering-standard",
       "paths": [
+        ".harness/contract.yaml",
         ".agents/skills/engineering-standard/**",
         "docs/agent-engineering/**",
         "scripts/agent-standard.mjs",
