@@ -381,9 +381,15 @@ const recomputeAdmissionMetrics = (
           "Selected candidate qualification reservations exceed the locked offline epoch budget.",
         );
       }
-    } else if (run.reservedRunTokens !== null) {
+    } else if (
+      run.requestIdentityHash !== null ||
+      run.invocationStartHash !== null ||
+      run.inputTokenUpperBound !== null ||
+      run.reservedRunTokens !== null ||
+      run.effectiveProviderConfiguration !== null
+    ) {
       throw new Error(
-        `Qualification run ${key} records reserved qualification tokens without a provider invocation.`,
+        `Qualification run ${key} records invocation evidence without a provider invocation.`,
       );
     }
 
