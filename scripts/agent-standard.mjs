@@ -243,6 +243,25 @@ function validate(standard) {
   }
   nonEmpty(manifest.governing_context_id, "governing_context_id");
 
+  const taskProfiles = stringArray(manifest.task_profiles, "task_profiles");
+  if (!taskProfiles.includes("general")) {
+    throw new AgentStandardConfigurationError(
+      "task_profiles must include general",
+    );
+  }
+  if (!taskProfiles.includes(manifest.default_profile)) {
+    throw new AgentStandardConfigurationError(
+      "default_profile must be a published task profile",
+    );
+  }
+  for (const profileId of taskProfiles) {
+    if (!profiles.has(profileId)) {
+      throw new AgentStandardConfigurationError(
+        `task_profiles references missing profile ${profileId}`,
+      );
+    }
+  }
+
   if (!profiles.has("general")) {
     throw new AgentStandardConfigurationError("missing general profile");
   }
@@ -307,6 +326,7 @@ function validate(standard) {
       "language_overlays must be an object",
     );
   }
+  const overlayProfileIds = new Set();
   for (const [language, profileId] of Object.entries(overlays)) {
     nonEmpty(language, "language overlay key");
     nonEmpty(profileId, `language_overlays.${language}`);
@@ -315,9 +335,22 @@ function validate(standard) {
         `language ${language} references missing overlay profile ${profileId}`,
       );
     }
+    overlayProfileIds.add(profileId);
   }
 
-  return { engineeringCount, rejectedCount };
+  for (const profileId of taskProfiles) {
+    if (overlayProfileIds.has(profileId)) {
+      throw new AgentStandardConfigurationError(
+        `task profile ${profileId} cannot also be a language overlay profile`,
+      );
+    }
+  }
+
+  return {
+    engineeringCount,
+    rejectedCount,
+    taskProfiles: Object.freeze(taskProfiles),
+  };
 }
 
 export function loadStandard(root = ROOT_DEFAULT) {
@@ -334,13 +367,12 @@ export function loadStandard(root = ROOT_DEFAULT) {
 
 function profileOf(standard, requested) {
   const id = requested ?? "general";
-  const profile = standard.profiles.get(id);
-  if (!profile) {
+  if (!standard.taskProfiles.includes(id)) {
     throw new UnknownProfileError(
       `unknown task profile ${id}; omit it only when general is intended`,
     );
   }
-  return profile;
+  return standard.profiles.get(id);
 }
 
 function overlayOf(standard, language) {
