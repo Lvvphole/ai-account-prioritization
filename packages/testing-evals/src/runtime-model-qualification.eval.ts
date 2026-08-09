@@ -220,6 +220,19 @@ describe("P4 offline cross-model qualification", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("does not let the offline qualification epoch budget widen production maxRunTokens", async () => {
+    const config = fixedConfig();
+    config.qualificationEpochMaxRunTokens = 500000;
+    config.budgets.maxRunTokens = 256;
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const runs = report.candidates[0]!.runs;
+
+    expect(runs.filter((run) => run.providerInvoked)).toHaveLength(0);
+    expect(
+      runs.every((run) => run.failureCode === "DRAFT_RUN_BUDGET_EXCEEDED"),
+    ).toBe(true);
+  });
+
   it("blocks when a required model revision cannot be observed", async () => {
     const config = fixedConfig();
     config.candidates[0] = {
