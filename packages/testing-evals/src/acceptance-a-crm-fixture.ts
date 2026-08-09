@@ -239,7 +239,7 @@ function generateFixtureCsv(manifest: FixtureManifest): { csv: string; workspace
   appendResolved("discovery", manifest.sourceShape.resolvedStageCounts.discovery, 98);
   appendResolved("closed_won", manifest.sourceShape.resolvedStageCounts.closed_won, 124);
   appendResolved("closed_lost", manifest.sourceShape.resolvedStageCounts.closed_lost, 125);
-  invariant(opportunities.length === 9_200, "generated_resolved_opportunities");
+  invariant(Number(opportunities.length) === 9_200, "generated_resolved_opportunities");
 
   for (let offset = 0; offset < 1_800; offset += 1) {
     const stage: Stage = offset < (manifest.sourceShape.unresolvedStageCounts.qualification ?? 0)
@@ -252,7 +252,7 @@ function generateFixtureCsv(manifest: FixtureManifest): { csv: string; workspace
     });
     opportunityIndex += 1;
   }
-  invariant(opportunities.length === 11_000, "generated_opportunity_count");
+  invariant(Number(opportunities.length) === 11_000, "generated_opportunity_count");
 
   const accountExternalIds = [
     ...Array.from({ length: 125 }, (_, offset) => `acct_src_${String(offset + 1).padStart(4, "0")}`),
