@@ -9,6 +9,7 @@ import {
 import {
   applyLockedP4QualificationPolicy,
   assertLockedP4QualificationPolicy,
+  buildLockedP4ProductionModelAdmission,
   selectLockedP4AdmissionCandidateId,
 } from "./model-qualification/locked-admission-policy";
 import { runCurrentSpineModelQualification } from "./model-qualification/qualification-runner";
@@ -21,13 +22,13 @@ const lockedConfig = () =>
     fallback: "template",
     qualificationEpochMaxRunTokens: 172650,
     budgets: {
-      timeoutMs: 15000,
-      maxOutputTokens: 1200,
-      maxInputTokens: 8000,
-      maxSignals: 12,
-      maxConcurrent: 1,
+      timeoutMs: 5000,
+      maxOutputTokens: 600,
+      maxInputTokens: 4000,
+      maxSignals: 6,
+      maxConcurrent: 4,
       maxRunTokens: 20000,
-      maxEvidenceAgeDays: 30,
+      maxEvidenceAgeDays: 90,
     },
     thresholds: {
       minModelVerifierPassRate: 1,
@@ -39,18 +40,17 @@ const lockedConfig = () =>
       {
         id: "anthropic-haiku-4-5-default",
         provider: "anthropic",
-        modelId: "claude-haiku-4-5",
-        reasoningProfile: "default",
+        modelId: "claude-haiku-4-5-20251001",
+        reasoningProfile: "provider_default",
         structuredOutputProfile: "json_schema",
         toolSchemaProfile: "not_applicable_current_spine",
         samplingProfile: "provider_default",
-        credentialEnv: "P4_QUALIFICATION_ANTHROPIC_API_KEY",
+        credentialEnv: "ANTHROPIC_API_KEY",
         pricing: {
           inputUsdPerMillionTokens: 1,
-          cachedInputUsdPerMillionTokens: 0.1,
           outputUsdPerMillionTokens: 5,
           effectiveDate: "2026-08-09",
-          source: "https://docs.anthropic.com/en/docs/about-claude/pricing",
+          source: "Anthropic Claude Platform pricing verified 2026-08-09",
         },
       },
       {
@@ -61,13 +61,12 @@ const lockedConfig = () =>
         structuredOutputProfile: "json_schema",
         toolSchemaProfile: "not_applicable_current_spine",
         samplingProfile: "provider_default",
-        credentialEnv: "P4_QUALIFICATION_ANTHROPIC_API_KEY",
+        credentialEnv: "ANTHROPIC_API_KEY",
         pricing: {
           inputUsdPerMillionTokens: 3,
-          cachedInputUsdPerMillionTokens: 0.3,
           outputUsdPerMillionTokens: 15,
           effectiveDate: "2026-08-09",
-          source: "https://docs.anthropic.com/en/docs/about-claude/pricing",
+          source: "Anthropic Claude Platform pricing verified 2026-08-09",
         },
       },
     ],
@@ -108,7 +107,6 @@ const passingResolver: QualificationClientResolver = (candidate) => ({
           model: config.model,
           latencyMs: 10,
           inputTokens: 100,
-          cachedInputTokens: 0,
           outputTokens: 20,
         },
       };
@@ -141,6 +139,22 @@ describe("locked P4 qualification and admission policy", () => {
     expect(selectLockedP4AdmissionCandidateId(config, report)).toBe(
       "anthropic-haiku-4-5-default",
     );
+  });
+
+  it("does not let a human decision override QUALIFIED Haiku with Sonnet", async () => {
+    const config = lockedConfig();
+    const report = applyLockedP4QualificationPolicy(
+      config,
+      await runCurrentSpineModelQualification(config, passingResolver),
+    );
+
+    expect(() =>
+      buildLockedP4ProductionModelAdmission(config, report, {
+        candidateId: "anthropic-sonnet-4-6-low",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/locked-priority",
+      }),
+    ).toThrow("requires candidate anthropic-haiku-4-5-default");
   });
 
   it("selects Sonnet when Haiku is DISQUALIFIED and Sonnet is QUALIFIED", async () => {
@@ -186,6 +200,13 @@ describe("locked P4 qualification and admission policy", () => {
 
     expect(governed.verdict).toBe("BLOCKED");
     expect(selectLockedP4AdmissionCandidateId(config, governed)).toBeNull();
+    expect(() =>
+      buildLockedP4ProductionModelAdmission(config, governed, {
+        candidateId: "anthropic-haiku-4-5-default",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/no-qualified-candidate",
+      }),
+    ).toThrow("neither Haiku nor Sonnet is QUALIFIED");
   });
 
   it("rejects a third provider or model before qualification spend begins", () => {
