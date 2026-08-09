@@ -119,7 +119,7 @@ describe("P4 token-authority regressions", () => {
     }
   });
 
-  it("rejects persisted evidence whose simulated production batch exceeds maxRunTokens", async () => {
+  it("rejects persisted evidence after production budget policy tampering", async () => {
     const config = fixedConfig();
     const report = await runCurrentSpineModelQualification(config, passingResolver);
     const firstBatch = report.candidates[0]!.runs.filter((run) => run.runIndex === 1);
@@ -133,9 +133,9 @@ describe("P4 token-authority regressions", () => {
       buildProductionModelAdmission(config, report, {
         candidateId: "candidate-a",
         decisionOwner: "product-owner",
-        decisionRef: "decision://p4/pr60/production-batch-budget",
+        decisionRef: "decision://p4/pr60/production-budget-policy",
       }),
-    ).toThrow("Qualification batch 1 exceeds the locked production run budget");
+    ).toThrow("invocation-start identity does not match the deterministic frozen request");
   });
 
   it("rejects persisted invoked evidence above the locked input-token bound", async () => {
