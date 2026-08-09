@@ -175,7 +175,34 @@ describe("locked P4 qualification and admission policy", () => {
     haiku.reasons = ["MODEL_VERIFIER_PASS_RATE_FAILED"];
 
     expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
-      "does not match the locked 60/60 evidence boundary",
+      "does not match the run-derived QUALIFIED verdict",
+    );
+  });
+
+  it("rejects relabeling DISQUALIFIED run evidence as BLOCKED", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const haiku = haikuReport(report);
+    haiku.runs[0]!.schemaValidation = "failed";
+    haiku.runs[0]!.verifierPass = false;
+    haiku.verdict = "BLOCKED";
+    haiku.reasons = ["TOKEN_TELEMETRY_INCOMPLETE"];
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "does not match the run-derived DISQUALIFIED verdict",
+    );
+  });
+
+  it("rejects relabeling BLOCKED run evidence as DISQUALIFIED", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const haiku = haikuReport(report);
+    haiku.runs[0]!.inputTokens = null;
+    haiku.verdict = "DISQUALIFIED";
+    haiku.reasons = ["MODEL_VERIFIER_PASS_RATE_FAILED"];
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "does not match the run-derived BLOCKED verdict",
     );
   });
 
