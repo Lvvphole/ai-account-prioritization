@@ -299,7 +299,7 @@ describe("P4 production model admission", () => {
     ).toThrow("missing qualification token reservation evidence");
   });
 
-  it("rejects qualification reservations that do not match the locked call budget", () => {
+  it("rejects qualification reservations that do not match the deterministic request", () => {
     const config = fixedConfig();
     const report = qualifiedReport(config);
     report.candidates[0]!.runs[0]!.reservedRunTokens = 301;
@@ -310,7 +310,7 @@ describe("P4 production model admission", () => {
         decisionOwner: "product-owner",
         decisionRef: "decision://p4/unit3/test",
       }),
-    ).toThrow("inconsistent qualification token reservation evidence");
+    ).toThrow("reservation does not match the deterministic frozen request");
   });
 
   it("rejects qualification reservations above the locked production run budget", () => {
@@ -326,6 +326,26 @@ describe("P4 production model admission", () => {
         decisionRef: "decision://p4/unit3/test",
       }),
     ).toThrow("exceeds the locked production run budget");
+  });
+
+  it("rejects cumulative reservations above the shared production batch budget", () => {
+    const baselineConfig = fixedConfig();
+    const baseline = qualifiedReport(baselineConfig);
+    const firstBatchReservations = baseline.candidates[0]!.runs
+      .filter((run) => run.runIndex === 1)
+      .map((run) => run.reservedRunTokens as number);
+
+    const config = fixedConfig();
+    config.budgets.maxRunTokens = Math.max(...firstBatchReservations);
+    const report = qualifiedReport(config);
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/unit3/shared-batch-budget",
+      }),
+    ).toThrow("Qualification batch 1 exceeds the locked production run budget");
   });
 
   it.each([
