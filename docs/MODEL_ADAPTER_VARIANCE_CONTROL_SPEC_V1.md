@@ -619,7 +619,8 @@ The implementation has these properties:
 - It uses a frozen, versioned current-spine corpus.
 - It computes a corpus hash.
 - It requires an explicit positive integer `k`.
-- It requires one shared budget envelope for the candidate set.
+- It requires an explicit shared offline token budget for each candidate qualification epoch.
+- It records separate production runtime bounds in `budgets`.
 - It requires explicit product-owned qualification thresholds.
 - It executes candidates in a stable serial order.
 - It uses the real current `attachHybridActionDraft` path for schema, grounding, fallback, and authority reconciliation.
@@ -643,14 +644,17 @@ The optional `P4_QUALIFICATION_REPORT` variable sets the report path. The defaul
 The qualification contract includes this required shape:
 
 ```text
-contractVersion = p4-model-qualification-v1
+contractVersion = p4-model-qualification-v2
 corpusVersion = current-spine-drafting-corpus-v1
 k = explicit product value
 fallback = template | hold
-budgets = explicit shared bounds
+qualificationEpochMaxRunTokens = explicit offline candidate-epoch bound
+budgets = explicit production runtime bounds
 thresholds = explicit product-owned bounds
 candidates = explicit provider/model/configuration records
 ```
+
+The qualification runner uses `qualificationEpochMaxRunTokens` for the shared reservation across all frozen cases and all repeated `k` runs for one candidate. Production admission uses `budgets.maxRunTokens` for the production runtime. Neither token authority can increase the other.
 
 Do not commit live provider credentials. Each candidate names an environment variable through `credentialEnv`.
 
