@@ -24,7 +24,7 @@
     "agent-standard:validate": "node scripts/agent-standard.mjs validate",
     "agent-standard:render": "node scripts/agent-standard.mjs render",
     "agent-standard:remediate": "node scripts/agent-standard.mjs remediate",
-    "test:agent-standard": "node scripts/agent-standard.mjs validate && node --test scripts/agent-standard.test.mjs",
+    "test:agent-standard": "node scripts/agent-standard.mjs validate && node --test scripts/agent-standard.test.mjs scripts/agent-standard.contract.test.mjs",
     "generate:schemas": "pnpm --filter @repo/shared-schemas generate",
     "build:api-python": "pnpm --filter api-python build",
     "supabase:types": "bash scripts/generate-supabase-types.sh",
