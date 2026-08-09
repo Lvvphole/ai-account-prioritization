@@ -33,7 +33,7 @@ It never returns `PASS`, `FAIL`, or `BLOCKED`.
 The coding harness or human supplies `engineering_profile` explicitly when a
 specific profile is known. The standard never asks the model to infer one.
 
-Allowed task profiles:
+Allowed task profiles are published in `manifest.json` under `task_profiles`:
 
 - `general`
 - `code-change`
@@ -43,6 +43,8 @@ Allowed task profiles:
 - `requirements`
 - `architecture-change`
 - `standard-maintenance`
+
+Internal overlay profile IDs are not valid task-profile inputs.
 
 Language overlays are also caller-supplied:
 
