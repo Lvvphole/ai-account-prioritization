@@ -381,16 +381,31 @@ const recomputeAdmissionMetrics = (
           "Selected candidate qualification reservations exceed the locked offline epoch budget.",
         );
       }
-    } else if (
-      run.requestIdentityHash !== null ||
-      run.invocationStartHash !== null ||
-      run.inputTokenUpperBound !== null ||
-      run.reservedRunTokens !== null ||
-      run.effectiveProviderConfiguration !== null
-    ) {
-      throw new Error(
-        `Qualification run ${key} records invocation evidence without a provider invocation.`,
-      );
+    } else {
+      if (
+        run.requestIdentityHash !== null ||
+        run.invocationStartHash !== null ||
+        run.inputTokenUpperBound !== null ||
+        run.reservedRunTokens !== null ||
+        run.effectiveProviderConfiguration !== null
+      ) {
+        throw new Error(
+          `Qualification run ${key} records invocation evidence without a provider invocation.`,
+        );
+      }
+      if (
+        run.providerErrorCode !== undefined ||
+        run.latencyMs !== null ||
+        run.inputTokens !== null ||
+        run.cachedInputTokens !== null ||
+        run.outputTokens !== null ||
+        run.costUsd !== null ||
+        run.observedModelRevisionOrFingerprint !== null
+      ) {
+        throw new Error(
+          `Qualification run ${key} records provider telemetry without a provider invocation.`,
+        );
+      }
     }
 
     const verifierPass =
