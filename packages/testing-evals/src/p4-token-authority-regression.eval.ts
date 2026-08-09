@@ -138,6 +138,22 @@ describe("P4 token-authority regressions", () => {
     ).toThrow("Qualification batch 1 exceeds the locked production run budget");
   });
 
+  it("rejects persisted invoked evidence above the locked input-token bound", async () => {
+    const config = fixedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const run = report.candidates[0]!.runs[0]!;
+    run.inputTokenUpperBound = config.budgets.maxInputTokens + 1;
+    run.reservedRunTokens = run.inputTokenUpperBound + config.budgets.maxOutputTokens;
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/pr60/input-token-bound",
+      }),
+    ).toThrow("exceeds the locked production input token budget");
+  });
+
   it("rejects provider telemetry on a qualification run that claims no invocation", async () => {
     const config = fixedConfig();
     const report = await runCurrentSpineModelQualification(config, passingResolver);
