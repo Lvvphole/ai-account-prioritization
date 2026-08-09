@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { prepareProductionAdmissionOutput } from "./admission-output-lifecycle";
 import { parseModelQualificationConfig } from "./qualification-contract";
 import { createNetworkQualificationResolver } from "./qualification-provider-clients";
 import { runLockedP4QualificationEpoch } from "./locked-qualification";
@@ -28,27 +29,29 @@ async function main(): Promise<void> {
   );
   const replaceExisting = boolFromEnv(process.env.P4_ADMISSION_REPLACE_EXISTING);
 
-  // Refuse replacement before any provider spend. A new admission requires an
-  // explicit replacement decision even though the artifact contains no secret.
-  if (existsSync(admissionPath) && !replaceExisting) {
-    throw new Error(
-      `Production admission already exists at ${admissionPath}. Set P4_ADMISSION_REPLACE_EXISTING=true only for an explicit replacement decision.`,
-    );
-  }
-
   const config = parseModelQualificationConfig(
     JSON.parse(readFileSync(configPath, "utf8")) as unknown,
   );
+  const decision = {
+    decisionOwner: required(
+      process.env.P4_ADMISSION_DECISION_OWNER,
+      "P4_ADMISSION_DECISION_OWNER",
+    ),
+    decisionRef: required(process.env.P4_ADMISSION_DECISION_REF, "P4_ADMISSION_DECISION_REF"),
+  };
+
+  // A replacement decision revokes the previous admission before provider spend.
+  // This keeps the replacement path fail-closed if qualification blocks or the
+  // process fails before a new admission artifact is written.
+  const revokedExistingAdmission = prepareProductionAdmissionOutput(
+    admissionPath,
+    replaceExisting,
+  );
+
   const result = await runLockedP4QualificationEpoch(
     config,
     createNetworkQualificationResolver(process.env),
-    {
-      decisionOwner: required(
-        process.env.P4_ADMISSION_DECISION_OWNER,
-        "P4_ADMISSION_DECISION_OWNER",
-      ),
-      decisionRef: required(process.env.P4_ADMISSION_DECISION_REF, "P4_ADMISSION_DECISION_REF"),
-    },
+    decision,
   );
 
   mkdirSync(dirname(reportPath), { recursive: true });
@@ -61,6 +64,10 @@ async function main(): Promise<void> {
 
   // eslint-disable-next-line no-console
   console.log(`P4 locked qualification epoch: ${result.verdict}`);
+  if (revokedExistingAdmission) {
+    // eslint-disable-next-line no-console
+    console.log(`Previous production admission revoked before qualification: ${admissionPath}`);
+  }
   for (const candidate of result.report.candidates) {
     // eslint-disable-next-line no-console
     console.log(

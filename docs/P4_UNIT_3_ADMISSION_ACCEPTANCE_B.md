@@ -89,7 +89,9 @@ P4_PRODUCTION_MODEL_ADMISSION_OUTPUT
   default: config/production-model-admission.json
 ```
 
-If an admission file already exists, the command refuses to replace it before provider spend. An explicit replacement decision must set `P4_ADMISSION_REPLACE_EXISTING=true`.
+If an admission file already exists, the command refuses to replace it before provider spend unless `P4_ADMISSION_REPLACE_EXISTING=true`.
+
+An explicit replacement is a fail-closed revoke-then-requalify operation. After the canonical policy and decision metadata are valid, the command removes the current admission artifact before the first provider call. If the replacement epoch returns `BLOCKED`, or if the process fails after revocation and before a new admission is written, the previous admission does not become active again. The deterministic fallback remains active until a new admission artifact is written.
 
 The command writes the audit report after a completed epoch. It writes the production admission artifact only when the canonical selection rule finds a `QUALIFIED` candidate.
 
