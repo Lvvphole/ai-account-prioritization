@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,10 @@ import {
   type RuntimeDraftingPolicy,
   type RuntimeModelRequest,
 } from "agent-runtime";
-import { prepareProductionAdmissionOutput } from "./model-qualification/admission-output-lifecycle";
+import {
+  prepareProductionAdmissionOutput,
+  writeProductionAdmissionOutput,
+} from "./model-qualification/admission-output-lifecycle";
 import {
   parseModelQualificationConfig,
   type ModelQualificationConfig,
@@ -233,39 +236,30 @@ describe("P4 locked one-process qualification and admission", () => {
     expect(result.admission).toBeNull();
   });
 
-  it("does not revoke an existing admission without an explicit replacement decision", () => {
-    const dir = mkdtempSync(join(tmpdir(), "p4-admission-replace-"));
+  it("never overwrites or revokes an existing admission artifact", () => {
+    const dir = mkdtempSync(join(tmpdir(), "p4-admission-output-"));
     const path = join(dir, "admission.json");
-    writeFileSync(path, "stale-admission\n", "utf8");
+    writeFileSync(path, "existing-admission\n", "utf8");
 
     try {
-      expect(() => prepareProductionAdmissionOutput(path, false)).toThrow(
-        "P4_ADMISSION_REPLACE_EXISTING=true",
+      expect(() => prepareProductionAdmissionOutput(path)).toThrow(
+        "does not hot-replace or revoke active admissions",
       );
-      expect(existsSync(path)).toBe(true);
+      expect(() => writeProductionAdmissionOutput(path, "successor-admission\n")).toThrow();
+      expect(readFileSync(path, "utf8")).toBe("existing-admission\n");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("keeps the prior admission revoked when replacement qualification blocks", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "p4-admission-replace-"));
-    const path = join(dir, "admission.json");
-    writeFileSync(path, "stale-admission\n", "utf8");
+  it("writes a successor admission only to a new unused path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "p4-admission-output-"));
+    const path = join(dir, "successor.json");
 
     try {
-      expect(prepareProductionAdmissionOutput(path, true)).toBe(true);
-      expect(existsSync(path)).toBe(false);
-
-      const result = await runLockedP4QualificationEpoch(
-        lockedConfig(),
-        resolver(() => "blocked"),
-        decision,
-      );
-
-      expect(result.verdict).toBe("BLOCKED");
-      expect(result.admission).toBeNull();
-      expect(existsSync(path)).toBe(false);
+      expect(() => prepareProductionAdmissionOutput(path)).not.toThrow();
+      writeProductionAdmissionOutput(path, "successor-admission\n");
+      expect(readFileSync(path, "utf8")).toBe("successor-admission\n");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

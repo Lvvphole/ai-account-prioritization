@@ -2,7 +2,7 @@
 
 - Version: 1.0
 - Status: Approved Position B target specification
-- Current implementation scope: P4 provider-neutral boundary, offline cross-model qualification, and deterministic single-configuration admission
+- Current implementation scope: P4 provider-neutral boundary, offline cross-model qualification, and immutable single-configuration admission artifacts
 - Authority: `AGENTS.md`, ADR-001, ADR-002, and the product contract remain higher-priority sources for implementation scope and safety rules
 
 ## 1. Purpose
@@ -26,7 +26,7 @@ The current production spine keeps next-best-action selection deterministic. The
 - A second action ontology.
 - Production result caching.
 
-The repository permits the provider-neutral P4 boundary and offline cross-model qualification. The current executable P4 flow can create one production admission artifact only from the authoritative in-memory qualification result. Production permits one qualified model configuration at a time. Qualification candidates do not imply dynamic provider routing.
+The repository permits the provider-neutral P4 boundary and offline cross-model qualification. The current executable P4 flow can create one immutable production admission artifact only from the authoritative in-memory qualification result. Production permits one qualified model configuration to be active at a time. Qualification candidates do not imply dynamic provider routing or live admission replacement.
 
 ## 2. Target model-adapter shape
 
@@ -628,10 +628,12 @@ The implementation has these properties:
 - It returns `QUALIFIED`, `DISQUALIFIED`, or `BLOCKED` for each candidate.
 - It evaluates and selects the first `QUALIFIED` candidate in canonical policy order in the same trusted process.
 - It writes the full qualification report as audit evidence only.
-- It creates a minimal production admission artifact only when a candidate qualifies.
+- It creates a minimal immutable production admission artifact only when a candidate qualifies.
+- It requires a new unused admission-output path before provider spend and uses exclusive-create semantics for the final artifact write.
+- It never overwrites, deletes, revokes, or hot-replaces an admission artifact that may already be loaded by running workers.
 - It has no separate persisted-report replay or `admit:model` step.
 - It does not change the production provider registry.
-- It does not implement model-controlled WHAT, tools, workers, routing, or caching.
+- It does not implement live admission replacement, shared runtime revocation state, model-controlled WHAT, tools, workers, routing, or caching.
 
 Run the canonical qualification and admission process from the repository root:
 
@@ -652,10 +654,7 @@ P4_QUALIFICATION_REPORT
 
 P4_PRODUCTION_MODEL_ADMISSION_OUTPUT
   default: config/production-model-admission.json
-
-P4_ADMISSION_REPLACE_EXISTING
-  default: false
-  set true only for an explicit replacement decision
+  requirement: the path must not already exist
 ```
 
 The CLI always reads `config/p4-qualification-policy.json`. It does not accept an alternate qualification-policy path.
@@ -675,9 +674,9 @@ candidates = explicit ordered provider/model/configuration records
 
 ## 14. Production admission boundary
 
-The current qualification process can create one production admission artifact only from the authoritative in-memory result of the same qualification epoch. The full qualification report is audit evidence and is not replayed by a later authority.
+The current qualification process can create one immutable production admission artifact only from the authoritative in-memory result of the same qualification epoch. The full qualification report is audit evidence and is not replayed by a later authority.
 
-The production configuration stays pinned and singular:
+An admission artifact is not hot-swapped into already-running workers. Runtime policy is loaded at process startup. Current P4 therefore separates qualification from runtime activation:
 
 ```text
 canonical ordered candidate set
@@ -686,12 +685,20 @@ qualification verdicts
         ↓
 first QUALIFIED candidate in configured order
         ↓
-ONE provider + ONE model + ONE qualified configuration
+immutable admission artifact at a new unused path
+        ↓
+controlled deployment drains/stops existing workers
+        ↓
+runtime restarts with P4_PRODUCTION_MODEL_ADMISSION set to that artifact
+        ↓
+ONE active provider + ONE active model + ONE active qualified configuration
         ↓
 Acceptance B
 ```
 
 The decision owner and decision reference are required audit metadata. They do not select the candidate and cannot override canonical policy order.
+
+Current P4 does not implement live replacement or revocation of an active model admission. Qualifying a successor at a different unused path does not change the model already loaded by running workers. Activating a successor requires a controlled deployment that drains or stops the existing runtime before restart. A future hot-replacement or shared-revocation mechanism requires separate implementation authorization and ADR-002 evidence.
 
 A production failure can use the configured deterministic template fallback or hold. A production failure cannot silently switch to another provider or model.
 

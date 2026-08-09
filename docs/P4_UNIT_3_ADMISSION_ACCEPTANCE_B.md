@@ -4,11 +4,11 @@
 
 Use this procedure after Acceptance A passes.
 
-P4 Unit 3 runs the approved model qualification policy, evaluates each candidate, selects the production candidate, and creates the production admission artifact in one trusted process.
+P4 Unit 3 runs the approved model qualification policy, evaluates each candidate, selects the production candidate, and creates one immutable production admission artifact in one trusted process.
 
 The full qualification report is audit evidence. A later command does not read the report to reconstruct or approve the qualification decision.
 
-This unit does not authorize model-controlled next-best-action selection, general tool orchestration, side-effecting model tools, subagents, routing, voting, a second action ontology, or production caching. Current next-best-action selection stays deterministic.
+This unit does not authorize model-controlled next-best-action selection, general tool orchestration, side-effecting model tools, subagents, routing, voting, a second action ontology, production caching, or live model-admission replacement. Current next-best-action selection stays deterministic.
 
 ## 2. Executable policy authority
 
@@ -16,7 +16,7 @@ This unit does not authorize model-controlled next-best-action selection, genera
 
 Do not duplicate candidate identities, candidate priority, pricing, qualification limits, production budgets, or qualification thresholds in another executable definition.
 
-The order of `candidates` in the policy file is the deterministic admission priority. The first candidate with a `QUALIFIED` verdict is selected. If no configured candidate qualifies, the result is `BLOCKED` and the deterministic fallback remains active.
+The order of `candidates` in the policy file is the deterministic admission priority. The first candidate with a `QUALIFIED` verdict is selected. If no configured candidate qualifies, the result is `BLOCKED` and no new admission artifact is created.
 
 A policy change is a change to this JSON file. Review and verify that change through the repository gates before it is used for a live qualification epoch.
 
@@ -30,8 +30,9 @@ canonical qualification policy
   -> evaluate run evidence in memory
   -> QUALIFIED | DISQUALIFIED | BLOCKED for each candidate
   -> first QUALIFIED candidate in configured order
-  -> minimal production admission artifact
+  -> minimal immutable production admission artifact at a new path
   -> write full report as audit evidence
+  -> controlled runtime activation outside the qualification CLI
   -> exact runtime configuration match
   -> Acceptance B
   -> production verifier
@@ -40,6 +41,8 @@ canonical qualification policy
 The qualification process is the only authority that evaluates qualification run history. Production does not replay the report.
 
 The decision owner and decision reference are audit metadata. They do not select the candidate and cannot override configured candidate priority.
+
+The qualification CLI does not revoke, overwrite, or hot-replace an admission that running workers already loaded.
 
 ## 4. Budget semantics
 
@@ -87,11 +90,14 @@ P4_QUALIFICATION_REPORT
 
 P4_PRODUCTION_MODEL_ADMISSION_OUTPUT
   default: config/production-model-admission.json
+  requirement: the path must not already exist
 ```
 
-If an admission file already exists, the command refuses to replace it before provider spend unless `P4_ADMISSION_REPLACE_EXISTING=true`.
+The command checks the admission output path before provider spend. If the path already exists, the command fails closed. It never overwrites or deletes the existing artifact. The final write also uses exclusive-create semantics so a concurrent file creation cannot overwrite an existing admission.
 
-An explicit replacement is a fail-closed revoke-then-requalify operation. After the canonical policy and decision metadata are valid, the command removes the current admission artifact before the first provider call. If the replacement epoch returns `BLOCKED`, or if the process fails after revocation and before a new admission is written, the previous admission does not become active again. The deterministic fallback remains active until a new admission artifact is written.
+Current P4 does not implement live replacement or runtime revocation. To qualify a successor while another admission is active, set `P4_PRODUCTION_MODEL_ADMISSION_OUTPUT` to a different unused path. This stages a new immutable admission artifact only. It does not change the model configuration already loaded by running workers.
+
+Activate a successor only through a controlled deployment that drains or stops all existing runtime workers and then starts the runtime with `P4_PRODUCTION_MODEL_ADMISSION` pointing to the successor artifact. Hot replacement while old workers are still running is outside current P4 and requires separate implementation authorization and ADR-002 evidence.
 
 The command writes the audit report after a completed epoch. It writes the production admission artifact only when the canonical selection rule finds a `QUALIFIED` candidate.
 
@@ -105,6 +111,8 @@ The report hash is provenance only. The production runtime does not open the qua
 
 The admission artifact contains no provider credential.
 
+Admission artifacts are immutable. Current P4 does not mutate an artifact to represent revocation or replacement.
+
 ## 8. Configure the admitted runtime model
 
 Set `P4_PRODUCTION_MODEL_ADMISSION` to the admission artifact path.
@@ -112,6 +120,8 @@ Set `P4_PRODUCTION_MODEL_ADMISSION` to the admission artifact path.
 Set the runtime provider, model, reasoning profile, fallback, and budgets to the exact values in the admission artifact. Provide the provider credential separately in `RUNTIME_DRAFT_API_KEY`.
 
 When `NODE_ENV=production` and runtime drafting is enabled, startup fails if the admission artifact is absent or if the runtime configuration differs from the admitted configuration.
+
+A successor artifact becomes active only when the runtime is restarted with `P4_PRODUCTION_MODEL_ADMISSION` changed to that artifact after existing workers are drained or stopped.
 
 ## 9. Run Acceptance B
 
@@ -151,6 +161,8 @@ After admission, an Acceptance B failure blocks production verification.
 
 ## 11. Current evidence boundary
 
-This implementation supplies the reduced qualification and admission mechanism. It does not claim that any configured candidate is qualified until a real canonical qualification epoch runs with live provider credentials.
+This implementation supplies the reduced qualification and immutable admission-artifact mechanism. It does not claim that any configured candidate is qualified until a real canonical qualification epoch runs with live provider credentials.
+
+It also does not implement live admission replacement or shared runtime revocation state. Those capabilities are not required to qualify and stage an immutable successor artifact and are deferred unless a later explicit requirement justifies them.
 
 The whole application remains `NOT_DONE` until the required single-qualified-model profile and the repository production verifier pass.

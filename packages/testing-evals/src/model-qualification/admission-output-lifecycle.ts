@@ -1,23 +1,26 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 /**
- * Prepare the production-admission output before a qualification epoch starts.
- *
- * An explicit replacement decision is fail-closed: remove the previous admission
- * before any provider spend. If the new epoch blocks or the process fails after
- * this point, the prior model does not retain admission authority.
+ * Require a new admission artifact path before qualification spends provider
+ * tokens. Current P4 does not hot-replace or revoke an active admission.
  */
-export function prepareProductionAdmissionOutput(
-  admissionPath: string,
-  replaceExisting: boolean,
-): boolean {
-  if (!existsSync(admissionPath)) return false;
-  if (!replaceExisting) {
-    throw new Error(
-      `Production admission already exists at ${admissionPath}. Set P4_ADMISSION_REPLACE_EXISTING=true only for an explicit replacement decision.`,
-    );
-  }
+export function prepareProductionAdmissionOutput(admissionPath: string): void {
+  if (!existsSync(admissionPath)) return;
 
-  unlinkSync(admissionPath);
-  return true;
+  throw new Error(
+    `Production admission output already exists at ${admissionPath}. Current P4 does not hot-replace or revoke active admissions. Choose a new unused P4_PRODUCTION_MODEL_ADMISSION_OUTPUT path.`,
+  );
+}
+
+/** Write one immutable admission artifact without overwriting an existing file. */
+export function writeProductionAdmissionOutput(
+  admissionPath: string,
+  serializedAdmission: string,
+): void {
+  mkdirSync(dirname(admissionPath), { recursive: true });
+  writeFileSync(admissionPath, serializedAdmission, {
+    encoding: "utf8",
+    flag: "wx",
+  });
 }

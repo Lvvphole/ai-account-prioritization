@@ -1,17 +1,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { prepareProductionAdmissionOutput } from "./admission-output-lifecycle";
+import {
+  prepareProductionAdmissionOutput,
+  writeProductionAdmissionOutput,
+} from "./admission-output-lifecycle";
 import { parseModelQualificationConfig } from "./qualification-contract";
 import { createNetworkQualificationResolver } from "./qualification-provider-clients";
 import { runLockedP4QualificationEpoch } from "./locked-qualification";
 
 const CANONICAL_P4_QUALIFICATION_POLICY = "config/p4-qualification-policy.json";
-
-const boolFromEnv = (value: string | undefined): boolean => {
-  if (value === undefined || value === "" || value === "false") return false;
-  if (value === "true") return true;
-  throw new Error(`Invalid boolean environment value: ${value}`);
-};
 
 const required = (value: string | undefined, name: string): string => {
   if (!value?.trim()) throw new Error(`${name} is required.`);
@@ -27,7 +24,11 @@ async function main(): Promise<void> {
   const admissionPath = resolve(
     process.env.P4_PRODUCTION_MODEL_ADMISSION_OUTPUT ?? "config/production-model-admission.json",
   );
-  const replaceExisting = boolFromEnv(process.env.P4_ADMISSION_REPLACE_EXISTING);
+
+  // Admission artifacts are immutable. Refuse an existing output before any
+  // provider spend. A successor qualification must use a new unused path and
+  // does not change the admission already loaded by running workers.
+  prepareProductionAdmissionOutput(admissionPath);
 
   const config = parseModelQualificationConfig(
     JSON.parse(readFileSync(configPath, "utf8")) as unknown,
@@ -40,14 +41,6 @@ async function main(): Promise<void> {
     decisionRef: required(process.env.P4_ADMISSION_DECISION_REF, "P4_ADMISSION_DECISION_REF"),
   };
 
-  // A replacement decision revokes the previous admission before provider spend.
-  // This keeps the replacement path fail-closed if qualification blocks or the
-  // process fails before a new admission artifact is written.
-  const revokedExistingAdmission = prepareProductionAdmissionOutput(
-    admissionPath,
-    replaceExisting,
-  );
-
   const result = await runLockedP4QualificationEpoch(
     config,
     createNetworkQualificationResolver(process.env),
@@ -58,16 +51,14 @@ async function main(): Promise<void> {
   writeFileSync(reportPath, `${JSON.stringify(result.report, null, 2)}\n`, "utf8");
 
   if (result.admission) {
-    mkdirSync(dirname(admissionPath), { recursive: true });
-    writeFileSync(admissionPath, `${JSON.stringify(result.admission, null, 2)}\n`, "utf8");
+    writeProductionAdmissionOutput(
+      admissionPath,
+      `${JSON.stringify(result.admission, null, 2)}\n`,
+    );
   }
 
   // eslint-disable-next-line no-console
   console.log(`P4 locked qualification epoch: ${result.verdict}`);
-  if (revokedExistingAdmission) {
-    // eslint-disable-next-line no-console
-    console.log(`Previous production admission revoked before qualification: ${admissionPath}`);
-  }
   for (const candidate of result.report.candidates) {
     // eslint-disable-next-line no-console
     console.log(
@@ -81,7 +72,7 @@ async function main(): Promise<void> {
   console.log(`Audit report: ${reportPath}`);
   if (result.admission) {
     // eslint-disable-next-line no-console
-    console.log(`Production admission: ${admissionPath}`);
+    console.log(`Production admission artifact: ${admissionPath}`);
   }
 
   process.exitCode = result.verdict === "PASS" ? 0 : 2;
