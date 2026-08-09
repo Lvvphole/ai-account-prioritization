@@ -1,8 +1,9 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
-  prepareProductionAdmissionOutput,
+  prepareQualificationOutputPaths,
   writeProductionAdmissionOutput,
+  writeQualificationReportOutput,
 } from "./admission-output-lifecycle";
 import { parseModelQualificationConfig } from "./qualification-contract";
 import { createNetworkQualificationResolver } from "./qualification-provider-clients";
@@ -25,10 +26,9 @@ async function main(): Promise<void> {
     process.env.P4_PRODUCTION_MODEL_ADMISSION_OUTPUT ?? "config/production-model-admission.json",
   );
 
-  // Admission artifacts are immutable. Refuse an existing output before any
-  // provider spend. A successor qualification must use a new unused path and
-  // does not change the admission already loaded by running workers.
-  prepareProductionAdmissionOutput(admissionPath);
+  // Qualification outputs are immutable and must be distinct. Refuse invalid or
+  // already-used paths before any provider spend.
+  prepareQualificationOutputPaths(reportPath, admissionPath);
 
   const config = parseModelQualificationConfig(
     JSON.parse(readFileSync(configPath, "utf8")) as unknown,
@@ -47,8 +47,7 @@ async function main(): Promise<void> {
     decision,
   );
 
-  mkdirSync(dirname(reportPath), { recursive: true });
-  writeFileSync(reportPath, `${JSON.stringify(result.report, null, 2)}\n`, "utf8");
+  writeQualificationReportOutput(reportPath, `${JSON.stringify(result.report, null, 2)}\n`);
 
   if (result.admission) {
     writeProductionAdmissionOutput(
