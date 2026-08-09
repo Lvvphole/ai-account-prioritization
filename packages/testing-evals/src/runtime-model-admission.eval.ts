@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   normalizeRuntimeDraftingPolicy,
@@ -24,7 +24,9 @@ import {
 
 const lockedConfig = (): ModelQualificationConfig =>
   parseModelQualificationConfig(
-    JSON.parse(readFileSync("config/p4-qualification-policy.json", "utf8")) as unknown,
+    JSON.parse(
+      readFileSync(resolve(process.cwd(), "../../config/p4-qualification-policy.json"), "utf8"),
+    ) as unknown,
   );
 
 const contextFromRequest = (request: RuntimeModelRequest) => {
