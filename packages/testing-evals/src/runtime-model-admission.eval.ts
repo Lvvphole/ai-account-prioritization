@@ -266,6 +266,21 @@ describe("P4 production model admission", () => {
     ).toThrow("inconsistent qualification token reservation evidence");
   });
 
+  it("rejects qualification reservations above the locked production run budget", () => {
+    const config = fixedConfig();
+    config.qualificationEpochMaxRunTokens = 500000;
+    config.budgets.maxRunTokens = 299;
+    const report = qualifiedReport(config);
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/unit3/test",
+      }),
+    ).toThrow("exceeds the locked production run budget");
+  });
+
   it("rejects qualification reservations that exceed the locked offline epoch budget", () => {
     const config = fixedConfig();
     config.qualificationEpochMaxRunTokens = 1199;
