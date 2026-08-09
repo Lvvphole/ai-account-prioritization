@@ -16,9 +16,9 @@ This unit does not authorize model-controlled next-best-action selection, genera
 
 Do not duplicate candidate identities, candidate priority, pricing, qualification limits, production budgets, or qualification thresholds in another executable definition.
 
-The order of `candidates` in the policy file is the deterministic admission priority. The first candidate with a `QUALIFIED` verdict is selected. If no configured candidate qualifies, the result is `BLOCKED` and no new admission artifact is created.
+The order of `candidates` in the policy file is the deterministic admission priority. Qualification and production admission are separate properties: a candidate can be `QUALIFIED` by the offline evaluator but still be non-admittable when the current runtime has no implemented production adapter for its provider. The integrated admission step selects the first candidate in configured order that is both `QUALIFIED` and production-admittable. A qualified non-admittable candidate remains in the audit report and does not abort evaluation of later candidates. If no qualified production-admittable candidate exists, the result is `BLOCKED` and no new admission artifact is created.
 
-A policy change is a change to this JSON file. Review and verify that change through the repository gates before it is used for a live qualification epoch.
+The current canonical policy contains only candidates with the currently admitted runtime provider. A policy change is a change to this JSON file. Review and verify that change through the repository gates before it is used for a live qualification epoch.
 
 ## 3. Authority model
 
@@ -29,9 +29,10 @@ canonical qualification policy
   -> execute frozen cases
   -> evaluate run evidence in memory
   -> QUALIFIED | DISQUALIFIED | BLOCKED for each candidate
-  -> first QUALIFIED candidate in configured order
+  -> preserve qualification evidence for every candidate
+  -> first QUALIFIED + production-admittable candidate in configured order
   -> minimal immutable production admission artifact at a new path
-  -> write full report as audit evidence
+  -> write full report as immutable audit evidence
   -> controlled runtime activation outside the qualification CLI
   -> exact runtime configuration match
   -> Acceptance B
@@ -40,7 +41,7 @@ canonical qualification policy
 
 The qualification process is the only authority that evaluates qualification run history. Production does not replay the report.
 
-The decision owner and decision reference are audit metadata. They do not select the candidate and cannot override configured candidate priority.
+The decision owner and decision reference are audit metadata. They do not select the candidate and cannot override configured candidate priority. They are retained in the qualification report for both `PASS` and `BLOCKED` epochs. The report also records the selected candidate identifier and any qualified candidates that were not production-admittable.
 
 The qualification CLI does not revoke, overwrite, or hot-replace an admission that running workers already loaded.
 
@@ -87,19 +88,22 @@ Optional output paths are:
 ```text
 P4_QUALIFICATION_REPORT
   default: generated file under packages/testing-evals/src/eval-results/
+  requirement: the path must not already exist
 
 P4_PRODUCTION_MODEL_ADMISSION_OUTPUT
   default: config/production-model-admission.json
   requirement: the path must not already exist
 ```
 
-The command checks the admission output path before provider spend. If the path already exists, the command fails closed. It never overwrites or deletes the existing artifact. The final write also uses exclusive-create semantics so a concurrent file creation cannot overwrite an existing admission.
+The resolved report and admission paths must be different. The command validates both output paths before provider spend. If either path already exists, or if both variables resolve to the same path, the command fails closed before qualification begins.
+
+Both outputs use exclusive-create semantics. The qualification report is append-only audit evidence and is never overwritten. The admission artifact is immutable and is never overwritten or deleted by the qualification CLI.
 
 Current P4 does not implement live replacement or runtime revocation. To qualify a successor while another admission is active, set `P4_PRODUCTION_MODEL_ADMISSION_OUTPUT` to a different unused path. This stages a new immutable admission artifact only. It does not change the model configuration already loaded by running workers.
 
 Activate a successor only through a controlled deployment that drains or stops all existing runtime workers and then starts the runtime with `P4_PRODUCTION_MODEL_ADMISSION` pointing to the successor artifact. Hot replacement while old workers are still running is outside current P4 and requires separate implementation authorization and ADR-002 evidence.
 
-The command writes the audit report after a completed epoch. It writes the production admission artifact only when the canonical selection rule finds a `QUALIFIED` candidate.
+The command writes the audit report after a completed epoch. It writes the production admission artifact only when the canonical selection rule finds a candidate that is both `QUALIFIED` and production-admittable.
 
 There is no separate `admit:model` replay step.
 
@@ -162,6 +166,8 @@ After admission, an Acceptance B failure blocks production verification.
 ## 11. Current evidence boundary
 
 This implementation supplies the reduced qualification and immutable admission-artifact mechanism. It does not claim that any configured candidate is qualified until a real canonical qualification epoch runs with live provider credentials.
+
+It keeps offline qualification evidence distinct from production-admission eligibility. A provider can remain measurable offline without gaining production authority before its runtime adapter is separately implemented and admitted.
 
 It also does not implement live admission replacement or shared runtime revocation state. Those capabilities are not required to qualify and stage an immutable successor artifact and are deferred unless a later explicit requirement justifies them.
 
