@@ -234,7 +234,7 @@ export function estimateRuntimeModelInputTokensUpperBound(
   );
 }
 
-function buildBudgetedDraftRequest(
+export function buildBudgetedDraftRequest(
   rec: Recommendation,
   ctx: AccountContext,
   policy: RuntimeDraftingPolicy,
