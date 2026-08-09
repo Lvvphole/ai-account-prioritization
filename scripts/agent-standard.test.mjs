@@ -36,6 +36,16 @@ test("invalid supplied profile fails instead of silently using general", () => {
   );
 });
 
+test("internal language-overlay ids are rejected as task profiles", () => {
+  const standard = loadStandard(ROOT);
+  for (const profile of ["overlay-python", "overlay-typescript"]) {
+    assert.throws(
+      () => compileContext(standard, { profile }),
+      UnknownProfileError,
+    );
+  }
+});
+
 test("language overlays are explicit and never cross-load", () => {
   const standard = loadStandard(ROOT);
   const ts = compileContext(standard, {
@@ -146,8 +156,20 @@ test("skill forbids profile and language inference", () => {
   assert.match(skill, /If `engineering_language` is absent, load no language overlay/);
 });
 
-test("manifest locks deferred path resolution and external verifier authority", () => {
+test("manifest publishes only public task profiles and locks verifier boundaries", () => {
   const standard = loadStandard(ROOT);
+  assert.deepEqual(standard.taskProfiles, [
+    "general",
+    "code-change",
+    "bug-fix",
+    "refactor",
+    "technical-doc",
+    "requirements",
+    "architecture-change",
+    "standard-maintenance",
+  ]);
+  assert.ok(!standard.taskProfiles.includes("overlay-python"));
+  assert.ok(!standard.taskProfiles.includes("overlay-typescript"));
   assert.equal(standard.manifest.path_resolution, "deferred");
   assert.equal(standard.manifest.acceptance_authority, "external_verifier");
 });
