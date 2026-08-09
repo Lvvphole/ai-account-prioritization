@@ -114,6 +114,16 @@ const passingResolver: QualificationClientResolver = (candidate) => ({
   },
 });
 
+const haikuReport = (report: Awaited<ReturnType<typeof runCurrentSpineModelQualification>>) =>
+  report.candidates.find(
+    (candidate) => candidate.candidate.id === "anthropic-haiku-4-5-default",
+  )!;
+
+const sonnetReport = (report: Awaited<ReturnType<typeof runCurrentSpineModelQualification>>) =>
+  report.candidates.find(
+    (candidate) => candidate.candidate.id === "anthropic-sonnet-4-6-low",
+  )!;
+
 describe("locked P4 qualification and admission policy", () => {
   it("qualifies each locked candidate only after 60 of 60 verifier passes", async () => {
     const config = lockedConfig();
@@ -157,12 +167,24 @@ describe("locked P4 qualification and admission policy", () => {
     ).toThrow("requires candidate anthropic-haiku-4-5-default");
   });
 
-  it("selects Sonnet when Haiku is DISQUALIFIED and Sonnet is QUALIFIED", async () => {
+  it("rejects a fabricated Haiku DISQUALIFIED verdict when its 60-run evidence qualifies", async () => {
     const config = lockedConfig();
     const report = await runCurrentSpineModelQualification(config, passingResolver);
-    const haiku = report.candidates.find(
-      (candidate) => candidate.candidate.id === "anthropic-haiku-4-5-default",
-    )!;
+    const haiku = haikuReport(report);
+    haiku.verdict = "DISQUALIFIED";
+    haiku.reasons = ["MODEL_VERIFIER_PASS_RATE_FAILED"];
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "does not match the locked 60/60 evidence boundary",
+    );
+  });
+
+  it("selects Sonnet when Haiku is DISQUALIFIED by run evidence and Sonnet is QUALIFIED", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const haiku = haikuReport(report);
+    haiku.runs[0]!.schemaValidation = "failed";
+    haiku.runs[0]!.verifierPass = false;
     haiku.verdict = "DISQUALIFIED";
     haiku.reasons = ["MODEL_VERIFIER_PASS_RATE_FAILED"];
     const governed = applyLockedP4QualificationPolicy(config, report);
@@ -171,16 +193,23 @@ describe("locked P4 qualification and admission policy", () => {
     expect(selectLockedP4AdmissionCandidateId(config, governed)).toBe(
       "anthropic-sonnet-4-6-low",
     );
+
+    const admission = buildLockedP4ProductionModelAdmission(config, governed, {
+      candidateId: "anthropic-sonnet-4-6-low",
+      decisionOwner: "product-owner",
+      decisionRef: "decision://p4/sonnet-after-haiku-disqualification",
+    });
+    expect(admission.budgets.maxRunTokens).toBe(20000);
+    expect(JSON.stringify(admission)).not.toContain("qualificationEpochMaxRunTokens");
   });
 
-  it("selects Sonnet when Haiku is BLOCKED and Sonnet is QUALIFIED", async () => {
+  it("selects Sonnet when Haiku is BLOCKED by telemetry evidence and Sonnet is QUALIFIED", async () => {
     const config = lockedConfig();
     const report = await runCurrentSpineModelQualification(config, passingResolver);
-    const haiku = report.candidates.find(
-      (candidate) => candidate.candidate.id === "anthropic-haiku-4-5-default",
-    )!;
+    const haiku = haikuReport(report);
+    haiku.runs[0]!.inputTokens = null;
     haiku.verdict = "BLOCKED";
-    haiku.reasons = ["MISSING_CREDENTIAL"];
+    haiku.reasons = ["TOKEN_TELEMETRY_INCOMPLETE"];
     const governed = applyLockedP4QualificationPolicy(config, report);
 
     expect(governed.verdict).toBe("PASS");
@@ -192,10 +221,15 @@ describe("locked P4 qualification and admission policy", () => {
   it("blocks admission when neither locked candidate is QUALIFIED", async () => {
     const config = lockedConfig();
     const report = await runCurrentSpineModelQualification(config, passingResolver);
-    report.candidates[0]!.verdict = "BLOCKED";
-    report.candidates[0]!.reasons = ["MISSING_CREDENTIAL"];
-    report.candidates[1]!.verdict = "DISQUALIFIED";
-    report.candidates[1]!.reasons = ["MODEL_VERIFIER_PASS_RATE_FAILED"];
+    const haiku = haikuReport(report);
+    const sonnet = sonnetReport(report);
+    haiku.runs[0]!.inputTokens = null;
+    haiku.verdict = "BLOCKED";
+    haiku.reasons = ["TOKEN_TELEMETRY_INCOMPLETE"];
+    sonnet.runs[0]!.schemaValidation = "failed";
+    sonnet.runs[0]!.verifierPass = false;
+    sonnet.verdict = "DISQUALIFIED";
+    sonnet.reasons = ["MODEL_VERIFIER_PASS_RATE_FAILED"];
     const governed = applyLockedP4QualificationPolicy(config, report);
 
     expect(governed.verdict).toBe("BLOCKED");
