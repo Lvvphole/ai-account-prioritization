@@ -3,11 +3,15 @@ import {
   type ModelQualificationConfig,
   type QualificationOverallVerdict,
 } from "./qualification-contract";
+import { CURRENT_SPINE_QUALIFICATION_CORPUS } from "./qualification-corpus";
 import {
   buildProductionModelAdmission,
   type ProductionModelAdmissionDecision,
 } from "./production-admission";
-import type { ModelQualificationReport } from "./qualification-runner";
+import type {
+  ModelQualificationReport,
+  QualificationCandidateReport,
+} from "./qualification-runner";
 
 const LOCKED_CANDIDATES = [
   {
@@ -119,6 +123,85 @@ export function assertLockedP4QualificationPolicy(config: ModelQualificationConf
   }
 }
 
+const candidateMeetsLockedQualificationBoundary = (
+  config: ModelQualificationConfig,
+  report: QualificationCandidateReport,
+): boolean => {
+  const expectedKeys = new Set<string>();
+  for (const item of CURRENT_SPINE_QUALIFICATION_CORPUS) {
+    for (let runIndex = 1; runIndex <= config.k; runIndex += 1) {
+      expectedKeys.add(`${item.id}:${runIndex}`);
+    }
+  }
+  if (report.runs.length !== expectedKeys.size) return false;
+
+  const seen = new Set<string>();
+  for (const [index, run] of report.runs.entries()) {
+    if (run.candidateId !== report.candidate.id) {
+      throw new Error(`Qualification run ${index} belongs to a different candidate.`);
+    }
+    const key = `${run.caseId}:${run.runIndex}`;
+    if (!expectedKeys.has(key) || seen.has(key)) {
+      throw new Error(`Qualification run coverage is invalid for ${report.candidate.id}.`);
+    }
+    seen.add(key);
+
+    const verifierPass =
+      run.source === "model" &&
+      run.schemaValidation === "passed" &&
+      run.groundingValidation === "passed" &&
+      run.authorityImmutable;
+    if (run.verifierPass !== verifierPass) {
+      throw new Error(`Qualification run ${key} has inconsistent verifier evidence.`);
+    }
+    if (run.source === "model" && run.qualificationOracleCorrect === null) {
+      throw new Error(`Qualification run ${key} is missing the frozen-case oracle result.`);
+    }
+    if (run.source !== "model" && run.qualificationOracleCorrect !== null) {
+      throw new Error(`Qualification run ${key} has an oracle result without model output.`);
+    }
+    const falseAccept = verifierPass && run.qualificationOracleCorrect === false;
+    if (run.falseAccept !== falseAccept) {
+      throw new Error(`Qualification run ${key} has inconsistent false-accept evidence.`);
+    }
+    if (run.providerInvoked && (!run.requestIdentityHash || !run.invocationStartHash)) {
+      throw new Error(`Qualification run ${key} is missing invocation identity evidence.`);
+    }
+    if (run.source === "model" && !run.providerInvoked) {
+      throw new Error(`Qualification run ${key} claims model output without provider invocation.`);
+    }
+    if (run.revisionEvidence !== "not_required") {
+      throw new Error(`Qualification run ${key} has unexpected model revision evidence.`);
+    }
+  }
+
+  if (seen.size !== expectedKeys.size) return false;
+  if (
+    report.runs.some(
+      (run) =>
+        run.source !== "model" ||
+        !run.verifierPass ||
+        run.falseAccept ||
+        !run.authorityImmutable ||
+        run.inputTokens === null ||
+        run.outputTokens === null,
+    )
+  ) {
+    return false;
+  }
+
+  for (const item of CURRENT_SPINE_QUALIFICATION_CORPUS) {
+    const identities = new Set(
+      report.runs
+        .filter((run) => run.caseId === item.id)
+        .map((run) => run.requestIdentityHash),
+    );
+    if (identities.size !== 1 || identities.has(null)) return false;
+  }
+
+  return true;
+};
+
 const assertLockedReport = (
   config: ModelQualificationConfig,
   report: ModelQualificationReport,
@@ -135,6 +218,13 @@ const assertLockedReport = (
     }
     if (hashQualificationMaterial(reported.candidate) !== hashQualificationMaterial(configured)) {
       throw new Error(`Qualification report candidate ${locked.id} differs from the locked contract.`);
+    }
+
+    const evidenceQualifies = candidateMeetsLockedQualificationBoundary(config, reported);
+    if ((reported.verdict === "QUALIFIED") !== evidenceQualifies) {
+      throw new Error(
+        `Qualification report verdict for ${locked.id} does not match the locked 60/60 evidence boundary.`,
+      );
     }
     if (reported.verdict === "QUALIFIED" && reported.reasons.length !== 0) {
       throw new Error(`QUALIFIED candidate ${locked.id} must not contain failure reasons.`);
