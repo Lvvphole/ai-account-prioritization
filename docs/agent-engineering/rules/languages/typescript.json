@@ -1,0 +1,84 @@
+{
+  "rules": [
+    {
+      "id": "TS-001",
+      "domain": "typescript",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Treat values of unknown external shape as unknown until they are validated or narrowed; do not use plain any to bypass uncertainty.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": [
+          "typescript"
+        ]
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "EffectiveTS:5",
+        "EffectiveTS:46"
+      ]
+    },
+    {
+      "id": "TS-002",
+      "domain": "typescript",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Model types so declared states are valid and truthful; prefer a less precise type over an inaccurate type that claims facts the program has not established.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": [
+          "typescript"
+        ]
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "EffectiveTS:29",
+        "EffectiveTS:40"
+      ]
+    },
+    {
+      "id": "TS-003",
+      "domain": "typescript",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not use type assertions to silence type errors or manufacture unproven facts; when an unsafe assertion is unavoidable at a boundary, isolate it behind a well-typed interface.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor"
+        ],
+        "languages": [
+          "typescript"
+        ]
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "EffectiveTS:9",
+        "EffectiveTS:45"
+      ]
+    }
+  ]
+}
