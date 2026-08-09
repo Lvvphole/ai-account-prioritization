@@ -13,6 +13,7 @@ import {
   selectLockedP4AdmissionCandidateId,
 } from "./model-qualification/locked-admission-policy";
 import { runCurrentSpineModelQualification } from "./model-qualification/qualification-runner";
+import { effectiveQualificationProviderConfiguration } from "./model-qualification/qualification-provider-clients";
 
 const lockedConfig = () =>
   parseModelQualificationConfig({
@@ -87,11 +88,8 @@ const visibleContext = (request: RuntimeModelRequest) => {
 
 const passingResolver: QualificationClientResolver = (candidate) => ({
   credential: "test-secret",
-  effectiveProviderConfiguration: (_request, config) => ({
-    provider: candidate.provider,
-    model: config.model,
-    reasoning: config.reasoningEffort,
-  }),
+  effectiveProviderConfiguration: (request, config) =>
+    effectiveQualificationProviderConfiguration(candidate.provider, request, config),
   client: {
     async generate(request, config) {
       const visible = visibleContext(request);
@@ -250,6 +248,66 @@ describe("locked P4 qualification and admission policy", () => {
 
     expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
       "token reservations exceed the locked budget",
+    );
+  });
+
+  it("rejects measured token telemetry above the recorded run limits", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const run = haikuReport(report).runs[0]!;
+    run.inputTokens = run.inputTokenUpperBound! + 1;
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "has invalid or over-budget token telemetry",
+    );
+
+    run.inputTokens = 100;
+    run.outputTokens = config.budgets.maxOutputTokens + 1;
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "has invalid or over-budget token telemetry",
+    );
+  });
+
+  it("rejects missing effective provider configuration evidence", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    haikuReport(report).runs[0]!.effectiveProviderConfiguration = null;
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "has invalid effective provider configuration evidence",
+    );
+  });
+
+  it("rejects effective provider configuration that differs from the locked candidate", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    haikuReport(report).runs[0]!.effectiveProviderConfiguration = {
+      ...haikuReport(report).runs[0]!.effectiveProviderConfiguration,
+      max_tokens: config.budgets.maxOutputTokens + 1,
+    };
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "has invalid effective provider configuration evidence",
+    );
+  });
+
+  it("rejects effective provider configuration drift across repeated runs", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const run = haikuReport(report).runs[0]!;
+    const effective = run.effectiveProviderConfiguration!;
+    const outputConfig = effective.output_config as Record<string, unknown>;
+    const format = outputConfig.format as Record<string, unknown>;
+    run.effectiveProviderConfiguration = {
+      ...effective,
+      output_config: {
+        ...outputConfig,
+        format: { ...format, schema: { type: "object", properties: {} } },
+      },
+    };
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "effective provider configuration identity is not stable",
     );
   });
 

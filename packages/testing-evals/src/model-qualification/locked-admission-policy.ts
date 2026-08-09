@@ -136,6 +136,9 @@ const candidateMeetsLockedQualificationBoundary = (
   if (report.runs.length !== expectedKeys.size) return false;
 
   const seen = new Set<string>();
+  const effectiveConfigurationHashes = new Set<string>();
+  const batchReservedTokens = new Map<number, number>();
+  let qualificationEpochReservedTokens = 0;
   for (const [index, run] of report.runs.entries()) {
     if (run.candidateId !== report.candidate.id) {
       throw new Error(`Qualification run ${index} belongs to a different candidate.`);
@@ -182,18 +185,65 @@ const candidateMeetsLockedQualificationBoundary = (
     ) {
       throw new Error(`Qualification run ${key} has invalid token reservation evidence.`);
     }
+    const inputTokenUpperBound = run.inputTokenUpperBound as number;
+    const reservedRunTokens = run.reservedRunTokens as number;
+    qualificationEpochReservedTokens += reservedRunTokens;
+    batchReservedTokens.set(
+      run.runIndex,
+      (batchReservedTokens.get(run.runIndex) ?? 0) + reservedRunTokens,
+    );
+
+    if (run.source === "model") {
+      if (
+        !Number.isSafeInteger(run.inputTokens) ||
+        !Number.isSafeInteger(run.outputTokens) ||
+        run.inputTokens! < 0 ||
+        run.outputTokens! < 0 ||
+        run.inputTokens! > inputTokenUpperBound ||
+        run.outputTokens! > config.budgets.maxOutputTokens ||
+        run.inputTokens! + run.outputTokens! > reservedRunTokens
+      ) {
+        throw new Error(`Qualification run ${key} has invalid or over-budget token telemetry.`);
+      }
+
+      const effective = run.effectiveProviderConfiguration;
+      const outputConfig = effective?.output_config;
+      const format =
+        outputConfig && typeof outputConfig === "object" && !Array.isArray(outputConfig)
+          ? (outputConfig as Record<string, unknown>).format
+          : undefined;
+      const formatRecord =
+        format && typeof format === "object" && !Array.isArray(format)
+          ? (format as Record<string, unknown>)
+          : undefined;
+      const expectedEffort =
+        report.candidate.reasoningProfile === "provider_default"
+          ? undefined
+          : report.candidate.reasoningProfile;
+      const expectedOutputConfigKeys = expectedEffort
+        ? ["effort", "format"]
+        : ["format"];
+      if (
+        !effective ||
+        Object.keys(effective).sort().join(",") !== "max_tokens,output_config" ||
+        effective.max_tokens !== config.budgets.maxOutputTokens ||
+        !outputConfig ||
+        Object.keys(outputConfig as Record<string, unknown>).sort().join(",") !==
+          expectedOutputConfigKeys.join(",") ||
+        (outputConfig as Record<string, unknown>).effort !== expectedEffort ||
+        formatRecord?.type !== "json_schema" ||
+        Object.keys(formatRecord).sort().join(",") !== "schema,type" ||
+        !formatRecord.schema ||
+        typeof formatRecord.schema !== "object" ||
+        Array.isArray(formatRecord.schema)
+      ) {
+        throw new Error(`Qualification run ${key} has invalid effective provider configuration evidence.`);
+      }
+      effectiveConfigurationHashes.add(hashQualificationMaterial(effective));
+    }
   }
 
   if (seen.size !== expectedKeys.size) return false;
-  const batchReservedTokens = new Map<number, number>();
-  let qualificationEpochReservedTokens = 0;
-  for (const run of report.runs) {
-    qualificationEpochReservedTokens += run.reservedRunTokens!;
-    batchReservedTokens.set(
-      run.runIndex,
-      (batchReservedTokens.get(run.runIndex) ?? 0) + run.reservedRunTokens!,
-    );
-  }
   if (
     qualificationEpochReservedTokens > config.qualificationEpochMaxRunTokens ||
     [...batchReservedTokens.values()].some(
@@ -201,6 +251,9 @@ const candidateMeetsLockedQualificationBoundary = (
     )
   ) {
     throw new Error(`Qualification token reservations exceed the locked budget.`);
+  }
+  if (effectiveConfigurationHashes.size !== 1) {
+    throw new Error(`Qualification effective provider configuration identity is not stable.`);
   }
   if (
     report.runs.some(
