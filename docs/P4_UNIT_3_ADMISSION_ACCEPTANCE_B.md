@@ -1,99 +1,166 @@
-# P4 Unit 3 — Production Model Admission and Acceptance B
+# P4 Unit 3 — Locked Qualification, Production Admission, and Acceptance B
 
 ## 1. Purpose
 
-Use this procedure after P4 offline qualification.
+Use this procedure after Acceptance A passes.
 
-P4 Unit 3 converts real qualification evidence and an explicit human decision into one production model admission. It also defines Acceptance B for that admitted configuration.
+P4 Unit 3 runs the approved model qualification policy, evaluates each candidate, selects the production candidate, and creates the production admission artifact in one trusted process.
 
-This unit does not select a model automatically. It does not implement model-controlled WHAT, capability resolution, general tool orchestration, side-effecting model tools, subagents, routing, voting, a second action ontology, or production result caching.
+The full qualification report is audit evidence. A later command does not read the report to reconstruct or approve the qualification decision.
 
-Current next-best-action selection remains deterministic.
+This unit does not authorize model-controlled next-best-action selection, general tool orchestration, side-effecting model tools, subagents, routing, voting, a second action ontology, or production caching. Current next-best-action selection stays deterministic.
 
-## 2. Required sequence
+## 2. Locked policy
+
+The executable policy is `config/p4-qualification-policy.json`.
+
+It contains these approved limits:
+
+```text
+k = 30
+qualificationEpochMaxRunTokens = 172650
+fallback = template
+
+production timeoutMs = 5000
+production maxOutputTokens = 600
+production maxInputTokens = 4000
+production maxSignals = 6
+production maxConcurrent = 4
+production maxRunTokens = 20000
+production maxEvidenceAgeDays = 90
+
+minModelVerifierPassRate = 1.0
+maxFallbackRate = 0.0
+maxFalseAcceptRate = 0.0
+requireCompleteTokenTelemetry = true
+```
+
+The only candidates are:
+
+1. `anthropic-haiku-4-5-default` — `claude-haiku-4-5-20251001`, provider-default reasoning.
+2. `anthropic-sonnet-4-6-low` — `claude-sonnet-4-6`, low reasoning.
+
+Do not add a third candidate or provider.
+
+## 3. Authority model
 
 Use this sequence:
 
 ```text
 locked qualification contract
-  -> real qualification epoch
-  -> QUALIFIED | DISQUALIFIED | BLOCKED evidence
-  -> human selects one QUALIFIED candidate
-  -> production admission artifact
+  -> execute frozen cases
+  -> evaluate run evidence in memory
+  -> QUALIFIED | DISQUALIFIED | BLOCKED for each candidate
+  -> deterministic Haiku -> Sonnet -> BLOCK selection
+  -> minimal production admission artifact
+  -> write full report as audit evidence
   -> exact runtime configuration match
   -> Acceptance B
   -> production verifier
 ```
 
-Do not skip a stage.
+The qualification process is the only authority that evaluates qualification run history. Production does not replay the report.
 
-## 3. Run the real qualification epoch
+The selection rule is deterministic:
 
-Provide a locked qualification JSON contract. The contract must contain the product-owned `k`, budgets, thresholds, exact candidate model identifiers, credential references, and any authoritative pricing evidence.
+```text
+Haiku QUALIFIED
+  -> admit Haiku
 
-Provide provider credentials through the environment. Do not commit credentials.
+Haiku not QUALIFIED and Sonnet QUALIFIED
+  -> admit Sonnet
+
+neither candidate QUALIFIED
+  -> BLOCK; keep deterministic template behavior
+```
+
+The decision owner and decision reference are audit metadata. They do not select the candidate and cannot override this priority.
+
+## 4. Budget semantics
+
+Two token authorities exist because they protect different operations.
+
+`qualificationEpochMaxRunTokens` bounds the total offline reservation for one candidate qualification epoch.
+
+`budgets.maxRunTokens` is the production-shaped reservation cap for one simulated prioritization batch. Each `runIndex` receives a new production batch budget.
+
+The qualification epoch checks its remaining reservation before an external model call. If the new reservation would exceed the epoch limit, the provider is not called and the candidate is `BLOCKED` by the qualification resource boundary.
+
+## 5. Qualification boundary
+
+A candidate can be `QUALIFIED` only when all 60 required runs complete the locked boundary:
+
+- verifier pass rate is 60 of 60;
+- fallback or hold rate is zero;
+- false-accept rate is zero;
+- authority violations are zero;
+- request identity is stable for each frozen case;
+- invocation-start identity is stable for each frozen case;
+- effective provider configuration evidence is present and stable;
+- required token telemetry is complete;
+- token telemetry stays inside the deterministic reservation; and
+- required model revision evidence, when configured, matches.
+
+The model does not certify these properties. Deterministic qualification code derives the verdict from the in-memory run evidence.
+
+## 6. Run the real qualification epoch
+
+Provide `ANTHROPIC_API_KEY` through the environment. Do not commit credentials.
+
+Provide durable audit metadata:
+
+- `P4_ADMISSION_DECISION_OWNER`
+- `P4_ADMISSION_DECISION_REF`
 
 Run:
 
 ```bash
-P4_QUALIFICATION_CONFIG=/absolute/path/locked-qualification.json \
-P4_QUALIFICATION_REPORT=/absolute/path/qualification-report.json \
+ANTHROPIC_API_KEY=<provider-credential> \
+P4_ADMISSION_DECISION_OWNER=<decision-owner> \
+P4_ADMISSION_DECISION_REF=<durable-decision-reference> \
 pnpm qualify:models
 ```
 
-The qualification runner returns `QUALIFIED`, `DISQUALIFIED`, or `BLOCKED` for each candidate. It does not rank candidates and it does not admit a winner.
+Optional paths are:
 
-Do not invent missing thresholds, token counts, latency, cost, revision evidence, or provider equivalence.
+```text
+P4_QUALIFICATION_CONFIG
+  default: config/p4-qualification-policy.json
 
-## 4. Make the human admission decision
+P4_QUALIFICATION_REPORT
+  default: generated file under packages/testing-evals/src/eval-results/
 
-Review only candidates with `QUALIFIED` status.
-
-Select one candidate explicitly. Record the human decision owner and a durable decision reference.
-
-Run:
-
-```bash
-P4_QUALIFICATION_CONFIG=/absolute/path/locked-qualification.json \
-P4_QUALIFICATION_REPORT=/absolute/path/qualification-report.json \
-P4_ADMISSION_CANDIDATE_ID=<qualified-candidate-id> \
-P4_ADMISSION_DECISION_OWNER=<decision-owner> \
-P4_ADMISSION_DECISION_REF=<durable-decision-reference> \
-P4_PRODUCTION_MODEL_ADMISSION_OUTPUT=config/production-model-admission.json \
-pnpm admit:model
+P4_PRODUCTION_MODEL_ADMISSION_OUTPUT
+  default: config/production-model-admission.json
 ```
 
-The admission command verifies these conditions again:
+The command validates the locked policy before it resolves a provider credential or spends model tokens.
 
-- The qualification epoch has `PASS` status.
-- The report uses the current frozen corpus.
-- The report policy hash matches the locked qualification contract.
-- The selected candidate identity matches the contract.
-- The selected candidate has `QUALIFIED` status and no failure reasons.
-- The mandatory zero false-accept boundary still holds.
-- Deterministic authority remained immutable.
-- Product-owned verifier, fallback, telemetry, latency, and cost thresholds still hold when applicable.
-- A production adapter exists for the selected provider.
+If an admission file already exists, the command refuses to replace it before provider spend. An explicit replacement decision must set `P4_ADMISSION_REPLACE_EXISTING=true`.
 
-If the selected qualified provider has no production adapter, the command blocks. Implement only that selected provider adapter under a separate evidence-bearing change. Do not add runtime routing or adapters for unselected providers merely because they were qualification candidates.
+The command always writes the audit report after a completed epoch. It writes the production admission artifact only when the locked selection rule finds a `QUALIFIED` candidate.
 
-The generated admission artifact contains no provider credential.
+There is no separate `admit:model` replay step.
 
-Do not replace an existing admission silently. An explicit replacement decision must set `P4_ADMISSION_REPLACE_EXISTING=true` and must use new valid qualification evidence.
+## 7. Production admission artifact
 
-## 5. Configure the one admitted runtime model
+The admission artifact contains the selected candidate identity, production budgets, fallback policy, decision metadata, qualification policy identity, frozen corpus identity, and qualification report hash.
 
-Set `P4_PRODUCTION_MODEL_ADMISSION` to the admitted artifact path.
+The report hash is provenance only. The production runtime does not open the qualification report and does not reconstruct historical run decisions from it.
 
-Set the runtime provider, model, reasoning profile, fallback, and budgets to exactly the values in the admission artifact. Provide the provider credential separately in `RUNTIME_DRAFT_API_KEY`.
+The admission artifact contains no provider credential.
 
-When `NODE_ENV=production` and runtime drafting is enabled, startup fails if the admission artifact is absent or if the effective runtime configuration differs from the admitted configuration.
+## 8. Configure the admitted runtime model
 
-The runtime audit policy records the admission hash and qualification evidence hashes. It does not record the credential.
+Set `P4_PRODUCTION_MODEL_ADMISSION` to the admission artifact path.
 
-## 6. Run Acceptance B
+Set the runtime provider, model, reasoning profile, fallback, and budgets to exactly the admission values. Provide the provider credential separately in `RUNTIME_DRAFT_API_KEY`.
 
-Acceptance B uses the admitted production adapter. It requires at least one real provider invocation. A provider failure can use only the admitted deterministic fallback. A hold that prevents the production path from completing fails the profile.
+When `NODE_ENV=production` and runtime drafting is enabled, startup fails if the admission artifact is absent or if the runtime configuration differs from the admitted configuration.
+
+## 9. Run Acceptance B
+
+Acceptance B requires at least one real invocation of the admitted production adapter. A provider failure can use only the admitted deterministic fallback. A hold that prevents the required production path from completing fails the profile.
 
 Run:
 
@@ -103,18 +170,18 @@ RUNTIME_DRAFT_API_KEY=<provider-credential> \
 RUNTIME_DRAFT_PROVIDER=<admitted-provider> \
 RUNTIME_DRAFT_MODEL=<admitted-model> \
 RUNTIME_DRAFT_REASONING_EFFORT=<admitted-profile> \
-RUNTIME_DRAFT_TIMEOUT_MS=<admitted-value> \
-RUNTIME_DRAFT_MAX_TOKENS=<admitted-value> \
-RUNTIME_DRAFT_MAX_INPUT_TOKENS=<admitted-value> \
-RUNTIME_DRAFT_MAX_SIGNALS=<admitted-value> \
-RUNTIME_DRAFT_MAX_EVIDENCE_AGE_DAYS=<admitted-value> \
-RUNTIME_DRAFT_MAX_CONCURRENT=<admitted-value> \
-RUNTIME_DRAFT_MAX_RUN_TOKENS=<admitted-value> \
-RUNTIME_DRAFT_FALLBACK=<admitted-value> \
+RUNTIME_DRAFT_TIMEOUT_MS=5000 \
+RUNTIME_DRAFT_MAX_TOKENS=600 \
+RUNTIME_DRAFT_MAX_INPUT_TOKENS=4000 \
+RUNTIME_DRAFT_MAX_SIGNALS=6 \
+RUNTIME_DRAFT_MAX_CONCURRENT=4 \
+RUNTIME_DRAFT_MAX_RUN_TOKENS=20000 \
+RUNTIME_DRAFT_MAX_EVIDENCE_AGE_DAYS=90 \
+RUNTIME_DRAFT_FALLBACK=template \
 pnpm test:acceptance:b
 ```
 
-The profile compares the admitted-model run with the deterministic Acceptance A authority envelope. Generated draft wording may differ. These fields must not differ because of the model:
+Generated draft wording can differ from Acceptance A. The model or fallback must not change these authority fields:
 
 - tenant and owner scope;
 - account identity and eligibility;
@@ -128,25 +195,20 @@ The profile compares the admitted-model run with the deterministic Acceptance A 
 - protected side-effect authority; and
 - completion authority.
 
-The accepted recommendation then continues through the migrated durable persistence, representative RLS read, exact-payload approval, protected CRM action, and durable follow-up path.
+The accepted recommendation must continue through durable persistence, representative RLS read, exact-payload approval, protected CRM action, and durable follow-up.
 
-## 7. Production verification behavior
+## 10. Production verification
 
 `pnpm verify:production` always runs Acceptance A.
 
-It runs Acceptance B when either condition is true:
+It runs Acceptance B when `P4_PRODUCTION_MODEL_ADMISSION` is set or when `config/production-model-admission.json` exists.
 
-- `P4_PRODUCTION_MODEL_ADMISSION` is set; or
-- `config/production-model-admission.json` exists.
+Before a model is admitted, Acceptance B is not active. This state does not mean that P4 or the application is complete.
 
-Before a model is admitted, the verifier records Acceptance B as not active. This state does not mean that P4 or the whole application is complete.
+After admission, an Acceptance B failure blocks production verification.
 
-After a model is admitted, an Acceptance B failure blocks the production verifier.
+## 11. Current evidence boundary
 
-## 8. Current evidence boundary
+This implementation supplies the reduced qualification and admission mechanism. It does not claim that Haiku or Sonnet is qualified until a real locked qualification epoch runs with live provider credentials.
 
-P4 Unit 3 provides the admission and Acceptance B mechanisms.
-
-This implementation change does not claim that a named OpenAI, Anthropic, xAI, or Google model is qualified. A real qualification epoch requires a locked product-owned contract and live provider credentials. A production admission also requires an explicit human selection from the resulting qualified candidates.
-
-Until those external inputs exist and Acceptance B passes, the whole application remains `NOT_DONE`.
+The whole application remains `NOT_DONE` until the required single-qualified-model profile and the repository production verifier pass.

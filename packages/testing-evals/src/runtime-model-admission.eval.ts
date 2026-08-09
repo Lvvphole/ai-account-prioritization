@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,153 +7,104 @@ import {
   productionModelAdmissionHash,
   runtimeDraftingPolicyAuditSnapshot,
   runtimeDraftingPolicyFromEnv,
+  type ProductionModelAdmission,
   type RuntimeDraftingPolicy,
+  type RuntimeModelRequest,
 } from "agent-runtime";
 import {
-  CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
-  P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
   parseModelQualificationConfig,
   type ModelQualificationConfig,
-  type QualificationCandidate,
+  type QualificationClientResolver,
 } from "./model-qualification/qualification-contract";
 import {
-  CURRENT_SPINE_QUALIFICATION_CORPUS,
-  CURRENT_SPINE_QUALIFICATION_CORPUS_HASH,
-} from "./model-qualification/qualification-corpus";
-import {
-  buildProductionModelAdmission,
-  qualificationPolicyHashForConfig,
-} from "./model-qualification/production-admission";
-import type {
-  ModelQualificationReport,
-  QualificationRunRecord,
-} from "./model-qualification/qualification-runner";
+  LOCKED_P4_ADMISSION_CANDIDATE_PRIORITY,
+  assertLockedP4QualificationPolicy,
+  runLockedP4QualificationEpoch,
+} from "./model-qualification/locked-qualification";
 
-const fixedConfig = (provider: "anthropic" | "xai" = "anthropic"): ModelQualificationConfig =>
-  parseModelQualificationConfig({
-    contractVersion: P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
-    corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
-    k: 2,
-    fallback: "template",
-    budgets: {
-      timeoutMs: 1000,
-      maxOutputTokens: 200,
-      maxInputTokens: 4000,
-      maxSignals: 2,
-      maxConcurrent: 1,
-      maxRunTokens: 20000,
-      maxEvidenceAgeDays: 90,
-    },
-    thresholds: {
-      minModelVerifierPassRate: 1,
-      maxFallbackRate: 0,
-      maxFalseAcceptRate: 0,
-      requireCompleteTokenTelemetry: true,
-    },
-    candidates: [
-      {
-        id: "candidate-a",
-        provider,
-        modelId: "pinned-test-model",
-        reasoningProfile: "medium",
-        structuredOutputProfile: "json_schema",
-        toolSchemaProfile: "not_applicable_current_spine",
-        samplingProfile: "provider_default",
-        credentialEnv: "P4_TEST_KEY",
-      },
-    ],
-  });
-
-const runRecord = (
-  candidate: QualificationCandidate,
-  caseId: string,
-  runIndex: number,
-): QualificationRunRecord => ({
-  candidateId: candidate.id,
-  caseId,
-  runIndex,
-  requestIdentityHash: "1".repeat(64),
-  invocationStartHash: "2".repeat(64),
-  inputTokenUpperBound: 100,
-  reservedRunTokens: 300,
-  effectiveProviderConfiguration: { model: candidate.modelId },
-  providerInvoked: true,
-  source: "model",
-  schemaValidation: "passed",
-  groundingValidation: "passed",
-  qualificationOracleCorrect: true,
-  authorityImmutable: true,
-  verifierPass: true,
-  falseAccept: false,
-  latencyMs: 10,
-  inputTokens: 100,
-  cachedInputTokens: 0,
-  outputTokens: 20,
-  costUsd: null,
-  acceptedArtifactHash: "3".repeat(64),
-  observedModelRevisionOrFingerprint: null,
-  revisionEvidence: "not_required",
-});
-
-const qualifiedReport = (config: ModelQualificationConfig): ModelQualificationReport => {
-  const candidate = config.candidates[0]!;
-  const runs = CURRENT_SPINE_QUALIFICATION_CORPUS.flatMap((item) =>
-    Array.from({ length: config.k }, (_, index) => runRecord(candidate, item.id, index + 1)),
+const lockedConfig = (): ModelQualificationConfig =>
+  parseModelQualificationConfig(
+    JSON.parse(readFileSync("config/p4-qualification-policy.json", "utf8")) as unknown,
   );
-  return {
-    contractVersion: P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
-    corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
-    corpusHash: CURRENT_SPINE_QUALIFICATION_CORPUS_HASH,
-    qualificationPolicyHash: qualificationPolicyHashForConfig(config),
-    executionMode: "serial_offline",
-    currentProductionWhatOwner: "deterministic",
-    targetWhatHowMetricsStatus: "not_applicable_until_separately_authorized",
-    generatedAt: "2026-08-08T03:00:00.000Z",
-    verdict: "PASS",
-    candidates: [
-      {
-        candidate,
-        verdict: "QUALIFIED",
-        reasons: [],
-        metrics: {
-          totalRuns: runs.length,
-          modelVerifierPasses: runs.length,
-          modelVerifierPassRate: 1,
-          fallbackOrHoldRuns: 0,
-          fallbackRate: 0,
-          falseAccepts: 0,
-          falseAcceptRate: 0,
-          authorityViolations: 0,
-          qualificationOracleCorrectRuns: runs.length,
-          schemaPassRate: 1,
-          groundingPassRate: 1,
-          requestIdentityStable: true,
-          acceptedArtifactVariantsByCase: Object.fromEntries(
-            CURRENT_SPINE_QUALIFICATION_CORPUS.map((item) => [item.id, 1]),
-          ),
-          measuredLatencyRuns: runs.length,
-          p95LatencyMs: 10,
-          measuredTokenRuns: runs.length,
-          totalInputTokens: runs.length * 100,
-          totalCachedInputTokens: 0,
-          totalOutputTokens: runs.length * 20,
-          measuredCostRuns: 0,
-          totalCostUsd: null,
-          costPerVerifiedPassUsd: null,
-          canonicalWhatCorrectness: null,
-          canonicalWhatAgreement: null,
-          howAdmissibility: null,
-          toolSelectionCorrectness: null,
-          delegationValidity: null,
-        },
-        runs,
-      },
-    ],
+
+const contextFromRequest = (request: RuntimeModelRequest) => {
+  const start = "SOURCE_DATA_START\n";
+  const end = "\nSOURCE_DATA_END";
+  const json = request.user.slice(
+    request.user.indexOf(start) + start.length,
+    request.user.lastIndexOf(end),
+  );
+  return JSON.parse(json) as {
+    actionType: string;
+    signals: Array<{ id: string; description: string }>;
   };
 };
 
+const resolver = (
+  modeFor: (candidateId: string) => "pass" | "fail" | "blocked",
+  calls?: string[],
+): QualificationClientResolver => (candidate) => {
+  const mode = modeFor(candidate.id);
+  if (mode === "blocked") throw new Error("qualification dependency unavailable");
+  return {
+    credential: "test-secret",
+    effectiveProviderConfiguration: (_request, config) => ({
+      model: config.model,
+      max_tokens: config.maxOutputTokens,
+      reasoning: config.reasoningEffort,
+      output_format: "json_schema",
+    }),
+    client: {
+      async generate(request, config) {
+        calls?.push(candidate.id);
+        const visible = contextFromRequest(request);
+        if (mode === "fail") {
+          return {
+            output: {
+              schemaVersion: "1.0",
+              actionType: "send_email",
+              sentences: [{ text: "Unsupported", sourceSignalIds: ["missing"] }],
+            },
+            telemetry: {
+              provider: config.provider,
+              model: config.model,
+              latencyMs: 5,
+              inputTokens: 100,
+              cachedInputTokens: 0,
+              outputTokens: 20,
+            },
+          };
+        }
+        return {
+          output: {
+            schemaVersion: "1.0",
+            actionType: visible.actionType,
+            sentences: [{
+              text: visible.signals[0]!.description,
+              sourceSignalIds: [visible.signals[0]!.id],
+            }],
+          },
+          telemetry: {
+            provider: config.provider,
+            model: config.model,
+            latencyMs: 5,
+            inputTokens: 100,
+            cachedInputTokens: 0,
+            outputTokens: 20,
+          },
+        };
+      },
+    },
+  };
+};
+
+const decision = {
+  decisionOwner: "product-owner",
+  decisionRef: "decision://p4/locked-policy/test",
+};
+
 const withAdmissionFile = <T>(
-  admission: ReturnType<typeof buildProductionModelAdmission>,
+  admission: ProductionModelAdmission,
   fn: (path: string) => T,
 ): T => {
   const dir = mkdtempSync(join(tmpdir(), "p4-admission-"));
@@ -166,18 +117,18 @@ const withAdmissionFile = <T>(
   }
 };
 
-const productionEnv = (path: string): NodeJS.ProcessEnv => ({
+const productionEnv = (path: string, model: string, reasoning: string): NodeJS.ProcessEnv => ({
   NODE_ENV: "production",
   RUNTIME_DRAFTING_ENABLED: "true",
   RUNTIME_DRAFT_PROVIDER: "anthropic",
   RUNTIME_DRAFT_API_KEY: "test-secret",
-  RUNTIME_DRAFT_MODEL: "pinned-test-model",
-  RUNTIME_DRAFT_REASONING_EFFORT: "medium",
-  RUNTIME_DRAFT_TIMEOUT_MS: "1000",
-  RUNTIME_DRAFT_MAX_TOKENS: "200",
+  RUNTIME_DRAFT_MODEL: model,
+  RUNTIME_DRAFT_REASONING_EFFORT: reasoning,
+  RUNTIME_DRAFT_TIMEOUT_MS: "5000",
+  RUNTIME_DRAFT_MAX_TOKENS: "600",
   RUNTIME_DRAFT_MAX_INPUT_TOKENS: "4000",
-  RUNTIME_DRAFT_MAX_SIGNALS: "2",
-  RUNTIME_DRAFT_MAX_CONCURRENT: "1",
+  RUNTIME_DRAFT_MAX_SIGNALS: "6",
+  RUNTIME_DRAFT_MAX_CONCURRENT: "4",
   RUNTIME_DRAFT_MAX_RUN_TOKENS: "20000",
   RUNTIME_DRAFT_MAX_EVIDENCE_AGE_DAYS: "90",
   RUNTIME_DRAFT_FALLBACK: "template",
@@ -188,106 +139,90 @@ const injectedRuntimePolicy = (): RuntimeDraftingPolicy => ({
   enabled: true,
   provider: "anthropic",
   apiKey: "test-secret",
-  model: "pinned-test-model",
-  timeoutMs: 1000,
-  maxTokens: 200,
+  model: "claude-haiku-4-5-20251001",
+  timeoutMs: 5000,
+  maxTokens: 600,
   maxInputTokens: 4000,
-  maxSignals: 2,
-  maxConcurrent: 1,
+  maxSignals: 6,
+  maxConcurrent: 4,
   maxRunTokens: 20000,
   maxEvidenceAgeDays: 90,
   maxAttempts: 1,
   fallback: "template",
-  reasoningEffort: "medium",
+  reasoningEffort: "provider_default",
   outputFormat: "json_schema",
 });
 
-describe("P4 production model admission", () => {
-  it("builds one explicit human-selected admission from a matching QUALIFIED report", () => {
-    const config = fixedConfig();
-    const admission = buildProductionModelAdmission(config, qualifiedReport(config), {
-      candidateId: "candidate-a",
-      decisionOwner: "product-owner",
-      decisionRef: "decision://p4/unit3/test",
-    });
+describe("P4 locked one-process qualification and admission", () => {
+  it("locks exactly Haiku then Sonnet and admits Haiku when both qualify", async () => {
+    const config = lockedConfig();
+    assertLockedP4QualificationPolicy(config);
+    expect(LOCKED_P4_ADMISSION_CANDIDATE_PRIORITY).toEqual([
+      "anthropic-haiku-4-5-default",
+      "anthropic-sonnet-4-6-low",
+    ]);
 
-    expect(admission.provider).toBe("anthropic");
-    expect(admission.modelId).toBe("pinned-test-model");
-    expect(admission.currentProductionWhatOwner).toBe("deterministic");
-    expect(admission.qualification.qualificationPolicyHash).toBe(
-      qualificationPolicyHashForConfig(config),
+    const result = await runLockedP4QualificationEpoch(
+      config,
+      resolver(() => "pass"),
+      decision,
+      () => "2026-08-09T18:00:00.000Z",
     );
-    expect(productionModelAdmissionHash(admission)).toMatch(/^[a-f0-9]{64}$/);
+
+    expect(result.verdict).toBe("PASS");
+    expect(result.selectedCandidateId).toBe("anthropic-haiku-4-5-default");
+    expect(result.admission?.candidateId).toBe("anthropic-haiku-4-5-default");
+    expect(result.admission?.modelId).toBe("claude-haiku-4-5-20251001");
+    expect(result.report.candidates.every((candidate) => candidate.verdict === "QUALIFIED")).toBe(true);
+    expect(productionModelAdmissionHash(result.admission!)).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("rejects fabricated aggregate metrics when run evidence does not cover the epoch", () => {
-    const config = fixedConfig();
-    const report = qualifiedReport(config);
-    const firstRun = report.candidates[0]!.runs[0]!;
-    report.candidates[0]!.runs = Array.from(
-      { length: report.candidates[0]!.runs.length },
-      () => ({ ...firstRun }),
+  it("admits Sonnet only when Haiku is not qualified", async () => {
+    const result = await runLockedP4QualificationEpoch(
+      lockedConfig(),
+      resolver((candidateId) =>
+        candidateId === "anthropic-haiku-4-5-default" ? "fail" : "pass",
+      ),
+      decision,
     );
-    report.candidates[0]!.metrics.modelVerifierPassRate = 1;
-    report.candidates[0]!.metrics.falseAcceptRate = 0;
 
-    expect(() =>
-      buildProductionModelAdmission(config, report, {
-        candidateId: "candidate-a",
-        decisionOwner: "product-owner",
-        decisionRef: "decision://p4/unit3/test",
-      }),
-    ).toThrow("run coverage is invalid");
+    expect(result.verdict).toBe("PASS");
+    expect(result.selectedCandidateId).toBe("anthropic-sonnet-4-6-low");
+    expect(result.admission?.candidateId).toBe("anthropic-sonnet-4-6-low");
+    expect(result.admission?.modelId).toBe("claude-sonnet-4-6");
   });
 
-  it("recomputes verifier and false-accept evidence from each run", () => {
-    const config = fixedConfig();
-    const report = qualifiedReport(config);
-    report.candidates[0]!.runs[0] = {
-      ...report.candidates[0]!.runs[0]!,
-      qualificationOracleCorrect: false,
-      falseAccept: false,
+  it("returns BLOCK/template and creates no admission when neither candidate qualifies", async () => {
+    const result = await runLockedP4QualificationEpoch(
+      lockedConfig(),
+      resolver(() => "fail"),
+      decision,
+    );
+
+    expect(result.verdict).toBe("BLOCKED");
+    expect(result.selectedCandidateId).toBeNull();
+    expect(result.admission).toBeNull();
+  });
+
+  it("validates the locked policy before resolving a provider or spending tokens", async () => {
+    const config = lockedConfig();
+    config.candidates.push({ ...config.candidates[0]!, id: "third-model" });
+    let resolverCalls = 0;
+    const countingResolver: QualificationClientResolver = (candidate) => {
+      resolverCalls += 1;
+      return resolver(() => "pass")(candidate);
     };
-    report.candidates[0]!.metrics.falseAcceptRate = 0;
 
-    expect(() =>
-      buildProductionModelAdmission(config, report, {
-        candidateId: "candidate-a",
-        decisionOwner: "product-owner",
-        decisionRef: "decision://p4/unit3/test",
-      }),
-    ).toThrow("inconsistent false-accept evidence");
-  });
-
-  it("does not admit a candidate that is not qualified", () => {
-    const config = fixedConfig();
-    const report = qualifiedReport(config);
-    report.candidates[0]!.verdict = "DISQUALIFIED";
-    report.candidates[0]!.reasons = ["MODEL_VERIFIER_PASS_RATE_FAILED"];
-    expect(() =>
-      buildProductionModelAdmission(config, report, {
-        candidateId: "candidate-a",
-        decisionOwner: "product-owner",
-        decisionRef: "decision://p4/unit3/test",
-      }),
-    ).toThrow("is not QUALIFIED");
-  });
-
-  it("does not admit an otherwise qualified provider before its production adapter exists", () => {
-    const config = fixedConfig("xai");
-    expect(() =>
-      buildProductionModelAdmission(config, qualifiedReport(config), {
-        candidateId: "candidate-a",
-        decisionOwner: "product-owner",
-        decisionRef: "decision://p4/unit3/test",
-      }),
-    ).toThrow("no admitted production adapter");
+    await expect(
+      runLockedP4QualificationEpoch(config, countingResolver, decision),
+    ).rejects.toThrow("exactly Haiku and Sonnet");
+    expect(resolverCalls).toBe(0);
   });
 
   it("requires a production admission before enabled production drafting can start", () => {
     expect(() =>
       runtimeDraftingPolicyFromEnv({
-        ...productionEnv("unused"),
+        ...productionEnv("unused", "claude-haiku-4-5-20251001", "provider_default"),
         P4_PRODUCTION_MODEL_ADMISSION: "",
       }),
     ).toThrow("requires P4_PRODUCTION_MODEL_ADMISSION");
@@ -306,40 +241,42 @@ describe("P4 production model admission", () => {
     }
   });
 
-  it("fails closed when runtime configuration differs from the admitted configuration", () => {
-    const config = fixedConfig();
-    const admission = buildProductionModelAdmission(config, qualifiedReport(config), {
-      candidateId: "candidate-a",
-      decisionOwner: "product-owner",
-      decisionRef: "decision://p4/unit3/test",
-    });
+  it("fails closed when runtime configuration differs from the admitted configuration", async () => {
+    const result = await runLockedP4QualificationEpoch(
+      lockedConfig(),
+      resolver(() => "pass"),
+      decision,
+    );
+    expect(result.admission).not.toBeNull();
 
-    withAdmissionFile(admission, (path) => {
+    withAdmissionFile(result.admission!, (path) => {
       expect(() =>
         runtimeDraftingPolicyFromEnv({
-          ...productionEnv(path),
-          RUNTIME_DRAFT_MAX_TOKENS: "201",
+          ...productionEnv(path, "claude-haiku-4-5-20251001", "provider_default"),
+          RUNTIME_DRAFT_MAX_TOKENS: "601",
         }),
       ).toThrow("does not match the admitted production model configuration");
     });
   });
 
-  it("records admission and qualification identity without recording credentials", () => {
-    const config = fixedConfig();
-    const admission = buildProductionModelAdmission(config, qualifiedReport(config), {
-      candidateId: "candidate-a",
-      decisionOwner: "product-owner",
-      decisionRef: "decision://p4/unit3/test",
-    });
+  it("records admission and audit-report identity without recording credentials", async () => {
+    const result = await runLockedP4QualificationEpoch(
+      lockedConfig(),
+      resolver(() => "pass"),
+      decision,
+    );
+    expect(result.admission).not.toBeNull();
 
-    withAdmissionFile(admission, (path) => {
-      const policy = runtimeDraftingPolicyFromEnv(productionEnv(path));
+    withAdmissionFile(result.admission!, (path) => {
+      const policy = runtimeDraftingPolicyFromEnv(
+        productionEnv(path, "claude-haiku-4-5-20251001", "provider_default"),
+      );
       const snapshot = runtimeDraftingPolicyAuditSnapshot(policy);
       expect(snapshot.productionAdmission).toMatchObject({
-        candidateId: "candidate-a",
-        decisionRef: "decision://p4/unit3/test",
-        qualificationPolicyHash: admission.qualification.qualificationPolicyHash,
-        qualificationReportHash: admission.qualification.reportHash,
+        candidateId: "anthropic-haiku-4-5-default",
+        decisionRef: decision.decisionRef,
+        qualificationPolicyHash: result.admission!.qualification.qualificationPolicyHash,
+        qualificationReportHash: result.admission!.qualification.reportHash,
       });
       expect(JSON.stringify(snapshot)).not.toContain("test-secret");
     });
