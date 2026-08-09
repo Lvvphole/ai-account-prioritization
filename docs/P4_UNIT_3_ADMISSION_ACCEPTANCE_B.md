@@ -84,6 +84,10 @@ The admission command verifies these conditions again:
 - The report policy hash matches the locked qualification contract.
 - The selected candidate identity matches the contract.
 - The selected candidate has `QUALIFIED` status and no failure reasons.
+- For each invoked run, admission reconstructs the deterministic frozen-case request from the locked policy.
+- The persisted input-token bound and token reservation match the reconstructed request.
+- The persisted request-identity hash and invocation-start hash match the reconstructed request evidence.
+- The production batch reservation and offline epoch reservation stay within their separate locked budgets.
 - The mandatory zero false-accept boundary still holds.
 - Deterministic authority remained immutable.
 - Product-owned verifier, fallback, telemetry, latency, and cost thresholds still hold when applicable.
