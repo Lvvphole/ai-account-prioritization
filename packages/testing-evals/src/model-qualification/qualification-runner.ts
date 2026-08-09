@@ -421,12 +421,22 @@ const runCandidate = async (
   const cases = [...CURRENT_SPINE_QUALIFICATION_CORPUS].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
-  // One candidate receives one shared reservation budget for the complete frozen
-  // case set and all repeated runs. A repeated call cannot reset spend authority.
-  const runBudget = createRuntimeDraftRunBudget(config.budgets.maxRunTokens);
+  // The epoch reservation is shared across the complete frozen case set and all
+  // repeated runs. The production run budget is reset once per repeated corpus
+  // pass and shared across every case in that simulated production batch.
+  let qualificationEpochReservedTokens = 0;
 
-  for (const item of cases) {
-    for (let runIndex = 1; runIndex <= config.k; runIndex += 1) {
+  for (let runIndex = 1; runIndex <= config.k; runIndex += 1) {
+    const remainingQualificationEpochTokens =
+      config.qualificationEpochMaxRunTokens - qualificationEpochReservedTokens;
+    const qualificationRunBudget = createRuntimeDraftRunBudget(
+      Math.min(
+        config.budgets.maxRunTokens,
+        Math.max(0, remainingQualificationEpochTokens),
+      ),
+    );
+
+    for (const item of cases) {
       let request: RuntimeModelRequest | undefined;
       let invocationConfig: RuntimeModelInvocationConfig | undefined;
       let providerConfig: Record<string, unknown> | null = null;
@@ -454,7 +464,7 @@ const runCandidate = async (
       const result = await attachHybridActionDraft(item.recommendation, item.context, {
         policy,
         now: item.now,
-        runBudget,
+        runBudget: qualificationRunBudget,
         modelClient: capturingClient,
         beforeModelInvoke: async (start) => {
           invocationStart = start;
@@ -542,6 +552,7 @@ const runCandidate = async (
         revisionEvidence,
       });
     }
+    qualificationEpochReservedTokens += qualificationRunBudget.reservedTokens;
   }
 
   const metrics = aggregateMetrics(runs, cases);

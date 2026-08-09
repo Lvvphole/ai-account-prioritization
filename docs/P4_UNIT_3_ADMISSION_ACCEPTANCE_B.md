@@ -31,6 +31,20 @@ Do not skip a stage.
 
 Provide a locked qualification JSON contract. The contract must contain the product-owned `k`, budgets, thresholds, exact candidate model identifiers, credential references, and any authoritative pricing evidence.
 
+Use two separate token authorities:
+
+- `qualificationEpochMaxRunTokens` limits one offline candidate qualification epoch. The runner shares this budget across all frozen cases and all repeated `k`-runs. Production admission must not copy this field.
+- `budgets.maxRunTokens` limits one production runtime run. Production admission copies this field. The qualification runner must not use this field as the offline epoch budget.
+
+One authority must not increase the other authority.
+
+For the approved qualification epoch, use:
+
+```text
+qualificationEpochMaxRunTokens = 172650
+budgets.maxRunTokens = 20000
+```
+
 Provide provider credentials through the environment. Do not commit credentials.
 
 Run:

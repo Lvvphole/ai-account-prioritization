@@ -25,6 +25,7 @@ const fixedConfig = (): ModelQualificationConfig =>
     corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
     k: 2,
     fallback: "template",
+    qualificationEpochMaxRunTokens: 20000,
     budgets: {
       timeoutMs: 1000,
       maxOutputTokens: 200,
@@ -206,9 +207,10 @@ describe("P4 offline cross-model qualification", () => {
     expect(report.candidates[0]?.metrics.falseAccepts).toBe(0);
   });
 
-  it("shares the candidate run-token budget across cases and repeated runs", async () => {
+  it("does not let production maxRunTokens widen the offline qualification epoch budget", async () => {
     const config = fixedConfig();
-    config.budgets.maxRunTokens = 3000;
+    config.qualificationEpochMaxRunTokens = 3000;
+    config.budgets.maxRunTokens = 500000;
     const report = await runCurrentSpineModelQualification(config, passingResolver);
     const runs = report.candidates[0]!.runs;
 
@@ -216,6 +218,19 @@ describe("P4 offline cross-model qualification", () => {
     expect(
       runs.filter((run) => run.failureCode === "DRAFT_RUN_BUDGET_EXCEEDED").length,
     ).toBeGreaterThan(0);
+  });
+
+  it("does not let the offline qualification epoch budget widen production maxRunTokens", async () => {
+    const config = fixedConfig();
+    config.qualificationEpochMaxRunTokens = 500000;
+    config.budgets.maxRunTokens = 256;
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const runs = report.candidates[0]!.runs;
+
+    expect(runs.filter((run) => run.providerInvoked)).toHaveLength(0);
+    expect(
+      runs.every((run) => run.failureCode === "DRAFT_RUN_BUDGET_EXCEEDED"),
+    ).toBe(true);
   });
 
   it("blocks when a required model revision cannot be observed", async () => {
@@ -268,6 +283,20 @@ describe("P4 offline cross-model qualification", () => {
     const raw = JSON.parse(JSON.stringify(fixedConfig())) as Record<string, unknown>;
     (raw.budgets as Record<string, unknown>).timeoutMs = 1;
     expect(() => parseModelQualificationConfig(raw)).toThrow("250 through 30000");
+  });
+
+  it("requires an explicit offline qualification epoch token budget", () => {
+    const raw = JSON.parse(JSON.stringify(fixedConfig())) as Record<string, unknown>;
+    delete raw.qualificationEpochMaxRunTokens;
+    expect(() => parseModelQualificationConfig(raw)).toThrow(
+      "qualificationEpochMaxRunTokens",
+    );
+  });
+
+  it("bounds the offline qualification epoch token budget independently", () => {
+    const raw = JSON.parse(JSON.stringify(fixedConfig())) as Record<string, unknown>;
+    raw.qualificationEpochMaxRunTokens = 500001;
+    expect(() => parseModelQualificationConfig(raw)).toThrow("256 through 500000");
   });
 
   it("keeps xAI qualification-only until a production adapter is separately admitted", () => {
