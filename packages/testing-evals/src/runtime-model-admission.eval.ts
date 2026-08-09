@@ -238,6 +238,48 @@ describe("P4 production model admission", () => {
     expect(JSON.stringify(admission)).not.toContain("qualificationEpochMaxRunTokens");
   });
 
+  it("rejects invoked qualification runs without reservation evidence", () => {
+    const config = fixedConfig();
+    const report = qualifiedReport(config);
+    report.candidates[0]!.runs[0]!.reservedRunTokens = null;
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/unit3/test",
+      }),
+    ).toThrow("missing qualification token reservation evidence");
+  });
+
+  it("rejects qualification reservations that do not match the locked call budget", () => {
+    const config = fixedConfig();
+    const report = qualifiedReport(config);
+    report.candidates[0]!.runs[0]!.reservedRunTokens = 301;
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/unit3/test",
+      }),
+    ).toThrow("inconsistent qualification token reservation evidence");
+  });
+
+  it("rejects qualification reservations that exceed the locked offline epoch budget", () => {
+    const config = fixedConfig();
+    config.qualificationEpochMaxRunTokens = 1199;
+    const report = qualifiedReport(config);
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/unit3/test",
+      }),
+    ).toThrow("exceed the locked offline epoch budget");
+  });
+
   it("rejects fabricated aggregate metrics when run evidence does not cover the epoch", () => {
     const config = fixedConfig();
     const report = qualifiedReport(config);
