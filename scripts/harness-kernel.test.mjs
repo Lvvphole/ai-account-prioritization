@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -143,4 +143,19 @@ test("getChangedFiles includes both source and destination of a committed rename
 
   const result = getChangedFiles({ cwd: repo, base, head });
   assert.deepEqual(result.changedFiles, ["apps/runtime/a.txt", "ignored/a.txt"]);
+});
+
+test("harness-kernel gate anchors the agent engineering standard contract", () => {
+  const contract = parseContract(readFileSync(".harness/contract.yaml", "utf8"));
+  const standardContract = contract.contracts.find(
+    (item) => item.id === "agent-engineering-standard",
+  );
+
+  assert.ok(standardContract, "agent-engineering-standard contract must exist");
+  assert.ok(standardContract.paths.includes(".harness/contract.yaml"));
+  assert.ok(standardContract.paths.includes("AGENTS.md"));
+  assert.ok(standardContract.paths.includes("scripts/agent-standard.contract.test.mjs"));
+  assert.deepEqual(standardContract.gates, [
+    { id: "agent-standard-tests", command: "pnpm test:agent-standard" },
+  ]);
 });

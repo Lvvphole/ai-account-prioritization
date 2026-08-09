@@ -1,0 +1,175 @@
+{
+  "rules": [
+    {
+      "id": "REQ-001",
+      "domain": "requirements",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not invent requirements. Every requirement or behavior change must derive from an authorized task, stakeholder need, business objective, governing specification, or explicit constraint.",
+      "applies_to": {
+        "profiles": [
+          "general",
+          "requirements",
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "REQ3:Ch11-Necessary",
+        "REQ3:Ch17"
+      ],
+      "kernel": true
+    },
+    {
+      "id": "REQ-002",
+      "domain": "requirements",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Express one independently interpretable obligation per requirement and use terminology consistently so reasonable readers reach the same meaning.",
+      "applies_to": {
+        "profiles": [
+          "requirements"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "REQ3:Ch11-Unambiguous",
+        "REQ3:Ch11-Traceable",
+        "STE100:6.2"
+      ]
+    },
+    {
+      "id": "REQ-003",
+      "domain": "requirements",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Specify observable behavior precisely enough to identify relevant preconditions or triggers, expected outcomes, side effects, and required failure behavior without leaking an implementation unless the implementation itself is constrained.",
+      "applies_to": {
+        "profiles": [
+          "requirements",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "REQ3:Ch11-EARS",
+        "REQ3:Ch11-Examples"
+      ]
+    },
+    {
+      "id": "REQ-004",
+      "domain": "requirements",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Every normative requirement must have an objective verification or acceptance path; if compliance can only be judged by opinion, the requirement is not ready.",
+      "applies_to": {
+        "profiles": [
+          "requirements",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "REQ3:Ch11-Verifiable",
+        "REQ3:Ch17"
+      ]
+    },
+    {
+      "id": "REQ-005",
+      "domain": "requirements",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "A requirement must be necessary, feasible, and within authorized scope; do not add unnecessary implementation constraints or gold-plated behavior.",
+      "applies_to": {
+        "profiles": [
+          "requirements",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "REQ3:Ch11-Necessary",
+        "REQ3:Ch11-Feasible",
+        "REQ3:Ch11-Examples"
+      ]
+    },
+    {
+      "id": "REQ-006",
+      "domain": "requirements",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "The requirement set for the current increment must be internally consistent and sufficiently complete to proceed at an acceptable risk; unresolved information must be marked unresolved rather than guessed.",
+      "applies_to": {
+        "profiles": [
+          "requirements",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "REQ3:Ch11-Complete",
+        "REQ3:Ch11-Consistent",
+        "REQ3:Ch1-Iteration",
+        "REQ3:Ch11-TBD"
+      ]
+    },
+    {
+      "id": "REQ-007",
+      "domain": "requirements",
+      "level": "CONDITIONAL",
+      "delivery": "preload",
+      "instruction": "Where requirement, implementation, and test artifacts exist, preserve traceability from authoritative source to requirement to changed implementation and verification evidence.",
+      "applies_to": {
+        "profiles": [
+          "requirements",
+          "code-change",
+          "bug-fix",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "REQ3:Ch11-Traceable",
+        "REQ3:Ch1-RequirementsManagement"
+      ]
+    }
+  ]
+}
