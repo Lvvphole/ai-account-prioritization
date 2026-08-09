@@ -422,26 +422,27 @@ const runCandidate = async (
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
   // The epoch reservation is shared across the complete frozen case set and all
-  // repeated runs. Each run also receives the production maxRunTokens cap that
-  // this qualification is certifying.
+  // repeated runs. The production run budget is reset once per repeated corpus
+  // pass and shared across every case in that simulated production batch.
   let qualificationEpochReservedTokens = 0;
 
-  for (const item of cases) {
-    for (let runIndex = 1; runIndex <= config.k; runIndex += 1) {
+  for (let runIndex = 1; runIndex <= config.k; runIndex += 1) {
+    const remainingQualificationEpochTokens =
+      config.qualificationEpochMaxRunTokens - qualificationEpochReservedTokens;
+    const qualificationRunBudget = createRuntimeDraftRunBudget(
+      Math.min(
+        config.budgets.maxRunTokens,
+        Math.max(0, remainingQualificationEpochTokens),
+      ),
+    );
+
+    for (const item of cases) {
       let request: RuntimeModelRequest | undefined;
       let invocationConfig: RuntimeModelInvocationConfig | undefined;
       let providerConfig: Record<string, unknown> | null = null;
       let invocationStart: HybridDraftInvocationStart | undefined;
       let providerErrorCode: string | undefined;
       let observedCallLatencyMs: number | null = null;
-      const remainingQualificationEpochTokens =
-        config.qualificationEpochMaxRunTokens - qualificationEpochReservedTokens;
-      const qualificationRunBudget = createRuntimeDraftRunBudget(
-        Math.min(
-          config.budgets.maxRunTokens,
-          Math.max(0, remainingQualificationEpochTokens),
-        ),
-      );
 
       const capturingClient = {
         async generate(modelRequest: RuntimeModelRequest, callConfig: RuntimeModelInvocationConfig) {
@@ -469,7 +470,6 @@ const runCandidate = async (
           invocationStart = start;
         },
       });
-      qualificationEpochReservedTokens += qualificationRunBudget.reservedTokens;
 
       const telemetry = result.outcome.telemetry;
       const immutable = authorityIsImmutable(item.recommendation, result.recommendation);
@@ -552,6 +552,7 @@ const runCandidate = async (
         revisionEvidence,
       });
     }
+    qualificationEpochReservedTokens += qualificationRunBudget.reservedTokens;
   }
 
   const metrics = aggregateMetrics(runs, cases);
