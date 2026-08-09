@@ -689,10 +689,7 @@ export async function runCurrentSpineModelQualification(
     contractVersion: P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
     corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
     corpusHash: CURRENT_SPINE_QUALIFICATION_CORPUS_HASH,
-    qualificationPolicyHash: hashQualificationMaterial({
-      ...config,
-      candidates: sortedCandidates,
-    }),
+    qualificationPolicyHash: hashQualificationMaterial(config),
     executionMode: "serial_offline",
     currentProductionWhatOwner: "deterministic",
     targetWhatHowMetricsStatus: "not_applicable_until_separately_authorized",

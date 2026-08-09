@@ -178,19 +178,29 @@ describe("P4 locked one-process qualification and admission", () => {
     expect(productionModelAdmissionHash(result.admission!)).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("uses candidate order from the executable policy instead of a hard-coded priority", async () => {
+  it("preserves candidate priority in the qualification policy identity", async () => {
     const config = lockedConfig();
     const reversed = { ...config, candidates: [...config.candidates].reverse() };
-    const first = reversed.candidates[0]!;
+    const fixedNow = () => "2026-08-09T18:00:00.000Z";
 
-    const result = await runLockedP4QualificationEpoch(
+    const originalResult = await runLockedP4QualificationEpoch(
+      config,
+      resolver(() => "pass"),
+      decision,
+      fixedNow,
+    );
+    const reversedResult = await runLockedP4QualificationEpoch(
       reversed,
       resolver(() => "pass"),
       decision,
+      fixedNow,
     );
 
-    expect(result.selectedCandidateId).toBe(first.id);
-    expect(result.admission?.candidateId).toBe(first.id);
+    expect(originalResult.selectedCandidateId).toBe(config.candidates[0]!.id);
+    expect(reversedResult.selectedCandidateId).toBe(reversed.candidates[0]!.id);
+    expect(originalResult.report.qualificationPolicyHash).not.toBe(
+      reversedResult.report.qualificationPolicyHash,
+    );
   });
 
   it("admits the next configured candidate when the first is not qualified", async () => {
