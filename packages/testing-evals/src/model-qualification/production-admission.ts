@@ -1,12 +1,17 @@
 import {
   IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
   P4_PRODUCTION_MODEL_ADMISSION_CONTRACT_VERSION,
+  buildBudgetedDraftRequest,
+  hybridDraftContractMetadata,
   parseProductionModelAdmission,
+  runtimeModelInvocationConfigFromDraftingPolicy,
+  type HybridDraftInvocationStart,
   type ProductionModelAdmission,
 } from "agent-runtime";
 import {
   CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
   P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
+  buildQualificationRuntimeDraftingPolicy,
   hashQualificationMaterial,
   type ModelQualificationConfig,
   type QualificationCandidate,
@@ -336,6 +341,71 @@ const expectedRevisionEvidence = (
     : "mismatched";
 };
 
+const ADMISSION_REPLAY_CREDENTIAL = "qualification-admission-replay";
+
+const recomputeExpectedInvocationEvidence = (
+  config: ModelQualificationConfig,
+  candidate: QualificationCandidate,
+  caseId: string,
+): {
+  inputTokenUpperBound: number;
+  reservedRunTokens: number;
+  requestIdentityHash: string;
+  invocationStartHash: string;
+} => {
+  const item = CURRENT_SPINE_QUALIFICATION_CORPUS.find((candidateCase) => candidateCase.id === caseId);
+  if (!item) throw new Error(`Qualification case ${caseId} is not in the frozen corpus.`);
+
+  const policy = buildQualificationRuntimeDraftingPolicy(
+    config,
+    candidate,
+    ADMISSION_REPLAY_CREDENTIAL,
+  );
+  const prepared = buildBudgetedDraftRequest(item.recommendation, item.context, policy, item.now);
+  const invocationConfig = runtimeModelInvocationConfigFromDraftingPolicy(policy);
+  const contract = hybridDraftContractMetadata(policy);
+  const reservedRunTokens = prepared.inputTokenUpperBound + config.budgets.maxOutputTokens;
+  const selectedSourceSignalIds = [
+    ...new Set(prepared.context.signals.map((signal) => signal.id)),
+  ];
+  const invocationStart: HybridDraftInvocationStart = {
+    recommendationId: item.recommendation.id,
+    accountId: item.recommendation.accountId,
+    selectedSourceSignalIds,
+    provider: policy.provider,
+    model: policy.model ?? null,
+    promptVersion: contract.promptVersion,
+    promptHash: contract.promptHash,
+    schemaVersion: contract.schemaVersion,
+    policyVersion: contract.policyVersion,
+    effectivePolicy: contract.effectivePolicy,
+    effectivePolicyHash: contract.effectivePolicyHash,
+    groundingVersion: contract.groundingVersion,
+    inputTokenUpperBound: prepared.inputTokenUpperBound,
+    reservedRunTokens,
+  };
+  const requestIdentityHash = hashQualificationMaterial({
+    request: prepared.request,
+    config: {
+      provider: invocationConfig.provider,
+      model: invocationConfig.model,
+      timeoutMs: invocationConfig.timeoutMs,
+      maxOutputTokens: invocationConfig.maxOutputTokens,
+      reasoningEffort: invocationConfig.reasoningEffort,
+    },
+    candidateRevision: candidate.modelRevisionOrFingerprint ?? null,
+    corpusVersion: config.corpusVersion,
+    caseId: item.id,
+  });
+
+  return {
+    inputTokenUpperBound: prepared.inputTokenUpperBound,
+    reservedRunTokens,
+    requestIdentityHash,
+    invocationStartHash: hashQualificationMaterial(invocationStart),
+  };
+};
+
 const recomputeAdmissionMetrics = (
   config: ModelQualificationConfig,
   candidate: QualificationCandidate,
@@ -367,6 +437,27 @@ const recomputeAdmissionMetrics = (
     if (run.providerInvoked) {
       if (run.inputTokenUpperBound === null || run.reservedRunTokens === null) {
         throw new Error(`Qualification run ${key} is missing qualification token reservation evidence.`);
+      }
+      const expectedInvocation = recomputeExpectedInvocationEvidence(config, candidate, run.caseId);
+      if (run.inputTokenUpperBound !== expectedInvocation.inputTokenUpperBound) {
+        throw new Error(
+          `Qualification run ${key} input-token bound does not match the deterministic frozen request.`,
+        );
+      }
+      if (run.reservedRunTokens !== expectedInvocation.reservedRunTokens) {
+        throw new Error(
+          `Qualification run ${key} reservation does not match the deterministic frozen request.`,
+        );
+      }
+      if (run.requestIdentityHash !== expectedInvocation.requestIdentityHash) {
+        throw new Error(
+          `Qualification run ${key} request identity does not match the deterministic frozen request.`,
+        );
+      }
+      if (run.invocationStartHash !== expectedInvocation.invocationStartHash) {
+        throw new Error(
+          `Qualification run ${key} invocation-start identity does not match the deterministic frozen request.`,
+        );
       }
       if (run.inputTokenUpperBound > config.budgets.maxInputTokens) {
         throw new Error(`Qualification run ${key} exceeds the locked production input token budget.`);
