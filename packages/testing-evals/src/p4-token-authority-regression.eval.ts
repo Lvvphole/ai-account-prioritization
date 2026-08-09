@@ -7,7 +7,10 @@ import {
   type ModelQualificationConfig,
   type QualificationClientResolver,
 } from "./model-qualification/qualification-contract";
-import { buildProductionModelAdmission } from "./model-qualification/production-admission";
+import {
+  buildProductionModelAdmission,
+  qualificationPolicyHashForConfig,
+} from "./model-qualification/production-admission";
 import { runCurrentSpineModelQualification } from "./model-qualification/qualification-runner";
 
 const fixedConfig = (): ModelQualificationConfig =>
@@ -114,6 +117,25 @@ describe("P4 token-authority regressions", () => {
         batch.filter((run) => run.failureCode === "DRAFT_RUN_BUDGET_EXCEEDED"),
       ).toHaveLength(1);
     }
+  });
+
+  it("rejects persisted evidence whose simulated production batch exceeds maxRunTokens", async () => {
+    const config = fixedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const firstBatch = report.candidates[0]!.runs.filter((run) => run.runIndex === 1);
+    const reservations = firstBatch.map((run) => run.reservedRunTokens);
+    expect(reservations.every((value) => value !== null)).toBe(true);
+
+    config.budgets.maxRunTokens = Math.max(...(reservations as number[]));
+    report.qualificationPolicyHash = qualificationPolicyHashForConfig(config);
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/pr60/production-batch-budget",
+      }),
+    ).toThrow("Qualification batch 1 exceeds the locked production run budget");
   });
 
   it("rejects provider telemetry on a qualification run that claims no invocation", async () => {

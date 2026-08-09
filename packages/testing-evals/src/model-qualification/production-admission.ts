@@ -352,6 +352,7 @@ const recomputeAdmissionMetrics = (
   }
 
   const seen = new Set<string>();
+  const productionBatchReservedTokens = new Map<number, number>();
   let qualificationEpochReservedTokens = 0;
   for (const [index, run] of report.runs.entries()) {
     if (run.candidateId !== candidate.id) {
@@ -375,6 +376,14 @@ const recomputeAdmissionMetrics = (
       if (run.reservedRunTokens > config.budgets.maxRunTokens) {
         throw new Error(`Qualification run ${key} exceeds the locked production run budget.`);
       }
+      const batchReservedTokens =
+        (productionBatchReservedTokens.get(run.runIndex) ?? 0) + run.reservedRunTokens;
+      if (batchReservedTokens > config.budgets.maxRunTokens) {
+        throw new Error(
+          `Qualification batch ${run.runIndex} exceeds the locked production run budget.`,
+        );
+      }
+      productionBatchReservedTokens.set(run.runIndex, batchReservedTokens);
       qualificationEpochReservedTokens += run.reservedRunTokens;
       if (qualificationEpochReservedTokens > config.qualificationEpochMaxRunTokens) {
         throw new Error(
