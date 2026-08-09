@@ -20,10 +20,19 @@ export interface LockedP4AdmissionDecisionMetadata {
   decisionRef: string;
 }
 
+export interface LockedP4QualificationReport extends ModelQualificationReport {
+  admissionSelection: {
+    decisionOwner: string;
+    decisionRef: string;
+    selectedCandidateId: string | null;
+    nonAdmittableQualifiedCandidateIds: string[];
+  };
+}
+
 export interface LockedP4QualificationEpochResult {
   verdict: Extract<QualificationOverallVerdict, "PASS" | "BLOCKED">;
   selectedCandidateId: string | null;
-  report: ModelQualificationReport;
+  report: LockedP4QualificationReport;
   admission: ProductionModelAdmission | null;
 }
 
@@ -32,22 +41,41 @@ const nonEmpty = (value: string, path: string): string => {
   return value;
 };
 
-const selectedCandidateId = (
+const productionAdmissionEligible = (
+  candidate: ModelQualificationConfig["candidates"][number],
+): boolean =>
+  IMPLEMENTED_RUNTIME_MODEL_PROVIDERS.includes(
+    candidate.provider as (typeof IMPLEMENTED_RUNTIME_MODEL_PROVIDERS)[number],
+  );
+
+const selectAdmissionCandidate = (
   config: ModelQualificationConfig,
   report: ModelQualificationReport,
-): string | null => {
+): {
+  selectedCandidateId: string | null;
+  nonAdmittableQualifiedCandidateIds: string[];
+} => {
+  let selectedCandidateId: string | null = null;
+  const nonAdmittableQualifiedCandidateIds: string[] = [];
+
   for (const configuredCandidate of config.candidates) {
     const evaluated = report.candidates.find(
       (item) => item.candidate.id === configuredCandidate.id,
     );
-    if (evaluated?.verdict === "QUALIFIED") return configuredCandidate.id;
+    if (evaluated?.verdict !== "QUALIFIED") continue;
+    if (!productionAdmissionEligible(configuredCandidate)) {
+      nonAdmittableQualifiedCandidateIds.push(configuredCandidate.id);
+      continue;
+    }
+    if (selectedCandidateId === null) selectedCandidateId = configuredCandidate.id;
   }
-  return null;
+
+  return { selectedCandidateId, nonAdmittableQualifiedCandidateIds };
 };
 
 const buildAdmissionFromAuthoritativeEpoch = (
   config: ModelQualificationConfig,
-  report: ModelQualificationReport,
+  report: LockedP4QualificationReport,
   candidateId: string,
   decision: LockedP4AdmissionDecisionMetadata,
 ): ProductionModelAdmission => {
@@ -59,11 +87,7 @@ const buildAdmissionFromAuthoritativeEpoch = (
   if (evaluated.reasons.length !== 0) {
     throw new Error(`QUALIFIED candidate ${candidateId} must not contain failure reasons.`);
   }
-  if (
-    !IMPLEMENTED_RUNTIME_MODEL_PROVIDERS.includes(
-      candidate.provider as (typeof IMPLEMENTED_RUNTIME_MODEL_PROVIDERS)[number],
-    )
-  ) {
+  if (!productionAdmissionEligible(candidate)) {
     throw new Error(
       `Qualified candidate ${candidateId} uses ${candidate.provider}, but that provider has no admitted production adapter.`,
     );
@@ -110,8 +134,10 @@ const buildAdmissionFromAuthoritativeEpoch = (
  *
  * The caller supplies the parsed executable policy. This module does not copy or
  * redefine policy values. Candidate array order is the deterministic admission
- * priority. The full qualification report is audit evidence and is not consumed
- * by a later admission authority.
+ * priority among QUALIFIED candidates that have an implemented production
+ * adapter. Qualification evidence for other providers remains in the report but
+ * cannot become production authority. The full report is audit evidence and is
+ * not consumed by a later admission authority.
  */
 export async function runLockedP4QualificationEpoch(
   config: ModelQualificationConfig,
@@ -119,22 +145,38 @@ export async function runLockedP4QualificationEpoch(
   decision: LockedP4AdmissionDecisionMetadata,
   now: () => string = () => new Date().toISOString(),
 ): Promise<LockedP4QualificationEpochResult> {
-  nonEmpty(decision.decisionOwner, "decision.decisionOwner");
-  nonEmpty(decision.decisionRef, "decision.decisionRef");
+  const decisionOwner = nonEmpty(decision.decisionOwner, "decision.decisionOwner");
+  const decisionRef = nonEmpty(decision.decisionRef, "decision.decisionRef");
 
   const rawReport = await runCurrentSpineModelQualification(config, resolveClient, now);
-  const chosen = selectedCandidateId(config, rawReport);
-  const verdict: LockedP4QualificationEpochResult["verdict"] = chosen ? "PASS" : "BLOCKED";
-  const report: ModelQualificationReport = { ...rawReport, verdict };
+  const selection = selectAdmissionCandidate(config, rawReport);
+  const verdict: LockedP4QualificationEpochResult["verdict"] = selection.selectedCandidateId
+    ? "PASS"
+    : "BLOCKED";
+  const report: LockedP4QualificationReport = {
+    ...rawReport,
+    verdict,
+    admissionSelection: {
+      decisionOwner,
+      decisionRef,
+      selectedCandidateId: selection.selectedCandidateId,
+      nonAdmittableQualifiedCandidateIds: selection.nonAdmittableQualifiedCandidateIds,
+    },
+  };
 
-  if (!chosen) {
+  if (!selection.selectedCandidateId) {
     return { verdict, selectedCandidateId: null, report, admission: null };
   }
 
   return {
     verdict,
-    selectedCandidateId: chosen,
+    selectedCandidateId: selection.selectedCandidateId,
     report,
-    admission: buildAdmissionFromAuthoritativeEpoch(config, report, chosen, decision),
+    admission: buildAdmissionFromAuthoritativeEpoch(
+      config,
+      report,
+      selection.selectedCandidateId,
+      decision,
+    ),
   };
 }
