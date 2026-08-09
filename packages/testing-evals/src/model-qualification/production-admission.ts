@@ -372,6 +372,9 @@ const recomputeAdmissionMetrics = (
       if (run.reservedRunTokens !== expectedReservedRunTokens) {
         throw new Error(`Qualification run ${key} has inconsistent qualification token reservation evidence.`);
       }
+      if (run.reservedRunTokens > config.budgets.maxRunTokens) {
+        throw new Error(`Qualification run ${key} exceeds the locked production run budget.`);
+      }
       qualificationEpochReservedTokens += run.reservedRunTokens;
       if (qualificationEpochReservedTokens > config.qualificationEpochMaxRunTokens) {
         throw new Error(
