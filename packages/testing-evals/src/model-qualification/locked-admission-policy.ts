@@ -202,6 +202,37 @@ const candidateMeetsLockedQualificationBoundary = (
   return true;
 };
 
+const deriveLockedCandidateVerdictFromRunEvidence = (
+  config: ModelQualificationConfig,
+  report: QualificationCandidateReport,
+): QualificationCandidateReport["verdict"] => {
+  const expectedRuns = config.k * CURRENT_SPINE_QUALIFICATION_CORPUS.length;
+  if (report.runs.length !== expectedRuns) return "BLOCKED";
+
+  if (
+    report.runs.length > 0 &&
+    report.runs.every(
+      (run) =>
+        run.providerErrorCode === "DRAFT_MODEL_CONFIG_ERROR" ||
+        run.providerErrorCode === "DRAFT_MODEL_HTTP_ERROR" ||
+        run.providerErrorCode === "DRAFT_MODEL_TIMEOUT",
+    )
+  ) {
+    return "BLOCKED";
+  }
+
+  if (
+    config.thresholds.requireCompleteTokenTelemetry &&
+    report.runs.some((run) => run.inputTokens === null || run.outputTokens === null)
+  ) {
+    return "BLOCKED";
+  }
+
+  return candidateMeetsLockedQualificationBoundary(config, report)
+    ? "QUALIFIED"
+    : "DISQUALIFIED";
+};
+
 const assertLockedReport = (
   config: ModelQualificationConfig,
   report: ModelQualificationReport,
@@ -220,10 +251,10 @@ const assertLockedReport = (
       throw new Error(`Qualification report candidate ${locked.id} differs from the locked contract.`);
     }
 
-    const evidenceQualifies = candidateMeetsLockedQualificationBoundary(config, reported);
-    if ((reported.verdict === "QUALIFIED") !== evidenceQualifies) {
+    const evidenceVerdict = deriveLockedCandidateVerdictFromRunEvidence(config, reported);
+    if (reported.verdict !== evidenceVerdict) {
       throw new Error(
-        `Qualification report verdict for ${locked.id} does not match the locked 60/60 evidence boundary.`,
+        `Qualification report verdict for ${locked.id} does not match the run-derived ${evidenceVerdict} verdict.`,
       );
     }
     if (reported.verdict === "QUALIFIED" && reported.reasons.length !== 0) {
