@@ -421,11 +421,10 @@ const runCandidate = async (
   const cases = [...CURRENT_SPINE_QUALIFICATION_CORPUS].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
-  // One candidate receives one shared offline reservation budget for the complete
-  // frozen case set and all repeated runs. A repeated call cannot reset it.
-  const qualificationEpochBudget = createRuntimeDraftRunBudget(
-    config.qualificationEpochMaxRunTokens,
-  );
+  // The epoch reservation is shared across the complete frozen case set and all
+  // repeated runs. Each run also receives the production maxRunTokens cap that
+  // this qualification is certifying.
+  let qualificationEpochReservedTokens = 0;
 
   for (const item of cases) {
     for (let runIndex = 1; runIndex <= config.k; runIndex += 1) {
@@ -435,6 +434,14 @@ const runCandidate = async (
       let invocationStart: HybridDraftInvocationStart | undefined;
       let providerErrorCode: string | undefined;
       let observedCallLatencyMs: number | null = null;
+      const remainingQualificationEpochTokens =
+        config.qualificationEpochMaxRunTokens - qualificationEpochReservedTokens;
+      const qualificationRunBudget = createRuntimeDraftRunBudget(
+        Math.min(
+          config.budgets.maxRunTokens,
+          Math.max(0, remainingQualificationEpochTokens),
+        ),
+      );
 
       const capturingClient = {
         async generate(modelRequest: RuntimeModelRequest, callConfig: RuntimeModelInvocationConfig) {
@@ -456,12 +463,13 @@ const runCandidate = async (
       const result = await attachHybridActionDraft(item.recommendation, item.context, {
         policy,
         now: item.now,
-        runBudget: qualificationEpochBudget,
+        runBudget: qualificationRunBudget,
         modelClient: capturingClient,
         beforeModelInvoke: async (start) => {
           invocationStart = start;
         },
       });
+      qualificationEpochReservedTokens += qualificationRunBudget.reservedTokens;
 
       const telemetry = result.outcome.telemetry;
       const immutable = authorityIsImmutable(item.recommendation, result.recommendation);
