@@ -281,6 +281,49 @@ describe("P4 production model admission", () => {
     ).toThrow("exceeds the locked production run budget");
   });
 
+  it.each([
+    ["requestIdentityHash", "4".repeat(64)],
+    ["invocationStartHash", "5".repeat(64)],
+    ["inputTokenUpperBound", 100],
+    ["reservedRunTokens", 300],
+    ["effectiveProviderConfiguration", { model: "pinned-test-model" }],
+  ])("rejects %s evidence on a non-invoked qualification run", (field, value) => {
+    const config = fixedConfig();
+    const report = qualifiedReport(config);
+    const run = report.candidates[0]!.runs[0]!;
+    Object.assign(run, {
+      requestIdentityHash: null,
+      invocationStartHash: null,
+      inputTokenUpperBound: null,
+      reservedRunTokens: null,
+      effectiveProviderConfiguration: null,
+      providerInvoked: false,
+      source: "template_fallback",
+      schemaValidation: "not_run",
+      groundingValidation: "not_run",
+      qualificationOracleCorrect: null,
+      verifierPass: false,
+      falseAccept: false,
+      latencyMs: null,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      acceptedArtifactHash: null,
+      observedModelRevisionOrFingerprint: null,
+      revisionEvidence: "not_required",
+    });
+    Object.assign(run, { [field]: value });
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/unit3/test",
+      }),
+    ).toThrow("records invocation evidence without a provider invocation");
+  });
+
   it("rejects qualification reservations that exceed the locked offline epoch budget", () => {
     const config = fixedConfig();
     config.qualificationEpochMaxRunTokens = 1199;
