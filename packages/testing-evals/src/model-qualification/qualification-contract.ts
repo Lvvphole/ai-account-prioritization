@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   RUNTIME_MODEL_PROVIDERS,
   RUNTIME_REASONING_EFFORTS,
+  type RuntimeDraftingPolicy,
   type RuntimeModelClient,
   type RuntimeModelInvocationConfig,
   type RuntimeModelProvider,
@@ -79,6 +80,30 @@ export interface ModelQualificationConfig {
   budgets: QualificationBudgets;
   thresholds: QualificationThresholds;
   candidates: QualificationCandidate[];
+}
+
+export function buildQualificationRuntimeDraftingPolicy(
+  config: ModelQualificationConfig,
+  candidate: QualificationCandidate,
+  credential: string,
+): RuntimeDraftingPolicy {
+  return {
+    enabled: true,
+    provider: candidate.provider,
+    apiKey: credential,
+    model: candidate.modelId,
+    timeoutMs: config.budgets.timeoutMs,
+    maxTokens: config.budgets.maxOutputTokens,
+    maxInputTokens: config.budgets.maxInputTokens,
+    maxSignals: config.budgets.maxSignals,
+    maxConcurrent: config.budgets.maxConcurrent,
+    maxRunTokens: config.budgets.maxRunTokens,
+    maxEvidenceAgeDays: config.budgets.maxEvidenceAgeDays,
+    maxAttempts: 1,
+    fallback: config.fallback,
+    reasoningEffort: candidate.reasoningProfile,
+    outputFormat: "json_schema",
+  };
 }
 
 export interface QualificationResolvedClient {
