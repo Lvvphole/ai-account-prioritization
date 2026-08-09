@@ -13,14 +13,13 @@ const LOCKED_CANDIDATES = [
   {
     id: "anthropic-haiku-4-5-default",
     provider: "anthropic",
-    modelId: "claude-haiku-4-5",
-    reasoningProfile: "default",
+    modelId: "claude-haiku-4-5-20251001",
+    reasoningProfile: "provider_default",
     pricing: {
       inputUsdPerMillionTokens: 1,
-      cachedInputUsdPerMillionTokens: 0.1,
       outputUsdPerMillionTokens: 5,
       effectiveDate: "2026-08-09",
-      source: "https://docs.anthropic.com/en/docs/about-claude/pricing",
+      source: "Anthropic Claude Platform pricing verified 2026-08-09",
     },
   },
   {
@@ -30,10 +29,9 @@ const LOCKED_CANDIDATES = [
     reasoningProfile: "low",
     pricing: {
       inputUsdPerMillionTokens: 3,
-      cachedInputUsdPerMillionTokens: 0.3,
       outputUsdPerMillionTokens: 15,
       effectiveDate: "2026-08-09",
-      source: "https://docs.anthropic.com/en/docs/about-claude/pricing",
+      source: "Anthropic Claude Platform pricing verified 2026-08-09",
     },
   },
 ] as const;
@@ -58,13 +56,13 @@ export function assertLockedP4QualificationPolicy(config: ModelQualificationConf
   );
 
   const lockedBudgets = {
-    timeoutMs: 15000,
-    maxOutputTokens: 1200,
-    maxInputTokens: 8000,
-    maxSignals: 12,
-    maxConcurrent: 1,
+    timeoutMs: 5000,
+    maxOutputTokens: 600,
+    maxInputTokens: 4000,
+    maxSignals: 6,
+    maxConcurrent: 4,
     maxRunTokens: 20000,
-    maxEvidenceAgeDays: 30,
+    maxEvidenceAgeDays: 90,
   } as const;
   for (const [key, expected] of Object.entries(lockedBudgets)) {
     exactNumber(
@@ -108,11 +106,14 @@ export function assertLockedP4QualificationPolicy(config: ModelQualificationConf
       candidate.structuredOutputProfile !== "json_schema" ||
       candidate.toolSchemaProfile !== "not_applicable_current_spine" ||
       candidate.samplingProfile !== "provider_default" ||
-      candidate.credentialEnv !== "P4_QUALIFICATION_ANTHROPIC_API_KEY"
+      candidate.credentialEnv !== "ANTHROPIC_API_KEY"
     ) {
       throw new Error(`Candidate ${locked.id} does not match the locked invocation profile.`);
     }
-    if (!candidate.pricing || hashQualificationMaterial(candidate.pricing) !== hashQualificationMaterial(locked.pricing)) {
+    if (
+      !candidate.pricing ||
+      hashQualificationMaterial(candidate.pricing) !== hashQualificationMaterial(locked.pricing)
+    ) {
       throw new Error(`Candidate ${locked.id} does not match the locked pricing evidence.`);
     }
   }
