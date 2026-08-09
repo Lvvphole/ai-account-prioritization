@@ -32,9 +32,9 @@ Do not skip a stage.
 
 ## 3. Locked qualification contract
 
-The executable contract is `config/p4-locked-qualification.json`.
+The approved policy is encoded as `config/p4-locked-qualification.json`.
 
-The contract uses `p4-model-qualification-v2`. It contains the product-owned `k`, separate token authorities, production budgets, thresholds, exact candidate model identifiers, credential references, and pricing evidence.
+The executable contract uses `p4-model-qualification-v2`. It contains the product-owned `k`, separate token authorities, production budgets, thresholds, exact candidate model identifiers, credential references, and pricing evidence.
 
 Use two separate token authorities:
 
@@ -43,16 +43,44 @@ Use two separate token authorities:
 
 One authority must not increase the other authority.
 
-The locked values are:
+The locked token values are:
 
 ```text
 qualificationEpochMaxRunTokens = 172650
 budgets.maxRunTokens = 20000
 ```
 
+The locked production budgets are:
+
+```text
+timeoutMs = 5000
+maxOutputTokens = 600
+maxInputTokens = 4000
+maxSignals = 6
+maxConcurrent = 4
+maxRunTokens = 20000
+maxEvidenceAgeDays = 90
+```
+
 Optional `maxP95LatencyMs` and `maxCostPerVerifiedPassUsd` thresholds are absent. Do not encode the word `omitted` as a value.
 
 `modelRevisionOrFingerprint` is also absent for both locked candidates. Do not encode the word `omitted` as a value.
+
+The locked candidates are:
+
+```text
+anthropic-haiku-4-5-default
+  provider = anthropic
+  modelId = claude-haiku-4-5-20251001
+  reasoningProfile = provider_default
+  credentialEnv = ANTHROPIC_API_KEY
+
+anthropic-sonnet-4-6-low
+  provider = anthropic
+  modelId = claude-sonnet-4-6
+  reasoningProfile = low
+  credentialEnv = ANTHROPIC_API_KEY
+```
 
 ## 4. Qualification acceptance boundary
 
@@ -71,14 +99,14 @@ AND stable_request_identity = true
 
 Missing required credential, provider access, or required telemetry produces `BLOCKED` evidence as defined by the qualification runner.
 
-Provide provider credentials through the environment. Do not commit credentials.
+Provide the provider credential through the environment. Do not commit credentials.
 
 Run:
 
 ```bash
 P4_QUALIFICATION_CONFIG=config/p4-locked-qualification.json \
 P4_QUALIFICATION_REPORT=/absolute/path/qualification-report.json \
-P4_QUALIFICATION_ANTHROPIC_API_KEY=<credential> \
+ANTHROPIC_API_KEY=<credential> \
 pnpm qualify:models
 ```
 
@@ -108,7 +136,7 @@ neither QUALIFIED
 
 If both candidates are `QUALIFIED`, select Haiku.
 
-If Haiku is `BLOCKED` and Sonnet is `QUALIFIED`, the locked policy permits the qualification epoch to continue with Sonnet.
+If Haiku is `BLOCKED` and Sonnet is `QUALIFIED`, the locked policy permits Sonnet admission.
 
 The human admission decision confirms the policy-selected candidate. It does not choose a different qualified candidate.
 
@@ -212,7 +240,7 @@ After a model is admitted, an Acceptance B failure blocks the production verifie
 
 ## 9. Current evidence boundary
 
-The Haiku and Sonnet candidates, qualification boundary, token authorities, and admission priority are now locked in executable policy.
+The Haiku and Sonnet candidates, qualification boundary, token authorities, and admission priority are locked in executable policy.
 
 This implementation does not claim that Haiku or Sonnet is qualified. A real qualification epoch still requires live provider credentials and real provider evidence.
 
