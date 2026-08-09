@@ -1,0 +1,22 @@
+{
+  "standard_version": "1.0.0-rules33",
+  "governing_context_id": "aes-v1-rules33",
+  "default_profile": "general",
+  "task_profiles": [
+    "general",
+    "code-change",
+    "bug-fix",
+    "refactor",
+    "technical-doc",
+    "requirements",
+    "architecture-change",
+    "standard-maintenance"
+  ],
+  "profile_resolution": "caller-supplied_with_general_fallback",
+  "path_resolution": "deferred",
+  "acceptance_authority": "external_verifier",
+  "language_overlays": {
+    "python": "overlay-python",
+    "typescript": "overlay-typescript"
+  }
+}

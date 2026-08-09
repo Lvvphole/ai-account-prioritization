@@ -126,6 +126,27 @@ Architecture approval does not authorize a deferred implementation. A deferred
 Position B capability requires the user's explicit implementation ruling and the
 applicable ADR-002 evidence before implementation begins.
 
+### 2.2 Agent Engineering Standard — progressive disclosure
+
+For tasks that plan, create, modify, review, or repair code, tests, technical
+documentation, requirements, refactors, or architecture decisions, use the
+repository skill `engineering-standard` before editing.
+
+The caller may supply:
+
+```text
+engineering_profile=<general|code-change|bug-fix|refactor|technical-doc|requirements|architecture-change|standard-maintenance>
+engineering_language=<python|typescript>
+```
+
+Do not infer either value. If the profile is absent, use `general`. If language
+is absent, load no language overlay.
+
+The skill renders only the applicable reusable engineering rules from
+`docs/agent-engineering/`. Those rules guide candidate construction only and
+cannot override this root contract, repository ADRs/specifications, or verifier
+outcomes. Do not read the full rule registry during ordinary tasks.
+
 ## 3. Approved target runtime architecture
 
 The approved Position B target runtime shape is:

@@ -1,0 +1,148 @@
+{
+  "rules": [
+    {
+      "id": "RT-001",
+      "domain": "refactoring-testing",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "A refactoring must preserve observable behavior. If observable behavior changes, treat the work as a behavior change, not as refactoring.",
+      "applies_to": {
+        "profiles": [
+          "refactor"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "Fowler:Ch2"
+      ]
+    },
+    {
+      "id": "RT-002",
+      "domain": "refactoring-testing",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not mix behavior change and structural cleanup invisibly; keep the intent of each change explicit so verification can distinguish new behavior from behavior-preserving restructuring.",
+      "applies_to": {
+        "profiles": [
+          "refactor",
+          "code-change",
+          "bug-fix"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "Fowler:Ch2-TwoHats",
+        "CodeComplete:Ch24"
+      ]
+    },
+    {
+      "id": "RT-003",
+      "domain": "refactoring-testing",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Perform refactoring and other high-risk structural changes in small, reviewable increments and verify after each meaningful increment, increasing scrutiny as risk increases.",
+      "applies_to": {
+        "profiles": [
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "Fowler:Ch1-Rhythm",
+        "CodeComplete:Ch24"
+      ]
+    },
+    {
+      "id": "RT-004",
+      "domain": "refactoring-testing",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Changed behavior must have verification evidence that tests the observable contract rather than incidental implementation details.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "requirements",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "CleanCode:Ch9",
+        "AgileRequirements:Ch10",
+        "AgentBench:TestGeneration"
+      ]
+    },
+    {
+      "id": "RT-005",
+      "domain": "refactoring-testing",
+      "level": "CONDITIONAL",
+      "delivery": "preload",
+      "instruction": "For a reproducible defect fix, add or update regression evidence that fails on the faulty baseline for the targeted behavior and passes after the fix.",
+      "applies_to": {
+        "profiles": [
+          "bug-fix"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "Fowler:Testing",
+        "AgentBench:RegressionTests",
+        "AgileRequirements:AcceptanceTesting"
+      ]
+    },
+    {
+      "id": "RT-006",
+      "domain": "refactoring-testing",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not weaken, delete, bypass, or rewrite valid verification merely to make a candidate change pass; change verification only when an authoritative requirement or the verification itself is proven wrong.",
+      "applies_to": {
+        "profiles": [
+          "general",
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "Fowler:Testing",
+        "REQ3:Ch17"
+      ],
+      "kernel": true
+    }
+  ]
+}

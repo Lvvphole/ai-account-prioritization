@@ -1,0 +1,217 @@
+{
+  "rules": [
+    {
+      "id": "SC-001",
+      "domain": "software-construction",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Satisfy the authorized contract and preserve correctness before optimizing style, abstraction, or elegance.",
+      "applies_to": {
+        "profiles": [
+          "general",
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "CodeComplete:Construction",
+        "CleanCode:Ch1",
+        "Ousterhout:Ch3"
+      ],
+      "kernel": true
+    },
+    {
+      "id": "SC-002",
+      "domain": "software-construction",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Make the smallest sufficient change and design that solves the authorized problem; do not introduce speculative behavior, abstractions, dependencies, or complexity, and do not move local complexity into hidden global complexity.",
+      "applies_to": {
+        "profiles": [
+          "general",
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "Ousterhout:Ch2",
+        "Ousterhout:Ch3",
+        "CleanCode:SimpleDesign"
+      ],
+      "kernel": true
+    },
+    {
+      "id": "SC-003",
+      "domain": "software-construction",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Hide implementation decisions behind the smallest sufficient stable interface; avoid leaking a design decision across modules or forcing callers to understand unnecessary internal complexity.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "Ousterhout:Ch4",
+        "Ousterhout:Ch5",
+        "Ousterhout:Ch8"
+      ]
+    },
+    {
+      "id": "SC-004",
+      "domain": "software-construction",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Use precise, intention-revealing, domain-appropriate names and use the same name for the same concept.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "CleanCode:Ch2",
+        "Ousterhout:Ch14",
+        "CodeComplete:HighQualityRoutines"
+      ]
+    },
+    {
+      "id": "SC-005",
+      "domain": "software-construction",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Keep each unit of code conceptually coherent at one useful level of abstraction; split or combine code to reduce cognitive load and interface complexity, not to satisfy arbitrary size targets.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "CleanCode:Ch3",
+        "CleanCode:Ch10",
+        "Ousterhout:Ch4",
+        "Ousterhout:Ch9"
+      ]
+    },
+    {
+      "id": "SC-006",
+      "domain": "software-construction",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Keep one authoritative representation of each piece of knowledge when practical; do not duplicate logic, constants, type facts, requirements, or design decisions in forms that can drift independently.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "technical-doc",
+          "requirements",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "CleanCode:NoDuplication",
+        "Ousterhout:Ch5",
+        "Ousterhout:Ch16",
+        "REQ3:Ch11-Modifiable"
+      ]
+    },
+    {
+      "id": "SC-007",
+      "domain": "software-construction",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Comments and API documentation must explain non-obvious intent, rationale, invariants, contracts, or consequences; do not restate obvious code, and update nearby documentation when the code invalidates it.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "Ousterhout:Ch13",
+        "Ousterhout:Ch16",
+        "CleanCode:Ch4"
+      ]
+    },
+    {
+      "id": "SC-008",
+      "domain": "software-construction",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Make failure behavior explicit and appropriate to caller needs; preserve useful failure context and do not silently swallow, disguise, or ambiguously encode exceptional failure.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "CleanCode:Ch7",
+        "Ousterhout:Ch10",
+        "CodeComplete:ErrorHandling"
+      ]
+    }
+  ]
+}

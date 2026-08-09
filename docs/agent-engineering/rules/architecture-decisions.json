@@ -1,0 +1,101 @@
+{
+  "rules": [
+    {
+      "id": "AD-001",
+      "domain": "architecture-decisions",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "For a consequential architecture choice, record the problem context, considered alternatives, decision, justification, consequences, and material trade-offs; do not present a contextual choice as a universal best practice.",
+      "applies_to": {
+        "profiles": [
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "HardParts:Ch1-ADR",
+        "HardParts:TradeOffAnalysis"
+      ]
+    },
+    {
+      "id": "AD-002",
+      "domain": "architecture-decisions",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Treat established architectural boundaries, contracts, ownership, and dependency directions as constraints; do not bypass them for local convenience unless the authorized task explicitly changes the architecture.",
+      "applies_to": {
+        "profiles": [
+          "general",
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "HardParts:Coupling",
+        "HardParts:FitnessFunctions",
+        "Ousterhout:InformationHiding"
+      ],
+      "kernel": true
+    },
+    {
+      "id": "AD-003",
+      "domain": "architecture-decisions",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "An architecture change must identify the quality attributes and coupling it materially affects and justify the chosen trade-off against the authorized requirements.",
+      "applies_to": {
+        "profiles": [
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "HardParts:Ch1",
+        "HardParts:ModularityDrivers",
+        "CodeComplete:QualityTradeoffs"
+      ]
+    },
+    {
+      "id": "AD-004",
+      "domain": "architecture-decisions",
+      "level": "CONDITIONAL",
+      "delivery": "preload",
+      "instruction": "When changing a public contract, shared data ownership, or cross-boundary interface, preserve compatibility or provide an explicit migration and account for affected consumers and consequences.",
+      "applies_to": {
+        "profiles": [
+          "architecture-change",
+          "code-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "HardParts:Contracts",
+        "HardParts:DataOwnership",
+        "Ousterhout:Interfaces"
+      ]
+    }
+  ]
+}

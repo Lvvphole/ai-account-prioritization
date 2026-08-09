@@ -1,0 +1,56 @@
+{
+  "rules": [
+    {
+      "id": "PY-001",
+      "domain": "python",
+      "level": "CONDITIONAL",
+      "delivery": "preload",
+      "instruction": "When a Python function has an exceptional failure state distinct from valid results, signal it with an exception rather than an ambiguous falsey sentinel such as None, and make the caller-facing failure contract explicit.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor"
+        ],
+        "languages": [
+          "python"
+        ]
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "EffectivePython:20"
+      ]
+    },
+    {
+      "id": "PY-002",
+      "domain": "python",
+      "level": "CONDITIONAL",
+      "delivery": "preload",
+      "instruction": "For Python APIs whose exceptions are part of the contract, document when those exceptions are raised; do not duplicate type facts in docstrings when annotations already express them.",
+      "applies_to": {
+        "profiles": [
+          "code-change",
+          "bug-fix",
+          "refactor",
+          "technical-doc"
+        ],
+        "languages": [
+          "python"
+        ]
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "EffectivePython:84",
+        "EffectivePython:90"
+      ]
+    }
+  ]
+}

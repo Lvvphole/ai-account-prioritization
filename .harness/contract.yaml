@@ -18,6 +18,25 @@
       ]
     },
     {
+      "id": "agent-engineering-standard",
+      "paths": [
+        ".agents/skills/engineering-standard/**",
+        ".harness/contract.yaml",
+        "AGENTS.md",
+        "docs/agent-engineering/**",
+        "scripts/agent-standard.mjs",
+        "scripts/agent-standard.test.mjs",
+        "scripts/agent-standard.contract.test.mjs",
+        "package.json"
+      ],
+      "gates": [
+        {
+          "id": "agent-standard-tests",
+          "command": "pnpm test:agent-standard"
+        }
+      ]
+    },
+    {
       "id": "runtime-contract",
       "paths": [
         "apps/agent-runtime/**",

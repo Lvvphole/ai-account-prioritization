@@ -1,0 +1,173 @@
+{
+  "note": "Meta-rules that govern the ruleset itself. They are not included in the count of 33 engineering ground truths.",
+  "rules": [
+    {
+      "id": "RD-001",
+      "domain": "rejected-designs",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not create or restore a giant universal AGENTS.md or equivalent always-loaded handbook.",
+      "applies_to": {
+        "profiles": [
+          "standard-maintenance"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "none",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "ContextEngineeringLock"
+      ]
+    },
+    {
+      "id": "RD-002",
+      "domain": "rejected-designs",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not load the complete engineering standard into ordinary task context.",
+      "applies_to": {
+        "profiles": [
+          "standard-maintenance"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "none",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "ContextEngineeringLock"
+      ]
+    },
+    {
+      "id": "RD-003",
+      "domain": "rejected-designs",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not generate repository-wide context guides automatically by default and treat them as authority.",
+      "applies_to": {
+        "profiles": [
+          "standard-maintenance"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "none",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "ContextEngineeringLock"
+      ]
+    },
+    {
+      "id": "RD-004",
+      "domain": "rejected-designs",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not duplicate deterministic checks as verbose model instructions when a checker can enforce the property.",
+      "applies_to": {
+        "profiles": [
+          "standard-maintenance"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "none",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "ContextEngineeringLock"
+      ]
+    },
+    {
+      "id": "RD-005",
+      "domain": "rejected-designs",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not turn the rule system into a second acceptance-authority or verifier control plane.",
+      "applies_to": {
+        "profiles": [
+          "standard-maintenance"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "none",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "ContextEngineeringLock"
+      ]
+    },
+    {
+      "id": "RD-006",
+      "domain": "rejected-designs",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not treat compiled guidance as verification truth or normative authority merely because it was compiled.",
+      "applies_to": {
+        "profiles": [
+          "standard-maintenance"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "none",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "ContextEngineeringLock"
+      ]
+    },
+    {
+      "id": "RD-007",
+      "domain": "rejected-designs",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not let the general fallback compile the union of task profiles; general is kernel-only plus reactive checks.",
+      "applies_to": {
+        "profiles": [
+          "standard-maintenance"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "none",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "ContextEngineeringLock"
+      ]
+    },
+    {
+      "id": "RD-008",
+      "domain": "rejected-designs",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Do not add compiler, routing, retrieval, or synthesis machinery before admitted rule volume and measured need justify it.",
+      "applies_to": {
+        "profiles": [
+          "standard-maintenance"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "none",
+        "ref": null
+      },
+      "override_policy": "LOCKED",
+      "sources": [
+        "ContextEngineeringLock"
+      ]
+    }
+  ]
+}

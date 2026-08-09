@@ -1,0 +1,83 @@
+{
+  "rules": [
+    {
+      "id": "TW-001",
+      "domain": "technical-writing",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Use clear, direct, unambiguous language and one stable term for each technical concept; do not vary terminology for style.",
+      "applies_to": {
+        "profiles": [
+          "technical-doc",
+          "requirements",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "STE100:GeneralIntroduction",
+        "STE100:6.2",
+        "REQ3:Ch11"
+      ]
+    },
+    {
+      "id": "TW-002",
+      "domain": "technical-writing",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Structure technical text so each sentence carries one primary claim or action, each paragraph has one topic, and information is introduced in a logical progression.",
+      "applies_to": {
+        "profiles": [
+          "technical-doc",
+          "requirements",
+          "architecture-change"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "STE100:6.1",
+        "STE100:6.4",
+        "STE100:6.5"
+      ]
+    },
+    {
+      "id": "TW-003",
+      "domain": "technical-writing",
+      "level": "MUST",
+      "delivery": "preload",
+      "instruction": "Put required actions and conditions in the operative instruction or specification, not only in notes, asides, comments, or duplicated prose; keep documentation synchronized with the authoritative artifact it describes.",
+      "applies_to": {
+        "profiles": [
+          "technical-doc",
+          "requirements",
+          "architecture-change",
+          "code-change",
+          "bug-fix",
+          "refactor"
+        ],
+        "languages": []
+      },
+      "verification": {
+        "type": "semantic-review",
+        "ref": null
+      },
+      "override_policy": "SPECIALIZABLE",
+      "sources": [
+        "STE100:5-notes",
+        "Ousterhout:Ch13",
+        "Ousterhout:Ch16",
+        "EffectiveTS:31"
+      ]
+    }
+  ]
+}
