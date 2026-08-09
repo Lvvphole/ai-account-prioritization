@@ -9,7 +9,7 @@ import {
   type RuntimeReasoningEffort,
 } from "agent-runtime";
 
-export const P4_MODEL_QUALIFICATION_CONTRACT_VERSION = "p4-model-qualification-v1";
+export const P4_MODEL_QUALIFICATION_CONTRACT_VERSION = "p4-model-qualification-v2";
 export const CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION =
   "current-spine-drafting-corpus-v1";
 
@@ -43,7 +43,10 @@ export interface QualificationBudgets {
   maxInputTokens: number;
   maxSignals: number;
   maxConcurrent: number;
-  /** Shared candidate-level reservation budget across every case and k-run. */
+  /**
+   * Production run-level reservation budget. Qualification records this exact
+   * runtime authority but does not use it as the repeated offline epoch budget.
+   */
   maxRunTokens: number;
   maxEvidenceAgeDays: number;
 }
@@ -68,6 +71,11 @@ export interface ModelQualificationConfig {
   corpusVersion: typeof CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION;
   k: number;
   fallback: "template" | "hold";
+  /**
+   * Offline-only shared reservation across every frozen case and k-run for one
+   * candidate. This authority is never copied into production admission.
+   */
+  qualificationEpochMaxRunTokens: number;
   budgets: QualificationBudgets;
   thresholds: QualificationThresholds;
   candidates: QualificationCandidate[];
@@ -279,6 +287,12 @@ export function parseModelQualificationConfig(value: unknown): ModelQualificatio
     corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
     k: positiveSafeInteger(raw.k, "k"),
     fallback,
+    qualificationEpochMaxRunTokens: boundedSafeInteger(
+      raw.qualificationEpochMaxRunTokens,
+      "qualificationEpochMaxRunTokens",
+      256,
+      500000,
+    ),
     budgets: {
       timeoutMs: boundedSafeInteger(budgetsRaw.timeoutMs, "budgets.timeoutMs", 250, 30000),
       maxOutputTokens: boundedSafeInteger(

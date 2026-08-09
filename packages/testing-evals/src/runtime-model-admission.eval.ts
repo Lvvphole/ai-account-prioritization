@@ -35,6 +35,7 @@ const fixedConfig = (provider: "anthropic" | "xai" = "anthropic"): ModelQualific
     corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
     k: 2,
     fallback: "template",
+    qualificationEpochMaxRunTokens: 20000,
     budgets: {
       timeoutMs: 1000,
       maxOutputTokens: 200,
@@ -218,6 +219,23 @@ describe("P4 production model admission", () => {
       qualificationPolicyHashForConfig(config),
     );
     expect(productionModelAdmissionHash(admission)).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("does not let the offline qualification epoch budget widen production maxRunTokens", () => {
+    const config = fixedConfig();
+    config.qualificationEpochMaxRunTokens = 500000;
+    config.budgets.maxRunTokens = 20000;
+    const admission = buildProductionModelAdmission(config, qualifiedReport(config), {
+      candidateId: "candidate-a",
+      decisionOwner: "product-owner",
+      decisionRef: "decision://p4/unit3/token-authority-separation",
+    });
+
+    expect(admission.budgets.maxRunTokens).toBe(20000);
+    expect(admission.budgets.maxRunTokens).not.toBe(
+      config.qualificationEpochMaxRunTokens,
+    );
+    expect(JSON.stringify(admission)).not.toContain("qualificationEpochMaxRunTokens");
   });
 
   it("rejects fabricated aggregate metrics when run evidence does not cover the epoch", () => {
