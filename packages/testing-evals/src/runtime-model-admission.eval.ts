@@ -3,15 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  buildBudgetedDraftRequest,
+  hybridDraftContractMetadata,
   normalizeRuntimeDraftingPolicy,
   productionModelAdmissionHash,
   runtimeDraftingPolicyAuditSnapshot,
   runtimeDraftingPolicyFromEnv,
+  runtimeModelInvocationConfigFromDraftingPolicy,
+  type HybridDraftInvocationStart,
   type RuntimeDraftingPolicy,
 } from "agent-runtime";
 import {
   CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
   P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
+  buildQualificationRuntimeDraftingPolicy,
+  hashQualificationMaterial,
   parseModelQualificationConfig,
   type ModelQualificationConfig,
   type QualificationCandidate,
@@ -19,6 +25,7 @@ import {
 import {
   CURRENT_SPINE_QUALIFICATION_CORPUS,
   CURRENT_SPINE_QUALIFICATION_CORPUS_HASH,
+  type CurrentSpineQualificationCase,
 } from "./model-qualification/qualification-corpus";
 import {
   buildProductionModelAdmission,
@@ -66,40 +73,80 @@ const fixedConfig = (provider: "anthropic" | "xai" = "anthropic"): ModelQualific
   });
 
 const runRecord = (
+  config: ModelQualificationConfig,
   candidate: QualificationCandidate,
-  caseId: string,
+  item: CurrentSpineQualificationCase,
   runIndex: number,
-): QualificationRunRecord => ({
-  candidateId: candidate.id,
-  caseId,
-  runIndex,
-  requestIdentityHash: "1".repeat(64),
-  invocationStartHash: "2".repeat(64),
-  inputTokenUpperBound: 100,
-  reservedRunTokens: 300,
-  effectiveProviderConfiguration: { model: candidate.modelId },
-  providerInvoked: true,
-  source: "model",
-  schemaValidation: "passed",
-  groundingValidation: "passed",
-  qualificationOracleCorrect: true,
-  authorityImmutable: true,
-  verifierPass: true,
-  falseAccept: false,
-  latencyMs: 10,
-  inputTokens: 100,
-  cachedInputTokens: 0,
-  outputTokens: 20,
-  costUsd: null,
-  acceptedArtifactHash: "3".repeat(64),
-  observedModelRevisionOrFingerprint: null,
-  revisionEvidence: "not_required",
-});
+): QualificationRunRecord => {
+  const policy = buildQualificationRuntimeDraftingPolicy(config, candidate, "test-secret");
+  const prepared = buildBudgetedDraftRequest(item.recommendation, item.context, policy, item.now);
+  const invocationConfig = runtimeModelInvocationConfigFromDraftingPolicy(policy);
+  const contract = hybridDraftContractMetadata(policy);
+  const reservedRunTokens = prepared.inputTokenUpperBound + config.budgets.maxOutputTokens;
+  const selectedSourceSignalIds = [
+    ...new Set(prepared.context.signals.map((signal) => signal.id)),
+  ];
+  const invocationStart: HybridDraftInvocationStart = {
+    recommendationId: item.recommendation.id,
+    accountId: item.recommendation.accountId,
+    selectedSourceSignalIds,
+    provider: policy.provider,
+    model: policy.model ?? null,
+    promptVersion: contract.promptVersion,
+    promptHash: contract.promptHash,
+    schemaVersion: contract.schemaVersion,
+    policyVersion: contract.policyVersion,
+    effectivePolicy: contract.effectivePolicy,
+    effectivePolicyHash: contract.effectivePolicyHash,
+    groundingVersion: contract.groundingVersion,
+    inputTokenUpperBound: prepared.inputTokenUpperBound,
+    reservedRunTokens,
+  };
+
+  return {
+    candidateId: candidate.id,
+    caseId: item.id,
+    runIndex,
+    requestIdentityHash: hashQualificationMaterial({
+      request: prepared.request,
+      config: {
+        provider: invocationConfig.provider,
+        model: invocationConfig.model,
+        timeoutMs: invocationConfig.timeoutMs,
+        maxOutputTokens: invocationConfig.maxOutputTokens,
+        reasoningEffort: invocationConfig.reasoningEffort,
+      },
+      candidateRevision: candidate.modelRevisionOrFingerprint ?? null,
+      corpusVersion: config.corpusVersion,
+      caseId: item.id,
+    }),
+    invocationStartHash: hashQualificationMaterial(invocationStart),
+    inputTokenUpperBound: prepared.inputTokenUpperBound,
+    reservedRunTokens,
+    effectiveProviderConfiguration: { model: candidate.modelId },
+    providerInvoked: true,
+    source: "model",
+    schemaValidation: "passed",
+    groundingValidation: "passed",
+    qualificationOracleCorrect: true,
+    authorityImmutable: true,
+    verifierPass: true,
+    falseAccept: false,
+    latencyMs: 10,
+    inputTokens: 100,
+    cachedInputTokens: 0,
+    outputTokens: 20,
+    costUsd: null,
+    acceptedArtifactHash: "3".repeat(64),
+    observedModelRevisionOrFingerprint: null,
+    revisionEvidence: "not_required",
+  };
+};
 
 const qualifiedReport = (config: ModelQualificationConfig): ModelQualificationReport => {
   const candidate = config.candidates[0]!;
   const runs = CURRENT_SPINE_QUALIFICATION_CORPUS.flatMap((item) =>
-    Array.from({ length: config.k }, (_, index) => runRecord(candidate, item.id, index + 1)),
+    Array.from({ length: config.k }, (_, index) => runRecord(config, candidate, item, index + 1)),
   );
   return {
     contractVersion: P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
