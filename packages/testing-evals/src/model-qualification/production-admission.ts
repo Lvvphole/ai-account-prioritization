@@ -352,6 +352,7 @@ const recomputeAdmissionMetrics = (
   }
 
   const seen = new Set<string>();
+  let qualificationEpochReservedTokens = 0;
   for (const [index, run] of report.runs.entries()) {
     if (run.candidateId !== candidate.id) {
       throw new Error(`Qualification run ${index} belongs to a different candidate.`);
@@ -361,6 +362,27 @@ const recomputeAdmissionMetrics = (
       throw new Error("Selected candidate qualification run coverage is invalid.");
     }
     seen.add(key);
+
+    if (run.providerInvoked) {
+      if (run.inputTokenUpperBound === null || run.reservedRunTokens === null) {
+        throw new Error(`Qualification run ${key} is missing qualification token reservation evidence.`);
+      }
+      const expectedReservedRunTokens =
+        run.inputTokenUpperBound + config.budgets.maxOutputTokens;
+      if (run.reservedRunTokens !== expectedReservedRunTokens) {
+        throw new Error(`Qualification run ${key} has inconsistent qualification token reservation evidence.`);
+      }
+      qualificationEpochReservedTokens += run.reservedRunTokens;
+      if (qualificationEpochReservedTokens > config.qualificationEpochMaxRunTokens) {
+        throw new Error(
+          "Selected candidate qualification reservations exceed the locked offline epoch budget.",
+        );
+      }
+    } else if (run.reservedRunTokens !== null) {
+      throw new Error(
+        `Qualification run ${key} records reserved qualification tokens without a provider invocation.`,
+      );
+    }
 
     const verifierPass =
       run.source === "model" &&
