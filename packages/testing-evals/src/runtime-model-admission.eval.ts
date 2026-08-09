@@ -16,11 +16,7 @@ import {
   type ModelQualificationConfig,
   type QualificationClientResolver,
 } from "./model-qualification/qualification-contract";
-import {
-  LOCKED_P4_ADMISSION_CANDIDATE_PRIORITY,
-  assertLockedP4QualificationPolicy,
-  runLockedP4QualificationEpoch,
-} from "./model-qualification/locked-qualification";
+import { runLockedP4QualificationEpoch } from "./model-qualification/locked-qualification";
 
 const lockedConfig = (): ModelQualificationConfig =>
   parseModelQualificationConfig(
@@ -44,7 +40,6 @@ const contextFromRequest = (request: RuntimeModelRequest) => {
 
 const resolver = (
   modeFor: (candidateId: string) => "pass" | "fail" | "blocked",
-  calls?: string[],
 ): QualificationClientResolver => (candidate) => {
   const mode = modeFor(candidate.id);
   if (mode === "blocked") throw new Error("qualification dependency unavailable");
@@ -58,7 +53,6 @@ const resolver = (
     }),
     client: {
       async generate(request, config) {
-        calls?.push(candidate.id);
         const visible = contextFromRequest(request);
         if (mode === "fail") {
           return {
@@ -81,10 +75,12 @@ const resolver = (
           output: {
             schemaVersion: "1.0",
             actionType: visible.actionType,
-            sentences: [{
-              text: visible.signals[0]!.description,
-              sourceSignalIds: [visible.signals[0]!.id],
-            }],
+            sentences: [
+              {
+                text: visible.signals[0]!.description,
+                sourceSignalIds: [visible.signals[0]!.id],
+              },
+            ],
           },
           telemetry: {
             provider: config.provider,
@@ -119,50 +115,53 @@ const withAdmissionFile = <T>(
   }
 };
 
-const productionEnv = (path: string, model: string, reasoning: string): NodeJS.ProcessEnv => ({
+const productionEnv = (
+  path: string,
+  admission: ProductionModelAdmission,
+): NodeJS.ProcessEnv => ({
   NODE_ENV: "production",
   RUNTIME_DRAFTING_ENABLED: "true",
-  RUNTIME_DRAFT_PROVIDER: "anthropic",
+  RUNTIME_DRAFT_PROVIDER: admission.provider,
   RUNTIME_DRAFT_API_KEY: "test-secret",
-  RUNTIME_DRAFT_MODEL: model,
-  RUNTIME_DRAFT_REASONING_EFFORT: reasoning,
-  RUNTIME_DRAFT_TIMEOUT_MS: "5000",
-  RUNTIME_DRAFT_MAX_TOKENS: "600",
-  RUNTIME_DRAFT_MAX_INPUT_TOKENS: "4000",
-  RUNTIME_DRAFT_MAX_SIGNALS: "6",
-  RUNTIME_DRAFT_MAX_CONCURRENT: "4",
-  RUNTIME_DRAFT_MAX_RUN_TOKENS: "20000",
-  RUNTIME_DRAFT_MAX_EVIDENCE_AGE_DAYS: "90",
-  RUNTIME_DRAFT_FALLBACK: "template",
+  RUNTIME_DRAFT_MODEL: admission.modelId,
+  RUNTIME_DRAFT_REASONING_EFFORT: admission.reasoningProfile,
+  RUNTIME_DRAFT_TIMEOUT_MS: String(admission.budgets.timeoutMs),
+  RUNTIME_DRAFT_MAX_TOKENS: String(admission.budgets.maxOutputTokens),
+  RUNTIME_DRAFT_MAX_INPUT_TOKENS: String(admission.budgets.maxInputTokens),
+  RUNTIME_DRAFT_MAX_SIGNALS: String(admission.budgets.maxSignals),
+  RUNTIME_DRAFT_MAX_CONCURRENT: String(admission.budgets.maxConcurrent),
+  RUNTIME_DRAFT_MAX_RUN_TOKENS: String(admission.budgets.maxRunTokens),
+  RUNTIME_DRAFT_MAX_EVIDENCE_AGE_DAYS: String(admission.budgets.maxEvidenceAgeDays),
+  RUNTIME_DRAFT_FALLBACK: admission.fallback,
   P4_PRODUCTION_MODEL_ADMISSION: path,
 });
 
-const injectedRuntimePolicy = (): RuntimeDraftingPolicy => ({
-  enabled: true,
-  provider: "anthropic",
-  apiKey: "test-secret",
-  model: "claude-haiku-4-5-20251001",
-  timeoutMs: 5000,
-  maxTokens: 600,
-  maxInputTokens: 4000,
-  maxSignals: 6,
-  maxConcurrent: 4,
-  maxRunTokens: 20000,
-  maxEvidenceAgeDays: 90,
-  maxAttempts: 1,
-  fallback: "template",
-  reasoningEffort: "provider_default",
-  outputFormat: "json_schema",
-});
+const injectedRuntimePolicy = (): RuntimeDraftingPolicy => {
+  const config = lockedConfig();
+  const candidate = config.candidates[0]!;
+  return {
+    enabled: true,
+    provider: candidate.provider,
+    apiKey: "test-secret",
+    model: candidate.modelId,
+    timeoutMs: config.budgets.timeoutMs,
+    maxTokens: config.budgets.maxOutputTokens,
+    maxInputTokens: config.budgets.maxInputTokens,
+    maxSignals: config.budgets.maxSignals,
+    maxConcurrent: config.budgets.maxConcurrent,
+    maxRunTokens: config.budgets.maxRunTokens,
+    maxEvidenceAgeDays: config.budgets.maxEvidenceAgeDays,
+    maxAttempts: 1,
+    fallback: config.fallback,
+    reasoningEffort: candidate.reasoningProfile,
+    outputFormat: "json_schema",
+  };
+};
 
 describe("P4 locked one-process qualification and admission", () => {
-  it("locks exactly Haiku then Sonnet and admits Haiku when both qualify", async () => {
+  it("admits the first configured qualified candidate", async () => {
     const config = lockedConfig();
-    assertLockedP4QualificationPolicy(config);
-    expect(LOCKED_P4_ADMISSION_CANDIDATE_PRIORITY).toEqual([
-      "anthropic-haiku-4-5-default",
-      "anthropic-sonnet-4-6-low",
-    ]);
+    const first = config.candidates[0]!;
 
     const result = await runLockedP4QualificationEpoch(
       config,
@@ -172,29 +171,46 @@ describe("P4 locked one-process qualification and admission", () => {
     );
 
     expect(result.verdict).toBe("PASS");
-    expect(result.selectedCandidateId).toBe("anthropic-haiku-4-5-default");
-    expect(result.admission?.candidateId).toBe("anthropic-haiku-4-5-default");
-    expect(result.admission?.modelId).toBe("claude-haiku-4-5-20251001");
+    expect(result.selectedCandidateId).toBe(first.id);
+    expect(result.admission?.candidateId).toBe(first.id);
+    expect(result.admission?.modelId).toBe(first.modelId);
     expect(result.report.candidates.every((candidate) => candidate.verdict === "QUALIFIED")).toBe(true);
     expect(productionModelAdmissionHash(result.admission!)).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("admits Sonnet only when Haiku is not qualified", async () => {
+  it("uses candidate order from the executable policy instead of a hard-coded priority", async () => {
+    const config = lockedConfig();
+    const reversed = { ...config, candidates: [...config.candidates].reverse() };
+    const first = reversed.candidates[0]!;
+
     const result = await runLockedP4QualificationEpoch(
-      lockedConfig(),
-      resolver((candidateId) =>
-        candidateId === "anthropic-haiku-4-5-default" ? "fail" : "pass",
-      ),
+      reversed,
+      resolver(() => "pass"),
+      decision,
+    );
+
+    expect(result.selectedCandidateId).toBe(first.id);
+    expect(result.admission?.candidateId).toBe(first.id);
+  });
+
+  it("admits the next configured candidate when the first is not qualified", async () => {
+    const config = lockedConfig();
+    const first = config.candidates[0]!;
+    const second = config.candidates[1]!;
+
+    const result = await runLockedP4QualificationEpoch(
+      config,
+      resolver((candidateId) => (candidateId === first.id ? "fail" : "pass")),
       decision,
     );
 
     expect(result.verdict).toBe("PASS");
-    expect(result.selectedCandidateId).toBe("anthropic-sonnet-4-6-low");
-    expect(result.admission?.candidateId).toBe("anthropic-sonnet-4-6-low");
-    expect(result.admission?.modelId).toBe("claude-sonnet-4-6");
+    expect(result.selectedCandidateId).toBe(second.id);
+    expect(result.admission?.candidateId).toBe(second.id);
+    expect(result.admission?.modelId).toBe(second.modelId);
   });
 
-  it("returns BLOCK/template and creates no admission when neither candidate qualifies", async () => {
+  it("returns BLOCK/template and creates no admission when no candidate qualifies", async () => {
     const result = await runLockedP4QualificationEpoch(
       lockedConfig(),
       resolver(() => "fail"),
@@ -206,25 +222,17 @@ describe("P4 locked one-process qualification and admission", () => {
     expect(result.admission).toBeNull();
   });
 
-  it("validates the locked policy before resolving a provider or spending tokens", async () => {
-    const config = lockedConfig();
-    config.candidates.push({ ...config.candidates[0]!, id: "third-model" });
-    let resolverCalls = 0;
-    const countingResolver: QualificationClientResolver = (candidate) => {
-      resolverCalls += 1;
-      return resolver(() => "pass")(candidate);
-    };
+  it("requires a production admission before enabled production drafting can start", async () => {
+    const result = await runLockedP4QualificationEpoch(
+      lockedConfig(),
+      resolver(() => "pass"),
+      decision,
+    );
+    expect(result.admission).not.toBeNull();
 
-    await expect(
-      runLockedP4QualificationEpoch(config, countingResolver, decision),
-    ).rejects.toThrow("exactly Haiku and Sonnet");
-    expect(resolverCalls).toBe(0);
-  });
-
-  it("requires a production admission before enabled production drafting can start", () => {
     expect(() =>
       runtimeDraftingPolicyFromEnv({
-        ...productionEnv("unused", "claude-haiku-4-5-20251001", "provider_default"),
+        ...productionEnv("unused", result.admission!),
         P4_PRODUCTION_MODEL_ADMISSION: "",
       }),
     ).toThrow("requires P4_PRODUCTION_MODEL_ADMISSION");
@@ -254,8 +262,8 @@ describe("P4 locked one-process qualification and admission", () => {
     withAdmissionFile(result.admission!, (path) => {
       expect(() =>
         runtimeDraftingPolicyFromEnv({
-          ...productionEnv(path, "claude-haiku-4-5-20251001", "provider_default"),
-          RUNTIME_DRAFT_MAX_TOKENS: "601",
+          ...productionEnv(path, result.admission!),
+          RUNTIME_DRAFT_MAX_TOKENS: String(result.admission!.budgets.maxOutputTokens + 1),
         }),
       ).toThrow("does not match the admitted production model configuration");
     });
@@ -270,12 +278,10 @@ describe("P4 locked one-process qualification and admission", () => {
     expect(result.admission).not.toBeNull();
 
     withAdmissionFile(result.admission!, (path) => {
-      const policy = runtimeDraftingPolicyFromEnv(
-        productionEnv(path, "claude-haiku-4-5-20251001", "provider_default"),
-      );
+      const policy = runtimeDraftingPolicyFromEnv(productionEnv(path, result.admission!));
       const snapshot = runtimeDraftingPolicyAuditSnapshot(policy);
       expect(snapshot.productionAdmission).toMatchObject({
-        candidateId: "anthropic-haiku-4-5-default",
+        candidateId: result.admission!.candidateId,
         decisionRef: decision.decisionRef,
         qualificationPolicyHash: result.admission!.qualification.qualificationPolicyHash,
         qualificationReportHash: result.admission!.qualification.reportHash,

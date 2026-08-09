@@ -7,7 +7,6 @@ import {
 import {
   hashQualificationMaterial,
   type ModelQualificationConfig,
-  type QualificationCandidate,
   type QualificationClientResolver,
   type QualificationOverallVerdict,
 } from "./qualification-contract";
@@ -15,45 +14,6 @@ import {
   runCurrentSpineModelQualification,
   type ModelQualificationReport,
 } from "./qualification-runner";
-
-const LOCKED_CANDIDATES = [
-  {
-    id: "anthropic-haiku-4-5-default",
-    provider: "anthropic",
-    modelId: "claude-haiku-4-5-20251001",
-    reasoningProfile: "provider_default",
-    structuredOutputProfile: "json_schema",
-    toolSchemaProfile: "not_applicable_current_spine",
-    samplingProfile: "provider_default",
-    credentialEnv: "ANTHROPIC_API_KEY",
-    pricing: {
-      inputUsdPerMillionTokens: 1,
-      outputUsdPerMillionTokens: 5,
-      effectiveDate: "2026-08-09",
-      source: "Anthropic Claude Platform pricing verified 2026-08-09",
-    },
-  },
-  {
-    id: "anthropic-sonnet-4-6-low",
-    provider: "anthropic",
-    modelId: "claude-sonnet-4-6",
-    reasoningProfile: "low",
-    structuredOutputProfile: "json_schema",
-    toolSchemaProfile: "not_applicable_current_spine",
-    samplingProfile: "provider_default",
-    credentialEnv: "ANTHROPIC_API_KEY",
-    pricing: {
-      inputUsdPerMillionTokens: 3,
-      outputUsdPerMillionTokens: 15,
-      effectiveDate: "2026-08-09",
-      source: "Anthropic Claude Platform pricing verified 2026-08-09",
-    },
-  },
-] as const;
-
-export const LOCKED_P4_ADMISSION_CANDIDATE_PRIORITY = LOCKED_CANDIDATES.map(
-  (candidate) => candidate.id,
-) as readonly string[];
 
 export interface LockedP4AdmissionDecisionMetadata {
   decisionOwner: string;
@@ -72,89 +32,15 @@ const nonEmpty = (value: string, path: string): string => {
   return value;
 };
 
-const exactNumber = (actual: number | undefined, expected: number, path: string): void => {
-  if (actual !== expected) throw new Error(`${path} must equal the locked value ${expected}.`);
-};
-
-const comparableCandidate = (candidate: QualificationCandidate): unknown => ({
-  id: candidate.id,
-  provider: candidate.provider,
-  modelId: candidate.modelId,
-  reasoningProfile: candidate.reasoningProfile,
-  structuredOutputProfile: candidate.structuredOutputProfile,
-  toolSchemaProfile: candidate.toolSchemaProfile,
-  samplingProfile: candidate.samplingProfile,
-  credentialEnv: candidate.credentialEnv,
-  pricing: candidate.pricing,
-});
-
-export function assertLockedP4QualificationPolicy(config: ModelQualificationConfig): void {
-  if (config.k !== 30) throw new Error("k must equal the locked value 30.");
-  if (config.fallback !== "template") {
-    throw new Error("fallback must equal the locked value template.");
-  }
-  exactNumber(
-    config.qualificationEpochMaxRunTokens,
-    172650,
-    "qualificationEpochMaxRunTokens",
-  );
-
-  const lockedBudgets = {
-    timeoutMs: 5000,
-    maxOutputTokens: 600,
-    maxInputTokens: 4000,
-    maxSignals: 6,
-    maxConcurrent: 4,
-    maxRunTokens: 20000,
-    maxEvidenceAgeDays: 90,
-  } as const;
-  for (const [key, expected] of Object.entries(lockedBudgets)) {
-    exactNumber(
-      config.budgets[key as keyof typeof config.budgets],
-      expected,
-      `budgets.${key}`,
+const selectedCandidateId = (
+  config: ModelQualificationConfig,
+  report: ModelQualificationReport,
+): string | null => {
+  for (const configuredCandidate of config.candidates) {
+    const evaluated = report.candidates.find(
+      (item) => item.candidate.id === configuredCandidate.id,
     );
-  }
-
-  exactNumber(config.thresholds.minModelVerifierPassRate, 1, "thresholds.minModelVerifierPassRate");
-  exactNumber(config.thresholds.maxFallbackRate, 0, "thresholds.maxFallbackRate");
-  exactNumber(config.thresholds.maxFalseAcceptRate, 0, "thresholds.maxFalseAcceptRate");
-  if (config.thresholds.requireCompleteTokenTelemetry !== true) {
-    throw new Error("thresholds.requireCompleteTokenTelemetry must equal the locked value true.");
-  }
-  if (config.thresholds.maxP95LatencyMs !== undefined) {
-    throw new Error("thresholds.maxP95LatencyMs must be omitted by the locked policy.");
-  }
-  if (config.thresholds.maxCostPerVerifiedPassUsd !== undefined) {
-    throw new Error("thresholds.maxCostPerVerifiedPassUsd must be omitted by the locked policy.");
-  }
-
-  if (config.candidates.length !== LOCKED_CANDIDATES.length) {
-    throw new Error("Locked P4 qualification requires exactly Haiku and Sonnet.");
-  }
-
-  const configuredIds = new Set(config.candidates.map((candidate) => candidate.id));
-  for (const locked of LOCKED_CANDIDATES) {
-    if (!configuredIds.has(locked.id)) {
-      throw new Error(`Locked P4 qualification is missing ${locked.id}.`);
-    }
-    const configured = config.candidates.find((candidate) => candidate.id === locked.id)!;
-    if (configured.modelRevisionOrFingerprint !== undefined) {
-      throw new Error(`Candidate ${locked.id} modelRevisionOrFingerprint must be omitted.`);
-    }
-    if (
-      hashQualificationMaterial(comparableCandidate(configured)) !==
-      hashQualificationMaterial(locked)
-    ) {
-      throw new Error(`Candidate ${locked.id} does not match the locked candidate contract.`);
-    }
-  }
-}
-
-const selectedCandidateId = (report: ModelQualificationReport): string | null => {
-  for (const candidateId of LOCKED_P4_ADMISSION_CANDIDATE_PRIORITY) {
-    const candidate = report.candidates.find((item) => item.candidate.id === candidateId);
-    if (candidate?.verdict === "QUALIFIED") return candidateId;
+    if (evaluated?.verdict === "QUALIFIED") return configuredCandidate.id;
   }
   return null;
 };
@@ -222,9 +108,10 @@ const buildAdmissionFromAuthoritativeEpoch = (
 /**
  * Execute, evaluate, select, and admit inside one trusted process.
  *
- * The full qualification report is returned for audit. It is not consumed by a
- * later admission authority. Candidate selection is the locked deterministic
- * Haiku -> Sonnet -> BLOCK policy and cannot be supplied by the caller.
+ * The caller supplies the parsed executable policy. This module does not copy or
+ * redefine policy values. Candidate array order is the deterministic admission
+ * priority. The full qualification report is audit evidence and is not consumed
+ * by a later admission authority.
  */
 export async function runLockedP4QualificationEpoch(
   config: ModelQualificationConfig,
@@ -232,12 +119,11 @@ export async function runLockedP4QualificationEpoch(
   decision: LockedP4AdmissionDecisionMetadata,
   now: () => string = () => new Date().toISOString(),
 ): Promise<LockedP4QualificationEpochResult> {
-  assertLockedP4QualificationPolicy(config);
   nonEmpty(decision.decisionOwner, "decision.decisionOwner");
   nonEmpty(decision.decisionRef, "decision.decisionRef");
 
   const rawReport = await runCurrentSpineModelQualification(config, resolveClient, now);
-  const chosen = selectedCandidateId(rawReport);
+  const chosen = selectedCandidateId(config, rawReport);
   const verdict: LockedP4QualificationEpochResult["verdict"] = chosen ? "PASS" : "BLOCKED";
   const report: ModelQualificationReport = { ...rawReport, verdict };
 

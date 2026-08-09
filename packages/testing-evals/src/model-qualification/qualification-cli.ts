@@ -4,6 +4,8 @@ import { parseModelQualificationConfig } from "./qualification-contract";
 import { createNetworkQualificationResolver } from "./qualification-provider-clients";
 import { runLockedP4QualificationEpoch } from "./locked-qualification";
 
+const CANONICAL_P4_QUALIFICATION_POLICY = "config/p4-qualification-policy.json";
+
 const boolFromEnv = (value: string | undefined): boolean => {
   if (value === undefined || value === "" || value === "false") return false;
   if (value === "true") return true;
@@ -16,9 +18,7 @@ const required = (value: string | undefined, name: string): string => {
 };
 
 async function main(): Promise<void> {
-  const configPath = resolve(
-    process.env.P4_QUALIFICATION_CONFIG ?? "config/p4-qualification-policy.json",
-  );
+  const configPath = resolve(CANONICAL_P4_QUALIFICATION_POLICY);
   const reportPath = resolve(
     process.env.P4_QUALIFICATION_REPORT ??
       `packages/testing-evals/src/eval-results/model-qualification-${Date.now()}.json`,
