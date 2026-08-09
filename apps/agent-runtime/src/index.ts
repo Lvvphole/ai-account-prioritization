@@ -40,8 +40,10 @@ export { resetStore, createSeedStore, type DataStore } from "./shared-tools/data
 export {
   attachActionDraft,
   attachHybridActionDraft,
+  buildBudgetedDraftRequest,
   createRuntimeDraftRunBudget,
   estimateRuntimeModelInputTokensUpperBound,
+  hybridDraftContractMetadata,
   type HybridDraftInvocationStart,
   type HybridDraftOptions,
   type HybridDraftOutcome,
