@@ -5,10 +5,8 @@ import {
   productionModelAdmissionHash,
 } from "agent-runtime";
 import { parseModelQualificationConfig } from "./qualification-contract";
-import {
-  buildProductionModelAdmission,
-  parseQualificationReportForAdmission,
-} from "./production-admission";
+import { buildLockedP4ProductionModelAdmission } from "./locked-admission-policy";
+import { parseQualificationReportForAdmission } from "./production-admission";
 
 const requiredEnv = (name: string): string => {
   const value = process.env[name]?.trim();
@@ -40,7 +38,7 @@ async function main(): Promise<void> {
     JSON.parse(readFileSync(reportPath, "utf8")) as unknown,
   );
   const admission = parseProductionModelAdmission(
-    buildProductionModelAdmission(config, report, {
+    buildLockedP4ProductionModelAdmission(config, report, {
       candidateId,
       decisionOwner,
       decisionRef,
