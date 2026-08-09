@@ -4,6 +4,10 @@ import {
   parseModelQualificationConfig,
   type QualificationOverallVerdict,
 } from "./qualification-contract";
+import {
+  applyLockedP4QualificationPolicy,
+  assertLockedP4QualificationPolicy,
+} from "./locked-admission-policy";
 import { createNetworkQualificationResolver } from "./qualification-provider-clients";
 import { runCurrentSpineModelQualification } from "./qualification-runner";
 
@@ -22,9 +26,13 @@ async function main(): Promise<void> {
   const config = parseModelQualificationConfig(
     JSON.parse(readFileSync(absoluteConfigPath, "utf8")) as unknown,
   );
-  const report = await runCurrentSpineModelQualification(
+  assertLockedP4QualificationPolicy(config);
+  const report = applyLockedP4QualificationPolicy(
     config,
-    createNetworkQualificationResolver(process.env),
+    await runCurrentSpineModelQualification(
+      config,
+      createNetworkQualificationResolver(process.env),
+    ),
   );
   const outputPath = resolve(
     process.env.P4_QUALIFICATION_REPORT ??
