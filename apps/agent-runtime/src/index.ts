@@ -41,6 +41,7 @@ export {
   attachActionDraft,
   attachHybridActionDraft,
   buildBudgetedDraftRequest,
+  buildQualificationAdmissionReplayEvidence,
   createRuntimeDraftRunBudget,
   estimateRuntimeModelInputTokensUpperBound,
   hybridDraftContractMetadata,

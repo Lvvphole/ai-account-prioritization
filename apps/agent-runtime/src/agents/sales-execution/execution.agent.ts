@@ -22,6 +22,7 @@ import {
 import {
   hashRuntimeDraftingPolicy,
   normalizeRuntimeDraftingPolicy,
+  normalizeRuntimeDraftingPolicyForAdmissionReplay,
   RUNTIME_DRAFT_POLICY_VERSION,
   runtimeDraftingPolicyAuditSnapshot,
   runtimeDraftingPolicyFromEnv,
@@ -187,6 +188,7 @@ export interface HybridDraftOptions {
 
 export function hybridDraftContractMetadata(
   policy: RuntimeDraftingPolicy,
+  normalizePolicy: typeof normalizeRuntimeDraftingPolicy = normalizeRuntimeDraftingPolicy,
 ): Pick<
   HybridDraftOutcome,
   | "promptVersion"
@@ -198,7 +200,7 @@ export function hybridDraftContractMetadata(
   | "groundingVersion"
   | "fallbackVersion"
 > {
-  const effectivePolicy = runtimeDraftingPolicyAuditSnapshot(policy);
+  const effectivePolicy = runtimeDraftingPolicyAuditSnapshot(policy, normalizePolicy);
   return {
     promptVersion: RUNTIME_DRAFT_PROMPT_VERSION,
     promptHash: RUNTIME_DRAFT_PROMPT_HASH,
@@ -208,6 +210,36 @@ export function hybridDraftContractMetadata(
     effectivePolicyHash: hashRuntimeDraftingPolicy(effectivePolicy),
     groundingVersion: DRAFT_GROUNDING_RULES_VERSION,
     fallbackVersion: DETERMINISTIC_DRAFT_FALLBACK_VERSION,
+  };
+}
+
+export function buildQualificationAdmissionReplayEvidence(
+  rec: Recommendation,
+  ctx: AccountContext,
+  unnormalizedPolicy: RuntimeDraftingPolicy,
+  now: string,
+): {
+  policy: RuntimeDraftingPolicy;
+  prepared: ReturnType<typeof buildBudgetedDraftRequest>;
+  invocationConfig: ReturnType<typeof runtimeModelInvocationConfigFromDraftingPolicy>;
+  contract: ReturnType<typeof hybridDraftContractMetadata>;
+} {
+  const policy = normalizeRuntimeDraftingPolicyForAdmissionReplay(unnormalizedPolicy);
+  const prepared = buildBudgetedDraftRequest(rec, ctx, policy, now);
+  const invocationConfig = runtimeModelInvocationConfigFromDraftingPolicy(
+    policy,
+    normalizeRuntimeDraftingPolicyForAdmissionReplay,
+  );
+  const contract = hybridDraftContractMetadata(
+    policy,
+    normalizeRuntimeDraftingPolicyForAdmissionReplay,
+  );
+
+  return {
+    policy,
+    prepared,
+    invocationConfig,
+    contract,
   };
 }
 

@@ -1,10 +1,8 @@
 import {
   IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
   P4_PRODUCTION_MODEL_ADMISSION_CONTRACT_VERSION,
-  buildBudgetedDraftRequest,
-  hybridDraftContractMetadata,
+  buildQualificationAdmissionReplayEvidence,
   parseProductionModelAdmission,
-  runtimeModelInvocationConfigFromDraftingPolicy,
   type HybridDraftInvocationStart,
   type ProductionModelAdmission,
 } from "agent-runtime";
@@ -361,9 +359,17 @@ const recomputeExpectedInvocationEvidence = (
     candidate,
     ADMISSION_REPLAY_CREDENTIAL,
   );
-  const prepared = buildBudgetedDraftRequest(item.recommendation, item.context, policy, item.now);
-  const invocationConfig = runtimeModelInvocationConfigFromDraftingPolicy(policy);
-  const contract = hybridDraftContractMetadata(policy);
+  const {
+    policy: normalizedPolicy,
+    prepared,
+    invocationConfig,
+    contract,
+  } = buildQualificationAdmissionReplayEvidence(
+    item.recommendation,
+    item.context,
+    policy,
+    item.now,
+  );
   const reservedRunTokens = prepared.inputTokenUpperBound + config.budgets.maxOutputTokens;
   const selectedSourceSignalIds = [
     ...new Set(prepared.context.signals.map((signal) => signal.id)),
@@ -372,8 +378,8 @@ const recomputeExpectedInvocationEvidence = (
     recommendationId: item.recommendation.id,
     accountId: item.recommendation.accountId,
     selectedSourceSignalIds,
-    provider: policy.provider,
-    model: policy.model ?? null,
+    provider: normalizedPolicy.provider,
+    model: normalizedPolicy.model ?? null,
     promptVersion: contract.promptVersion,
     promptHash: contract.promptHash,
     schemaVersion: contract.schemaVersion,

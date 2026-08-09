@@ -140,14 +140,16 @@ const implementedRuntimeProviders = new Set<RuntimeModelProvider>(
   IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
 );
 
-/**
- * Normalize and validate any policy regardless of origin. Environment parsing is
- * not a trusted boundary because callers can inject RuntimeDraftingPolicy
- * objects directly through the exported runtime APIs.
- */
-export function normalizeRuntimeDraftingPolicy(
+type RuntimeDraftingPolicyNormalizer = (
   policy: RuntimeDraftingPolicy,
-): RuntimeDraftingPolicy {
+) => RuntimeDraftingPolicy;
+
+const normalizeRuntimeDraftingPolicyWithOptions = (
+  policy: RuntimeDraftingPolicy,
+  options: {
+    requireProductionAdmission: boolean;
+  },
+): RuntimeDraftingPolicy => {
   if (typeof policy.enabled !== "boolean") {
     throw new Error(`Invalid runtime drafting policy enabled: ${String(policy.enabled)}`);
   }
@@ -195,11 +197,13 @@ export function normalizeRuntimeDraftingPolicy(
 
   // Directly injected policies are an untrusted runtime boundary too. An
   // enabled production process cannot bypass admission by avoiding env parsing.
-  // Offline qualification and deterministic tests run outside NODE_ENV=production
-  // and therefore retain their explicit unadmitted evaluation seam.
+  // Offline qualification and deterministic tests retain an explicit replay
+  // seam that bypasses only the circular requirement for the admission artifact
+  // being constructed.
   if (
     normalized.enabled &&
     process.env.NODE_ENV === "production" &&
+    options.requireProductionAdmission &&
     !normalized.productionAdmission
   ) {
     throw new Error(
@@ -212,12 +216,38 @@ export function normalizeRuntimeDraftingPolicy(
   }
 
   return normalized;
-}
+};
+
+/**
+ * Normalize and validate any policy regardless of origin. Environment parsing is
+ * not a trusted boundary because callers can inject RuntimeDraftingPolicy
+ * objects directly through the exported runtime APIs.
+ */
+export const normalizeRuntimeDraftingPolicy: RuntimeDraftingPolicyNormalizer = (policy) =>
+  normalizeRuntimeDraftingPolicyWithOptions(policy, {
+    requireProductionAdmission: true,
+  });
+
+/**
+ * Offline qualification/admission replay must reconstruct the invocation that
+ * produced persisted evidence before the admission artifact exists. This seam
+ * bypasses only that circular startup requirement; every other policy and
+ * admission consistency check remains active.
+ */
+export const normalizeRuntimeDraftingPolicyForAdmissionReplay: RuntimeDraftingPolicyNormalizer = (
+  policy,
+) =>
+  normalizeRuntimeDraftingPolicyWithOptions(policy, {
+    requireProductionAdmission: false,
+  });
+
+type PolicyNormalizer = typeof normalizeRuntimeDraftingPolicy;
 
 export function runtimeDraftingPolicyAuditSnapshot(
   policy: RuntimeDraftingPolicy,
+  normalizePolicy: PolicyNormalizer = normalizeRuntimeDraftingPolicy,
 ): RuntimeDraftingPolicyAuditSnapshot {
-  const normalized = normalizeRuntimeDraftingPolicy(policy);
+  const normalized = normalizePolicy(policy);
   const reasoningEffort = normalized.reasoningEffort ?? "provider_default";
   const canonicalOutputFormat = canonicalRuntimeDraftOutputFormat();
   const admission = normalized.productionAdmission;
@@ -264,8 +294,9 @@ export function hashRuntimeDraftingPolicy(
 /** Convert the drafting policy to the provider-neutral call contract. */
 export function runtimeModelInvocationConfigFromDraftingPolicy(
   policy: RuntimeDraftingPolicy,
+  normalizePolicy: PolicyNormalizer = normalizeRuntimeDraftingPolicy,
 ): RuntimeModelInvocationConfig {
-  const normalized = normalizeRuntimeDraftingPolicy(policy);
+  const normalized = normalizePolicy(policy);
   if (!normalized.enabled || !normalized.apiKey || !normalized.model) {
     throw new Error("Runtime model invocation requires an enabled, fully configured policy.");
   }
