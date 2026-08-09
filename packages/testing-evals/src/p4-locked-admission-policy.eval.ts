@@ -206,6 +206,53 @@ describe("locked P4 qualification and admission policy", () => {
     );
   });
 
+  it("rejects missing qualification token reservation evidence", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    haikuReport(report).runs[0]!.reservedRunTokens = null;
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "has invalid token reservation evidence",
+    );
+  });
+
+  it("rejects missing qualification input token bound evidence", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    haikuReport(report).runs[0]!.inputTokenUpperBound = null;
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "has invalid token reservation evidence",
+    );
+  });
+
+  it("rejects a production-shaped batch reservation overrun", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const runs = haikuReport(report).runs.filter((run) => run.runIndex === 1);
+    for (const run of runs) {
+      run.inputTokenUpperBound = config.budgets.maxInputTokens;
+      run.reservedRunTokens = config.budgets.maxInputTokens + config.budgets.maxOutputTokens;
+    }
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "token reservations exceed the locked budget",
+    );
+  });
+
+  it("rejects a cumulative qualification epoch reservation overrun", async () => {
+    const config = lockedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    for (const run of haikuReport(report).runs) {
+      run.inputTokenUpperBound = 2400;
+      run.reservedRunTokens = 3000;
+    }
+
+    expect(() => applyLockedP4QualificationPolicy(config, report)).toThrow(
+      "token reservations exceed the locked budget",
+    );
+  });
+
   it("selects Sonnet when Haiku is DISQUALIFIED by run evidence and Sonnet is QUALIFIED", async () => {
     const config = lockedConfig();
     const report = await runCurrentSpineModelQualification(config, passingResolver);

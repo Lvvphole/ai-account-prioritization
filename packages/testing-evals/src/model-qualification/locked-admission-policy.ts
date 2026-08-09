@@ -173,9 +173,35 @@ const candidateMeetsLockedQualificationBoundary = (
     if (run.revisionEvidence !== "not_required") {
       throw new Error(`Qualification run ${key} has unexpected model revision evidence.`);
     }
+    if (
+      !Number.isSafeInteger(run.inputTokenUpperBound) ||
+      !Number.isSafeInteger(run.reservedRunTokens) ||
+      run.inputTokenUpperBound! < 0 ||
+      run.inputTokenUpperBound! > config.budgets.maxInputTokens ||
+      run.reservedRunTokens !== run.inputTokenUpperBound! + config.budgets.maxOutputTokens
+    ) {
+      throw new Error(`Qualification run ${key} has invalid token reservation evidence.`);
+    }
   }
 
   if (seen.size !== expectedKeys.size) return false;
+  const batchReservedTokens = new Map<number, number>();
+  let qualificationEpochReservedTokens = 0;
+  for (const run of report.runs) {
+    qualificationEpochReservedTokens += run.reservedRunTokens!;
+    batchReservedTokens.set(
+      run.runIndex,
+      (batchReservedTokens.get(run.runIndex) ?? 0) + run.reservedRunTokens!,
+    );
+  }
+  if (
+    qualificationEpochReservedTokens > config.qualificationEpochMaxRunTokens ||
+    [...batchReservedTokens.values()].some(
+      (reservedTokens) => reservedTokens > config.budgets.maxRunTokens,
+    )
+  ) {
+    throw new Error(`Qualification token reservations exceed the locked budget.`);
+  }
   if (
     report.runs.some(
       (run) =>
