@@ -151,7 +151,55 @@ describe("P4 token-authority regressions", () => {
         decisionOwner: "product-owner",
         decisionRef: "decision://p4/pr60/input-token-bound",
       }),
-    ).toThrow("exceeds the locked production input token budget");
+    ).toThrow("input-token bound does not match the deterministic frozen request");
+  });
+
+  it("rejects self-consistent lowered reservation evidence", async () => {
+    const config = fixedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const run = report.candidates[0]!.runs[0]!;
+    expect(run.inputTokenUpperBound).not.toBeNull();
+    run.inputTokenUpperBound = (run.inputTokenUpperBound as number) - 1;
+    run.reservedRunTokens = run.inputTokenUpperBound + config.budgets.maxOutputTokens;
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/pr60/lowered-reservation",
+      }),
+    ).toThrow("input-token bound does not match the deterministic frozen request");
+  });
+
+  it("rejects request identity that is stable but not the frozen request identity", async () => {
+    const config = fixedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const caseId = report.candidates[0]!.runs[0]!.caseId;
+    for (const run of report.candidates[0]!.runs.filter((candidateRun) => candidateRun.caseId === caseId)) {
+      run.requestIdentityHash = "a".repeat(64);
+    }
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/pr60/request-identity",
+      }),
+    ).toThrow("request identity does not match the deterministic frozen request");
+  });
+
+  it("rejects invocation-start identity that is not the frozen request identity", async () => {
+    const config = fixedConfig();
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    report.candidates[0]!.runs[0]!.invocationStartHash = "b".repeat(64);
+
+    expect(() =>
+      buildProductionModelAdmission(config, report, {
+        candidateId: "candidate-a",
+        decisionOwner: "product-owner",
+        decisionRef: "decision://p4/pr60/invocation-start-identity",
+      }),
+    ).toThrow("invocation-start identity does not match the deterministic frozen request");
   });
 
   it("rejects provider telemetry on a qualification run that claims no invocation", async () => {
