@@ -368,6 +368,9 @@ const recomputeAdmissionMetrics = (
       if (run.inputTokenUpperBound === null || run.reservedRunTokens === null) {
         throw new Error(`Qualification run ${key} is missing qualification token reservation evidence.`);
       }
+      if (run.inputTokenUpperBound > config.budgets.maxInputTokens) {
+        throw new Error(`Qualification run ${key} exceeds the locked production input token budget.`);
+      }
       const expectedReservedRunTokens =
         run.inputTokenUpperBound + config.budgets.maxOutputTokens;
       if (run.reservedRunTokens !== expectedReservedRunTokens) {
