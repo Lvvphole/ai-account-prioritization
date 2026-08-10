@@ -23,13 +23,7 @@ jobs:
     permissions:
       contents: read
     env:
-      P4_QUALIFICATION_REPORT: p4-output/qualification-${{ github.run_id }}-${{ github.run_attempt }}.json
-      P4_PRODUCTION_MODEL_ADMISSION_OUTPUT: p4-output/admission-${{ github.run_id }}-${{ github.run_attempt }}.json
-      P4_QUALIFICATION_RELEASE_TAG: p4-qualification-${{ github.run_id }}-${{ github.run_attempt }}
       P4_TRANSFER_ARTIFACT: p4-qualification-transfer-${{ github.run_id }}-${{ github.run_attempt }}
-      P4_TERMINAL_EVIDENCE: p4-output/terminal-${{ github.run_id }}-${{ github.run_attempt }}.txt
-      P4_INVOCATION_AUDIT: p4-output/invocations-${{ github.run_id }}-${{ github.run_attempt }}.ndjson
-      P4_COMMAND_STATUS: p4-output/command-status-${{ github.run_id }}-${{ github.run_attempt }}.txt
     steps:
       - name: Verify immutable releases are enabled
         env:
@@ -46,170 +40,51 @@ jobs:
           )"
           test "$immutable_enabled" = "true"
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Checkout reviewed workflow controls
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: .p4-control
+          persist-credentials: false
+
+      - name: Checkout decision-authorized qualification source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.P4_QUALIFICATION_SOURCE_SHA }}
+          path: .p4-source
           persist-credentials: false
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Run canonical P4 qualification
+          cache-dependency-path: .p4-source/pnpm-lock.yaml
+
+      - name: Install qualification dependencies
+        working-directory: .p4-source
+        run: pnpm install --frozen-lockfile
+
+      - name: Run canonical P4 qualification with evidence contract
         id: qualification
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.P4_ANTHROPIC_API_KEY }}
           P4_ADMISSION_DECISION_OWNER: ${{ vars.P4_ADMISSION_DECISION_OWNER }}
           P4_ADMISSION_DECISION_REF: ${{ vars.P4_ADMISSION_DECISION_REF }}
-        run: |
-          set -uo pipefail
-          mkdir -p p4-output
-          audit_preload="$RUNNER_TEMP/p4-invocation-audit.cjs"
-          stderr_file="$RUNNER_TEMP/p4-qualification.stderr"
-          cat > "$audit_preload" <<'EOF'
-          const { createHash } = require("node:crypto");
-          const { appendFileSync } = require("node:fs");
-          const path = process.env.P4_INVOCATION_AUDIT;
-          const originalFetch = globalThis.fetch?.bind(globalThis);
-          const providers = {
-            "api.anthropic.com": "anthropic",
-            "api.openai.com": "openai",
-            "api.x.ai": "xai",
-            "generativelanguage.googleapis.com": "google",
-          };
-          let sequence = 0;
-          const hash = (value) => createHash("sha256").update(value).digest("hex");
-          const record = (event) => {
-            if (!path) throw new Error("P4_INVOCATION_AUDIT is required before provider invocation.");
-            appendFileSync(path, `${JSON.stringify(event)}\n`, "utf8");
-          };
-          if (originalFetch) {
-            globalThis.fetch = async (input, init = {}) => {
-              const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
-              const provider = providers[url.hostname];
-              if (!provider) return originalFetch(input, init);
-              const body = typeof init.body === "string" ? init.body : "";
-              let model = null;
-              try { model = JSON.parse(body).model ?? null; } catch {}
-              const n = ++sequence;
-              const started = Date.now();
-              record({ kind: "p4-provider-invocation-v1", phase: "started", sequence: n,
-                timestamp: new Date().toISOString(), provider, model,
-                requestBodySha256: body ? hash(body) : null });
-              try {
-                const response = await originalFetch(input, init);
-                record({ kind: "p4-provider-invocation-v1", phase: "completed", sequence: n,
-                  timestamp: new Date().toISOString(), provider, model,
-                  outcome: "http_response", httpStatus: response.status,
-                  durationMs: Date.now() - started });
-                return response;
-              } catch (error) {
-                record({ kind: "p4-provider-invocation-v1", phase: "completed", sequence: n,
-                  timestamp: new Date().toISOString(), provider, model,
-                  outcome: "network_error", errorName: error?.name ?? "UnknownError",
-                  durationMs: Date.now() - started });
-                throw error;
-              }
-            };
-          }
-          EOF
+        run: >-
+          node "$GITHUB_WORKSPACE/.p4-control/scripts/p4-qualification-evidence.mjs"
+          run --source-dir "$GITHUB_WORKSPACE/.p4-source"
 
-          : > "$stderr_file"
-          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          set +e
-          NODE_OPTIONS="--require=${audit_preload}" pnpm qualify:models \
-            2> >(tee "$stderr_file" >&2)
-          exit_code=$?
-          set -e
-          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          failure_reason_code="NONE"
-          failure_message_sha256="NONE"
-          if [ "$exit_code" -ne 0 ]; then
-            failure_reason_code="$(
-              grep -Eo '(QUALIFICATION_[A-Z0-9_]+|DRAFT_MODEL_[A-Z0-9_]+|MISSING_CREDENTIAL)' \
-                "$stderr_file" | tail -n 1 || true
-            )"
-            test -n "$failure_reason_code" || failure_reason_code="UNCLASSIFIED_COMMAND_FAILURE"
-            failure_message_sha256="$(sha256sum "$stderr_file" | awk '{print $1}')"
-          fi
-          cat > "$P4_COMMAND_STATUS" <<EOF
-          started_at=${started_at}
-          completed_at=${completed_at}
-          exit_code=${exit_code}
-          failure_reason_code=${failure_reason_code}
-          failure_message_sha256=${failure_message_sha256}
-          EOF
-          exit "$exit_code"
-      - name: Record terminal qualification evidence
-        if: always()
-        env:
-          QUALIFICATION_OUTCOME: ${{ steps.qualification.outcome }}
-          P4_ADMISSION_DECISION_OWNER: ${{ vars.P4_ADMISSION_DECISION_OWNER }}
-          P4_ADMISSION_DECISION_REF: ${{ vars.P4_ADMISSION_DECISION_REF }}
-        run: |
-          set -euo pipefail
-          mkdir -p p4-output
-          qualification_outcome="${QUALIFICATION_OUTCOME:-failure}"
-          case "$qualification_outcome" in
-            success|failure|cancelled|skipped) ;;
-            *) qualification_outcome="failure" ;;
-          esac
-          printf '%s\n' "$qualification_outcome" > p4-output/qualification-outcome.txt
-
-          qualification_report_present=false
-          [ ! -f "$P4_QUALIFICATION_REPORT" ] || qualification_report_present=true
-          invocation_started_count=0
-          [ ! -s "$P4_INVOCATION_AUDIT" ] || \
-            invocation_started_count="$(grep -c '"phase":"started"' "$P4_INVOCATION_AUDIT" || true)"
-          if [ ! -f "$P4_COMMAND_STATUS" ]; then
-            cat > "$P4_COMMAND_STATUS" <<EOF
-          started_at=unknown
-          completed_at=unknown
-          exit_code=unknown
-          failure_reason_code=COMMAND_STATUS_MISSING
-          failure_message_sha256=NONE
-          EOF
-          fi
-          policy_file_sha256="missing"
-          [ ! -f config/p4-qualification-policy.json ] || \
-            policy_file_sha256="$(sha256sum config/p4-qualification-policy.json | awk '{print $1}')"
-
-          if [ "$qualification_outcome" = "success" ]; then
-            test "$qualification_report_present" = "true"
-            test "$invocation_started_count" -gt 0
-          fi
-
-          cat > "$P4_TERMINAL_EVIDENCE" <<EOF
-          kind=p4-qualification-terminal-evidence-v2
-          workflow_run_id=${GITHUB_RUN_ID}
-          producer_run_attempt=${GITHUB_RUN_ATTEMPT}
-          qualification_source_sha=${P4_QUALIFICATION_SOURCE_SHA}
-          qualification_policy_file_sha256=${policy_file_sha256}
-          decision_owner=${P4_ADMISSION_DECISION_OWNER}
-          decision_ref=${P4_ADMISSION_DECISION_REF}
-          qualification_outcome=${qualification_outcome}
-          qualification_report_present=${qualification_report_present}
-          invocation_started_count=${invocation_started_count}
-          EOF
-          cat "$P4_COMMAND_STATUS" >> "$P4_TERMINAL_EVIDENCE"
-
-          printf '%s\n' \
-            "$P4_QUALIFICATION_REPORT" \
-            "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" \
-            "$P4_TERMINAL_EVIDENCE" \
-            "$P4_INVOCATION_AUDIT" \
-            "$P4_QUALIFICATION_RELEASE_TAG" \
-            "$P4_TRANSFER_ARTIFACT" \
-            "$GITHUB_RUN_ATTEMPT" \
-            > p4-output/evidence-identity.txt
       - name: Transfer qualification evidence to archive job
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.P4_TRANSFER_ARTIFACT }}
-          path: p4-output/
+          path: .p4-source/p4-output/
           if-no-files-found: error
           retention-days: 1
 
@@ -222,11 +97,9 @@ jobs:
       contents: write # Needed only to create and publish the immutable evidence release.
       actions: read # Needed only to read this run's bounded transfer artifact.
     steps:
-      - name: Download, publish, and verify immutable qualification evidence
+      - name: Publish verified P4 evidence contract
         env:
           GH_TOKEN: ${{ github.token }}
-          P4_ADMISSION_DECISION_OWNER: ${{ vars.P4_ADMISSION_DECISION_OWNER }}
-          P4_ADMISSION_DECISION_REF: ${{ vars.P4_ADMISSION_DECISION_REF }}
         run: |
           set -euo pipefail
           mkdir -p p4-output
@@ -245,36 +118,69 @@ jobs:
             --name "$transfer_artifact" \
             --dir p4-output
 
-          test -f p4-output/evidence-identity.txt
-          mapfile -t evidence_identity < p4-output/evidence-identity.txt
-          test "${#evidence_identity[@]}" -eq 7
-          P4_QUALIFICATION_REPORT="${evidence_identity[0]}"
-          P4_PRODUCTION_MODEL_ADMISSION_OUTPUT="${evidence_identity[1]}"
-          P4_TERMINAL_EVIDENCE="${evidence_identity[2]}"
-          P4_INVOCATION_AUDIT="${evidence_identity[3]}"
-          P4_QUALIFICATION_RELEASE_TAG="${evidence_identity[4]}"
-          P4_TRANSFER_ARTIFACT="${evidence_identity[5]}"
-          P4_PRODUCER_RUN_ATTEMPT="${evidence_identity[6]}"
+          manifest="p4-output/evidence-manifest.json"
+          test -f "$manifest"
+          jq -e '.contractVersion == "p4-qualification-evidence-v1"' "$manifest" >/dev/null
 
-          test "$P4_TRANSFER_ARTIFACT" = "$transfer_artifact"
-          test -f p4-output/qualification-outcome.txt
-          test -f "$P4_TERMINAL_EVIDENCE"
-          qualification_outcome="$(cat p4-output/qualification-outcome.txt)"
+          producer_run_id="$(jq -er '.workflow.runId' "$manifest")"
+          producer_attempt="$(jq -er '.workflow.producerRunAttempt' "$manifest")"
+          source_sha="$(jq -er '.workflow.qualificationSourceSha' "$manifest")"
+          release_tag="$(jq -er '.release.tag' "$manifest")"
+          recorded_transfer="$(jq -er '.release.transferArtifact' "$manifest")"
+          decision_owner="$(jq -er '.decision.owner' "$manifest")"
+          decision_ref="$(jq -er '.decision.ref' "$manifest")"
+          qualification_outcome="$(jq -er '.qualification.outcome' "$manifest")"
 
-          assets=("$P4_TERMINAL_EVIDENCE")
-          [ ! -s "$P4_INVOCATION_AUDIT" ] || assets+=("$P4_INVOCATION_AUDIT")
-          if [ -f "$P4_QUALIFICATION_REPORT" ]; then
-            assets+=("$P4_QUALIFICATION_REPORT")
+          test "$producer_run_id" = "$GITHUB_RUN_ID"
+          test "$source_sha" = "$P4_QUALIFICATION_SOURCE_SHA"
+          test "$recorded_transfer" = "$transfer_artifact"
+          test "$release_tag" = "p4-qualification-${GITHUB_RUN_ID}-${producer_attempt}"
+
+          verify_asset_hash() {
+            local asset_path="$1"
+            local expected_hash="$2"
+            case "$asset_path" in
+              p4-output/*) ;;
+              *) return 1 ;;
+            esac
+            test -f "$asset_path"
+            test "$(sha256sum "$asset_path" | awk '{print $1}')" = "$expected_hash"
+          }
+
+          report_present="$(jq -r '.artifacts.report.present' "$manifest")"
+          admission_present="$(jq -r '.artifacts.admission.present' "$manifest")"
+          admission_publish="$(jq -r '.artifacts.admission.publishEligible' "$manifest")"
+          invocation_present="$(jq -r '.invocations.present' "$manifest")"
+          assets=("$manifest")
+
+          if [ "$invocation_present" = "true" ]; then
+            invocation_path="$(jq -er '.invocations.path' "$manifest")"
+            invocation_hash="$(jq -er '.invocations.sha256' "$manifest")"
+            verify_asset_hash "$invocation_path" "$invocation_hash"
+            assets+=("$invocation_path")
+          fi
+          if [ "$report_present" = "true" ]; then
+            report_path="$(jq -er '.artifacts.report.path' "$manifest")"
+            report_hash="$(jq -er '.artifacts.report.sha256' "$manifest")"
+            verify_asset_hash "$report_path" "$report_hash"
+            assets+=("$report_path")
           else
             test "$qualification_outcome" != "success"
           fi
-          if [ "$qualification_outcome" = "success" ] && [ -f "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" ]; then
-            assets+=("$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT")
+          if [ "$admission_publish" = "true" ]; then
+            test "$qualification_outcome" = "success"
+            test "$admission_present" = "true"
+            admission_path="$(jq -er '.artifacts.admission.path' "$manifest")"
+            admission_hash="$(jq -er '.artifacts.admission.sha256' "$manifest")"
+            verify_asset_hash "$admission_path" "$admission_hash"
+            assets+=("$admission_path")
+          else
+            test "$qualification_outcome" != "success"
           fi
 
           release_state=""
           if release_state="$(
-            gh release view "$P4_QUALIFICATION_RELEASE_TAG" \
+            gh release view "$release_tag" \
               --repo "$GITHUB_REPOSITORY" \
               --json isDraft,isImmutable,targetCommitish \
               --jq '[.isDraft, .isImmutable, .targetCommitish] | @tsv' \
@@ -283,40 +189,27 @@ jobs:
             read -r release_is_draft release_is_immutable release_target <<< "$release_state"
             test "$release_target" = "$P4_QUALIFICATION_SOURCE_SHA"
           else
-            gh release create "$P4_QUALIFICATION_RELEASE_TAG" \
+            gh release create "$release_tag" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$P4_QUALIFICATION_SOURCE_SHA" \
-              --title "P4 qualification ${GITHUB_RUN_ID}/${P4_PRODUCER_RUN_ATTEMPT}" \
-              --notes "Decision owner: ${P4_ADMISSION_DECISION_OWNER}\nDecision ref: ${P4_ADMISSION_DECISION_REF}\nQualification source: ${P4_QUALIFICATION_SOURCE_SHA}\nProducer attempt: ${P4_PRODUCER_RUN_ATTEMPT}" \
+              --title "P4 qualification ${GITHUB_RUN_ID}/${producer_attempt}" \
+              --notes "Decision owner: ${decision_owner}\nDecision ref: ${decision_ref}\nQualification source: ${P4_QUALIFICATION_SOURCE_SHA}\nProducer attempt: ${producer_attempt}" \
               --draft
             release_is_draft=true
             release_is_immutable=false
           fi
 
           if [ "$release_is_draft" = "true" ]; then
-            gh release upload "$P4_QUALIFICATION_RELEASE_TAG" "${assets[@]}" \
+            gh release upload "$release_tag" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
-            gh release edit "$P4_QUALIFICATION_RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --draft=false
+            gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" --draft=false
           else
             test "$release_is_immutable" = "true"
           fi
 
-          gh release verify "$P4_QUALIFICATION_RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
-          gh release verify-asset "$P4_QUALIFICATION_RELEASE_TAG" \
-            "$P4_TERMINAL_EVIDENCE" --repo "$GITHUB_REPOSITORY"
-          if [ -s "$P4_INVOCATION_AUDIT" ]; then
-            gh release verify-asset "$P4_QUALIFICATION_RELEASE_TAG" \
-              "$P4_INVOCATION_AUDIT" --repo "$GITHUB_REPOSITORY"
-          fi
-          if [ -f "$P4_QUALIFICATION_REPORT" ]; then
-            gh release verify-asset "$P4_QUALIFICATION_RELEASE_TAG" \
-              "$P4_QUALIFICATION_REPORT" --repo "$GITHUB_REPOSITORY"
-          fi
-          if [ "$qualification_outcome" = "success" ] && [ -f "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" ]; then
-            gh release verify-asset "$P4_QUALIFICATION_RELEASE_TAG" \
-              "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" --repo "$GITHUB_REPOSITORY"
-          fi
+          gh release verify "$release_tag" --repo "$GITHUB_REPOSITORY"
+          for asset in "${assets[@]}"; do
+            gh release verify-asset "$release_tag" "$asset" --repo "$GITHUB_REPOSITORY"
+          done
           test "$qualification_outcome" = "success"
