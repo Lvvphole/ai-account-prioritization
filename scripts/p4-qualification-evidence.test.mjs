@@ -57,11 +57,14 @@ const invocationRows = () => [
   },
 ];
 
-const writeInvocations = (root, suffix = "") =>
+const writeInvocationRows = (root, rows, suffix = "") =>
   writeFileSync(
     join(root, "p4-output/invocations-1234-2.ndjson"),
-    `${invocationRows().map((row) => JSON.stringify(row)).join("\n")}\n${suffix}`,
+    `${rows.map((row) => JSON.stringify(row)).join("\n")}\n${suffix}`,
   );
+
+const writeInvocations = (root, suffix = "") =>
+  writeInvocationRows(root, invocationRows(), suffix);
 
 const writeReport = (root, verdict) =>
   writeFileSync(
@@ -69,11 +72,14 @@ const writeReport = (root, verdict) =>
     `${JSON.stringify({ verdict })}\n`,
   );
 
-test("success requires PASS, admission, and completed invocation evidence", () => {
+const writeAdmission = (root) =>
+  writeFileSync(join(root, "p4-output/admission-1234-2.json"), "{\"decision\":\"ADMITTED\"}\n");
+
+test("success requires PASS, admission, completed invocation evidence, and decision metadata", () => {
   const root = fixture();
   try {
     writeReport(root, "PASS");
-    writeFileSync(join(root, "p4-output/admission-1234-2.json"), "{\"decision\":\"ADMITTED\"}\n");
+    writeAdmission(root);
     writeInvocations(root);
 
     const manifest = buildEvidenceManifest(args(root));
@@ -83,6 +89,31 @@ test("success requires PASS, admission, and completed invocation evidence", () =
     assert.equal(manifest.qualification.commandExitCode, 0);
     assert.equal(manifest.invocations.invalidRecordCount, 0);
     assert.equal(manifest.artifacts.admission.publishEligible, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("missing decision metadata stays archivable and cannot satisfy success", () => {
+  const root = fixture();
+  try {
+    writeReport(root, "PASS");
+    writeAdmission(root);
+    writeInvocations(root);
+
+    const manifest = buildEvidenceManifest(args(root, {
+      decisionOwner: "",
+      decisionRef: undefined,
+    }));
+
+    assert.equal(manifest.decision.owner, "MISSING_DECISION_METADATA");
+    assert.equal(manifest.decision.ref, "MISSING_DECISION_METADATA");
+    assert.equal(typeof manifest.decision.owner, "string");
+    assert.equal(typeof manifest.decision.ref, "string");
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.qualification.commandExitCode, 0);
+    assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
+    assert.equal(manifest.artifacts.admission.publishEligible, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -137,7 +168,7 @@ test("an apparent command success fails closed when evidence is incomplete", () 
     const manifest = buildEvidenceManifest(args(root));
     assert.equal(manifest.qualification.executionOutcome, "failure");
     assert.equal(manifest.qualification.verdict, "PASS");
-    assert.equal(manifest.qualification.commandExitCode, 2);
+    assert.equal(manifest.qualification.commandExitCode, 0);
     assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
     assert.equal(manifest.artifacts.admission.publishEligible, false);
   } finally {
@@ -149,13 +180,85 @@ test("malformed invocation evidence cannot satisfy a successful epoch", () => {
   const root = fixture();
   try {
     writeReport(root, "PASS");
-    writeFileSync(join(root, "p4-output/admission-1234-2.json"), "{\"decision\":\"ADMITTED\"}\n");
+    writeAdmission(root);
     writeInvocations(root, "not-json\n");
 
     const manifest = buildEvidenceManifest(args(root));
     assert.equal(manifest.invocations.invalidRecordCount, 1);
     assert.equal(manifest.qualification.executionOutcome, "failure");
     assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
+    assert.equal(manifest.artifacts.admission.publishEligible, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("mismatched invocation sequence cannot satisfy a successful epoch", () => {
+  const root = fixture();
+  try {
+    writeReport(root, "PASS");
+    writeAdmission(root);
+    const rows = invocationRows();
+    rows[1] = { ...rows[1], sequence: 2 };
+    writeInvocationRows(root, rows);
+
+    const manifest = buildEvidenceManifest(args(root));
+    assert.ok(manifest.invocations.invalidRecordCount > 0);
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
+    assert.equal(manifest.artifacts.admission.publishEligible, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("mismatched invocation identity cannot satisfy a successful epoch", () => {
+  const root = fixture();
+  try {
+    writeReport(root, "PASS");
+    writeAdmission(root);
+    const rows = invocationRows();
+    rows[1] = { ...rows[1], provider: "openai" };
+    writeInvocationRows(root, rows);
+
+    const manifest = buildEvidenceManifest(args(root));
+    assert.equal(manifest.invocations.invalidRecordCount, 1);
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unknown invocation phase cannot satisfy a successful epoch", () => {
+  const root = fixture();
+  try {
+    writeReport(root, "PASS");
+    writeAdmission(root);
+    const rows = invocationRows();
+    rows[1] = { ...rows[1], phase: "done" };
+    writeInvocationRows(root, rows);
+
+    const manifest = buildEvidenceManifest(args(root));
+    assert.ok(manifest.invocations.invalidRecordCount > 0);
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.artifacts.admission.publishEligible, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("duplicate invocation sequence cannot satisfy a successful epoch", () => {
+  const root = fixture();
+  try {
+    writeReport(root, "PASS");
+    writeAdmission(root);
+    const [started, completed] = invocationRows();
+    writeInvocationRows(root, [started, { ...started }, completed]);
+
+    const manifest = buildEvidenceManifest(args(root));
+    assert.ok(manifest.invocations.invalidRecordCount > 0);
+    assert.equal(manifest.qualification.executionOutcome, "failure");
     assert.equal(manifest.artifacts.admission.publishEligible, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
