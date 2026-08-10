@@ -3,6 +3,7 @@ set -euo pipefail
 
 manifest="p4-output/evidence-manifest.json"
 artifact_prefix="p4-qualification-transfer-${GITHUB_RUN_ID}-"
+sha40_pattern='^[a-f0-9]{40}$'
 
 transfer_artifact="$(
   gh api \
@@ -22,10 +23,12 @@ gh run download "$GITHUB_RUN_ID" \
 
 test -f "$manifest"
 jq -e '
-  .contractVersion == "p4-qualification-evidence-v1" and
+  .contractVersion == "p4-qualification-evidence-v2" and
   (.workflow.runId | type == "string") and
   (.workflow.producerRunAttempt | type == "number") and
   (.workflow.qualificationSourceSha | type == "string") and
+  (.workflow.controlRevision | type == "string" and test("^[a-f0-9]{40}$")) and
+  (.workflow.publisherRevision | type == "string" and test("^[a-f0-9]{40}$")) and
   (.decision.owner | type == "string") and
   (.decision.ref | type == "string") and
   (.qualification.executionOutcome == "success" or .qualification.executionOutcome == "failure") and
@@ -43,6 +46,8 @@ jq -e '
 producer_run_id="$(jq -er '.workflow.runId' "$manifest")"
 producer_attempt="$(jq -er '.workflow.producerRunAttempt' "$manifest")"
 source_sha="$(jq -er '.workflow.qualificationSourceSha' "$manifest")"
+control_revision="$(jq -er '.workflow.controlRevision' "$manifest")"
+publisher_revision="$(jq -er '.workflow.publisherRevision' "$manifest")"
 release_tag="$(jq -er '.release.tag' "$manifest")"
 recorded_transfer="$(jq -er '.release.transferArtifact' "$manifest")"
 decision_owner="$(jq -er '.decision.owner' "$manifest")"
@@ -55,6 +60,10 @@ invalid_invocations="$(jq -er '.invocations.invalidRecordCount' "$manifest")"
 
 test "$producer_run_id" = "$GITHUB_RUN_ID"
 test "$source_sha" = "$P4_EXPECTED_SOURCE_SHA"
+[[ "$P4_EXPECTED_CONTROL_REVISION" =~ $sha40_pattern ]]
+[[ "$P4_PUBLISH_ACTION_REF" =~ $sha40_pattern ]]
+test "$control_revision" = "$P4_EXPECTED_CONTROL_REVISION"
+test "$publisher_revision" = "$P4_PUBLISH_ACTION_REF"
 test "$recorded_transfer" = "$transfer_artifact"
 test "$release_tag" = "p4-qualification-${GITHUB_RUN_ID}-${producer_attempt}"
 
@@ -126,7 +135,7 @@ else
     --repo "$GITHUB_REPOSITORY" \
     --target "$P4_EXPECTED_SOURCE_SHA" \
     --title "P4 qualification ${GITHUB_RUN_ID}/${producer_attempt}" \
-    --notes "Decision owner: ${decision_owner}\nDecision ref: ${decision_ref}\nQualification source: ${P4_EXPECTED_SOURCE_SHA}\nProducer attempt: ${producer_attempt}" \
+    --notes "Decision owner: ${decision_owner}\nDecision ref: ${decision_ref}\nQualification source: ${P4_EXPECTED_SOURCE_SHA}\nControl revision: ${control_revision}\nPublisher revision: ${publisher_revision}\nProducer attempt: ${producer_attempt}" \
     --latest=false \
     --draft
   release_is_draft=true
