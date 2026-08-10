@@ -12,10 +12,6 @@ concurrency:
 
 env:
   P4_QUALIFICATION_SOURCE_SHA: 66554636d6de2f9167ae7611448b3c17a41f542e
-  P4_QUALIFICATION_REPORT: p4-output/qualification-${{ github.run_id }}-${{ github.run_attempt }}.json
-  P4_PRODUCTION_MODEL_ADMISSION_OUTPUT: p4-output/admission-${{ github.run_id }}-${{ github.run_attempt }}.json
-  P4_QUALIFICATION_RELEASE_TAG: p4-qualification-${{ github.run_id }}-${{ github.run_attempt }}
-  P4_TRANSFER_ARTIFACT: p4-qualification-transfer-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   qualify:
@@ -26,6 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      P4_QUALIFICATION_REPORT: p4-output/qualification-${{ github.run_id }}-${{ github.run_attempt }}.json
+      P4_PRODUCTION_MODEL_ADMISSION_OUTPUT: p4-output/admission-${{ github.run_id }}-${{ github.run_attempt }}.json
+      P4_QUALIFICATION_RELEASE_TAG: p4-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+      P4_TRANSFER_ARTIFACT: p4-qualification-transfer-${{ github.run_id }}-${{ github.run_attempt }}
+      P4_TERMINAL_EVIDENCE: p4-output/terminal-${{ github.run_id }}-${{ github.run_attempt }}.txt
     steps:
       - name: Verify immutable releases are enabled
         env:
@@ -60,13 +62,43 @@ jobs:
           P4_ADMISSION_DECISION_OWNER: ${{ vars.P4_ADMISSION_DECISION_OWNER }}
           P4_ADMISSION_DECISION_REF: ${{ vars.P4_ADMISSION_DECISION_REF }}
         run: pnpm qualify:models
-      - name: Record qualification outcome
+      - name: Record terminal qualification evidence
         if: always()
         env:
           QUALIFICATION_OUTCOME: ${{ steps.qualification.outcome }}
         run: |
+          set -euo pipefail
           mkdir -p p4-output
-          printf '%s\n' "$QUALIFICATION_OUTCOME" > p4-output/qualification-outcome.txt
+
+          qualification_outcome="${QUALIFICATION_OUTCOME:-failure}"
+          case "$qualification_outcome" in
+            success|failure|cancelled|skipped) ;;
+            *) qualification_outcome="failure" ;;
+          esac
+          printf '%s\n' "$qualification_outcome" > p4-output/qualification-outcome.txt
+
+          qualification_report_present=false
+          if [ -f "$P4_QUALIFICATION_REPORT" ]; then
+            qualification_report_present=true
+          fi
+
+          cat > "$P4_TERMINAL_EVIDENCE" <<EOF
+          kind=p4-qualification-terminal-evidence-v1
+          workflow_run_id=${GITHUB_RUN_ID}
+          producer_run_attempt=${GITHUB_RUN_ATTEMPT}
+          qualification_source_sha=${P4_QUALIFICATION_SOURCE_SHA}
+          qualification_outcome=${qualification_outcome}
+          qualification_report_present=${qualification_report_present}
+          EOF
+
+          printf '%s\n' \
+            "$P4_QUALIFICATION_REPORT" \
+            "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" \
+            "$P4_TERMINAL_EVIDENCE" \
+            "$P4_QUALIFICATION_RELEASE_TAG" \
+            "$P4_TRANSFER_ARTIFACT" \
+            "$GITHUB_RUN_ATTEMPT" \
+            > p4-output/evidence-identity.txt
       - name: Transfer qualification evidence to archive job
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -83,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # Needed only to create and publish the immutable evidence release.
-      actions: read # Needed only to download this run's bounded transfer artifact.
+      actions: read # Needed only to read this run's bounded transfer artifact.
     steps:
       - name: Download, publish, and verify immutable qualification evidence
         env:
@@ -94,34 +126,89 @@ jobs:
           set -euo pipefail
 
           mkdir -p p4-output
+          artifact_prefix="p4-qualification-transfer-${GITHUB_RUN_ID}-"
+          transfer_artifact="$(
+            gh api \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+              --jq "[.artifacts[] | select((.expired == false) and (.name | startswith(\"${artifact_prefix}\")))] | sort_by(.created_at) | last | .name"
+          )"
+          test -n "$transfer_artifact"
+          test "$transfer_artifact" != "null"
+
           gh run download "$GITHUB_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
-            --name "$P4_TRANSFER_ARTIFACT" \
+            --name "$transfer_artifact" \
             --dir p4-output
 
-          test -f "$P4_QUALIFICATION_REPORT"
+          test -f p4-output/evidence-identity.txt
+          mapfile -t evidence_identity < p4-output/evidence-identity.txt
+          test "${#evidence_identity[@]}" -eq 6
+
+          P4_QUALIFICATION_REPORT="${evidence_identity[0]}"
+          P4_PRODUCTION_MODEL_ADMISSION_OUTPUT="${evidence_identity[1]}"
+          P4_TERMINAL_EVIDENCE="${evidence_identity[2]}"
+          P4_QUALIFICATION_RELEASE_TAG="${evidence_identity[3]}"
+          P4_TRANSFER_ARTIFACT="${evidence_identity[4]}"
+          P4_PRODUCER_RUN_ATTEMPT="${evidence_identity[5]}"
+
+          test "$P4_TRANSFER_ARTIFACT" = "$transfer_artifact"
           test -f p4-output/qualification-outcome.txt
+          test -f "$P4_TERMINAL_EVIDENCE"
           qualification_outcome="$(cat p4-output/qualification-outcome.txt)"
 
-          assets=("$P4_QUALIFICATION_REPORT")
+          assets=("$P4_TERMINAL_EVIDENCE")
+          if [ -f "$P4_QUALIFICATION_REPORT" ]; then
+            assets+=("$P4_QUALIFICATION_REPORT")
+          else
+            test "$qualification_outcome" != "success"
+          fi
           if [ "$qualification_outcome" = "success" ] && [ -f "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" ]; then
             assets+=("$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT")
           fi
 
-          gh release create "$P4_QUALIFICATION_RELEASE_TAG" "${assets[@]}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$P4_QUALIFICATION_SOURCE_SHA" \
-            --title "P4 qualification ${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}" \
-            --notes "Decision owner: ${P4_ADMISSION_DECISION_OWNER}\nDecision ref: ${P4_ADMISSION_DECISION_REF}\nQualification source: ${P4_QUALIFICATION_SOURCE_SHA}" \
-            --draft
-          gh release edit "$P4_QUALIFICATION_RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --draft=false
+          release_state=""
+          if release_state="$(
+            gh release view "$P4_QUALIFICATION_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json isDraft,isImmutable,targetCommitish \
+              --jq '[.isDraft, .isImmutable, .targetCommitish] | @tsv' \
+              2>/dev/null
+          )"; then
+            read -r release_is_draft release_is_immutable release_target <<< "$release_state"
+            test "$release_target" = "$P4_QUALIFICATION_SOURCE_SHA"
+          else
+            gh release create "$P4_QUALIFICATION_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$P4_QUALIFICATION_SOURCE_SHA" \
+              --title "P4 qualification ${GITHUB_RUN_ID}/${P4_PRODUCER_RUN_ATTEMPT}" \
+              --notes "Decision owner: ${P4_ADMISSION_DECISION_OWNER}\nDecision ref: ${P4_ADMISSION_DECISION_REF}\nQualification source: ${P4_QUALIFICATION_SOURCE_SHA}\nProducer attempt: ${P4_PRODUCER_RUN_ATTEMPT}" \
+              --draft
+            release_is_draft=true
+            release_is_immutable=false
+          fi
+
+          if [ "$release_is_draft" = "true" ]; then
+            gh release upload "$P4_QUALIFICATION_RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release edit "$P4_QUALIFICATION_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft=false
+          else
+            test "$release_is_immutable" = "true"
+          fi
 
           gh release verify "$P4_QUALIFICATION_RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
           gh release verify-asset "$P4_QUALIFICATION_RELEASE_TAG" \
-            "$P4_QUALIFICATION_REPORT" \
+            "$P4_TERMINAL_EVIDENCE" \
             --repo "$GITHUB_REPOSITORY"
+          if [ -f "$P4_QUALIFICATION_REPORT" ]; then
+            gh release verify-asset "$P4_QUALIFICATION_RELEASE_TAG" \
+              "$P4_QUALIFICATION_REPORT" \
+              --repo "$GITHUB_REPOSITORY"
+          fi
           if [ "$qualification_outcome" = "success" ] && [ -f "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" ]; then
             gh release verify-asset "$P4_QUALIFICATION_RELEASE_TAG" \
               "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" \
