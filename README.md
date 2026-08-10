@@ -2,278 +2,146 @@
 
 # AI Account Prioritization Agent
 
-**Turn CRM noise into a ranked daily action plan.** Every recommendation carries
-its evidence, reason codes, action, draft provenance, and proof that it passed
-every gate.
+**Turn CRM data into a clear daily sales action plan.**
 
 [![CI](https://github.com/Lvvphole/ai-account-prioritization/actions/workflows/ci.yml/badge.svg)](https://github.com/Lvvphole/ai-account-prioritization/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-3c873a)
 ![pnpm](https://img.shields.io/badge/pnpm-10.33-f69220)
-![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Next.js](https://img.shields.io/badge/Next.js-15-black)
-![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20RLS-3ecf8e)
 
 </div>
 
-> **The LLM never ranks accounts.** Deterministic TypeScript decides score,
-> rank, reason codes, next-best-action type, permissions, and approval
-> requirements. The approved hybrid architecture permits a constrained runtime
-> LLM only for grounded signal synthesis and action drafting. A deterministic
-> post-draft verifier and human approval decide publication.
+This product helps sales teams decide **who to contact, why the account matters, what to do next, and what to say**.
+
+AI can help write a message. It does not decide which accounts are important, change account priority, approve a recommendation, or publish one.
 
 ---
 
-## Overview
+## What this product does
 
-Reps burn selling hours deciding who to contact. Generic AI assistants can invent
-facts, obscure their reasoning, and act without approval.
+Sales representatives often spend time sorting through CRM data before they can decide where to focus. This product turns that information into a prioritized daily action plan.
 
-This product answers six questions with receipts:
+For each account, it answers six questions:
 
-| # | Question | Answer |
-| - | -------- | ------ |
-| 1 | Which account first? | Deterministic score and stable rank |
-| 2 | Why does it matter? | Closed-set reason codes and verified evidence |
-| 3 | What should I do? | Deterministically selected next-best action |
-| 4 | How should I express it? | Grounded AI draft or deterministic template fallback |
-| 5 | What backs every claim? | Verified source-signal references |
-| 6 | Is it safe to publish? | Deterministic schema, grounding, guardrail, source, permission, and approval gates |
-
-The architecture separates four boundaries:
-
-- **Pre-draft deterministic authority:** decides who, why, action type,
-  permissions, and approval requirements.
-- **Bounded runtime generation:** may determine how a verified recommendation is
-  expressed.
-- **Post-draft deterministic verification:** decides whether the candidate may
-  publish or must be held.
-- **Asynchronous evaluation:** assesses quality and can block deployment, but
-  cannot alter a live recommendation.
-
-Anything that fails a gate fails closed, surfaces in the manager exception view,
-and writes audit evidence.
-
-## Current status
-
-The deterministic baseline is implemented:
-
-- deterministic scoring and stable ranking
-- closed-set reason codes
-- verified source signals
-- deterministic template drafts
-- synchronous guardrails
-- human approval
-- immutable audit and observability
-- deterministic evals and asynchronous LLM judge
-
-The hybrid architecture contract is now approved. The runtime LLM path is not yet
-implemented. Until its schema, grounding, security, telemetry, and deployment
-gates pass, the deterministic template path remains active.
-
-The remaining implementation sequence is:
-
-1. Connect runtime persistence to the web workspace.
-2. Add the generated-draft Zod schema.
-3. Add the bounded runtime model adapter.
-4. Add minimum verified context construction.
-5. Add claim-to-source grounding validation.
-6. Preserve and test the deterministic template fallback.
-7. Add generation evals and measured rollout controls.
-
-## Key features
-
-- **Deterministic ranking.** A pure weighted sum with a stable `accountId`
-  tie-break. The same inputs produce the same pre-draft authority envelope.
-- **Bounded AI drafting.** The target runtime model may synthesize verified
-  signals and draft action content, but it cannot change authoritative fields.
-- **Explainable by construction.** Closed-set reason codes and traceable source
-  signals explain every priority decision.
-- **Claim-level grounding.** Every accepted generated factual claim must map to
-  verified source IDs.
-- **Explicit fallback.** Model failure uses a configured deterministic template
-  fallback or holds the recommendation. Silent provider switching is forbidden.
-- **Honest measures.** Priority score, evidence confidence, and win probability
-  remain separate concepts.
-- **Fail-closed gates.** Invalid schema, unsupported claims, unverified evidence,
-  grounding failure, missing approval, or sub-floor confidence block publication.
-- **Human in the loop.** Customer-facing sends and CRM write-back require
-  approval that cannot be silently disabled.
-- **Immutable audit.** Critical decisions, model calls, fallbacks, publishes,
-  blocks, and external writes create audit evidence.
-- **RBAC and Row Level Security.** Access is enforced in Postgres, not only in
-  the UI.
-- **Eval-gated CI.** Deterministic and security gates protect deployment today.
-  Runtime-generation schema, grounding, authority, injection, and fallback gates
-  are planned and become deployment-blocking only after the hybrid runtime is
-  implemented. The asynchronous judge remains separately policy-gated.
-- **Schema as contract.** Zod is the source of truth and generates JSON Schema
-  for the Python service.
+| Question | What you get |
+| --- | --- |
+| Who should I contact first? | A prioritized list of accounts |
+| Why is this account important? | Clear reasons based on verified account information |
+| What should I do next? | A recommended next action |
+| What should I say? | A ready-to-use message based on verified information |
+| Where did this information come from? | The source behind the recommendation |
+| Is it ready to use? | A clear status that shows whether the recommendation is ready or needs review |
 
 ## How it works
 
-### Current deterministic runtime
+The product follows a simple path:
 
-```mermaid
-flowchart LR
-    A["DISCOVER<br/>read CRM signals"] --> B["PLAN<br/>deterministic score · rank · reasons · action"]
-    B --> C["EXECUTE<br/>deterministic template draft"]
-    C --> D{"VERIFY<br/>schema · claims · source · permission · approval"}
-    D -- "passes every gate" --> E["PUBLISH<br/>audit + analytics"]
-    D -- "fails any gate" --> F["HELD / BLOCKED<br/>exception view + audit"]
-```
+**Account data → Priority → Reason → Next action → Message → Review**
 
-### Approved hybrid runtime
+The system checks account information before it creates a recommendation. It uses fixed scoring rules to rank accounts and select the next action.
 
-```mermaid
-flowchart LR
-    A["DISCOVER<br/>verified CRM signals"] --> B["PLAN<br/>deterministic pre-draft authority envelope"]
-    B --> C["CONTEXT<br/>minimum verified packet"]
-    C --> D["DRAFT<br/>constrained LLM or template fallback"]
-    D --> E{"VERIFY<br/>schema · grounding · guardrails · source · permission · approval"}
-    E -- "passes" --> F["PUBLISH<br/>audit + telemetry"]
-    E -- "fails" --> G["HELD / BLOCKED<br/>typed failure + audit"]
-```
+AI can help turn verified information into a useful message. If AI is unavailable or its output does not pass the required checks, the system can use an approved template or hold the recommendation for review.
 
-The runtime model may only create candidate language. It has no tool authority,
-no side effects, and no power to score, rank, select actions, approve, verify, or
-publish. Different candidates may produce different deterministic gate results;
-the verifier, not the model, owns those outcomes.
+Before a recommendation can be published, the system checks its information, permissions, and approval status. Customer-facing sends and CRM write-backs require human approval.
 
-## Scoring
+If the system cannot verify required information, it does not guess. It holds the recommendation and records why.
 
-Six features are clamped to 0 to 1, scaled toward a saturation point, and
-multiplied by their weight. Weights live in
-`apps/agent-runtime/src/config/runtime.ts`.
+## The goal
 
-| Feature | Weight | Scaling |
-| ------- | ------ | ------- |
-| Open pipeline | 25% | Linear to $250,000 |
-| Verified intent | 20% | Linear to 3 signals |
-| Contact staleness | 15% | Linear to 30 days |
-| Account tier | 15% | Tier weight lookup |
-| Lifecycle stage | 15% | Stage weight lookup |
-| Health risk | 10% | `(100 - health) / 100` |
+Help sales teams spend less time deciding **who to contact, why to contact them, and what to say**, while keeping recommendations tied to information that can be checked.
 
-Ranking is score descending with a stable `accountId` tie-break. Reason-code
-thresholds are separate from the weights. The score ranks attention needed, not
-close likelihood.
+## What users can expect
 
-## Interface layers
+- **A consistent priority list.** The same account inputs use the same scoring and ranking rules.
+- **Clear reasons.** Each recommendation explains why an account needs attention.
+- **Source-backed information.** Important claims must connect to verified source information.
+- **A recommended action.** The system selects the next action from the approved action set.
+- **Message support.** The system can provide an approved template and, when enabled, a grounded AI draft.
+- **Human control.** Protected customer-facing actions and CRM writes require approval.
+- **Safe failure.** Missing evidence, failed checks, or missing approval hold the recommendation instead of publishing it.
+- **An audit trail.** Important decisions, approvals, failures, and publishes are recorded.
 
-### Data
+## Current status
 
-Accounts, contacts, opportunities, activities, intent, contracts, provenance,
-outcomes, recommendations, audit evidence, and observability events.
+The deterministic baseline is implemented. It includes:
 
-### Customer workspace
+- account scoring and stable ranking
+- reason codes and verified source signals
+- deterministic template drafts
+- synchronous guardrails
+- human approval
+- audit and observability records
+- deterministic evaluations and a separate asynchronous LLM judge
 
-| Persona | Routes | Purpose |
-| ------- | ------ | ------- |
-| Rep | `/dashboard`, `/accounts/[id]` | Ranked book, evidence, drafts, approvals, exports |
-| Manager | `/manager` | Exception queue, coverage, revenue at risk, held items |
-| Admin | `/admin` | Operations and governance control plane |
-| Anyone | `/`, `/login` | Landing page and role sign-in |
+The approved architecture also supports a bounded runtime AI drafting path. That path is not yet implemented. The deterministic template path remains active until the required schema, grounding, security, telemetry, and deployment checks pass.
 
-The web workspace currently uses demonstration data. The production bridge to
-persisted runtime recommendations remains required.
+The next implementation work is to connect runtime persistence to the web workspace, add the generated-draft schema and model adapter, construct the minimum verified context, validate generated claims against their sources, preserve the deterministic fallback, and add generation evaluations and rollout controls.
 
-### Admin control plane
+## Product workspace
 
-| Section | Purpose |
-| ------- | ------- |
-| `/admin` | Operational health and attention queue |
-| `/admin/data` | Source health, freshness, rejects, lineage |
-| `/admin/data/imports` | CSV import, scan, validation, change set, commit |
-| `/admin/policy` | Deterministic scoring policy and simulation |
-| `/admin/drafting` | Runtime model, prompt, schema, grounding, fallback |
-| `/admin/evals` | Current deterministic/judge suites and planned generation suites |
-| `/admin/guardrails` | Holds, failed rules, approval rules |
-| `/admin/runs` | Run history and recommendation inspector |
-| `/admin/users` | Capability matrix and account access |
-| `/admin/audit` | Append-only trail and incidents |
-| `/admin/environments` | Versions and promotion path |
+The application has four main areas:
 
-Scoring policy and drafting policy remain separate because they have different
-failure modes, metrics, and rollback paths.
+| Area | Purpose |
+| --- | --- |
+| Sales representative | View prioritized accounts, supporting information, drafts, approvals, and exports |
+| Manager | Review exceptions, held recommendations, coverage, and revenue at risk |
+| Admin | Manage operations, data health, policy, evaluations, users, audit records, and environments |
+| Sign-in and landing | Enter the application and select the permitted role |
 
-## Architecture
+The web workspace currently uses demonstration data. A production connection to persisted runtime recommendations is still required.
 
-```mermaid
-flowchart TB
-    W["apps/web<br/>rep · manager · admin"]
-    R["apps/agent-runtime<br/>deterministic authority + bounded drafting + deterministic verification"]
-    S["packages/shared-schemas<br/>Zod source of truth"]
-    SEC["packages/security<br/>RBAC · approval · policy"]
-    OBS["packages/observability<br/>PII-safe telemetry"]
-    P["apps/api-python<br/>support service"]
-    J["packages/testing-evals<br/>deterministic · planned generative · judge"]
-    DB[("Supabase Postgres<br/>RLS · recommendations · audit")]
+## Safety and trust
 
-    W --> DB
-    R -->|read signals · persist results · audit| DB
-    S --> R
-    S --> W
-    S -->|generated JSON Schema| P
-    SEC --> R
-    OBS --> R
-    J -. deployment gate .-> R
-```
+The product keeps high-consequence decisions outside the AI model.
 
-The Python service never ranks accounts or controls the runtime.
+The model cannot rank accounts, change permissions, approve its own work, publish a recommendation, or perform protected customer-facing actions. CRM and customer text are treated as data, not as instructions to the system.
+
+A recommendation is held when required evidence is missing, a claim cannot be supported, a safety check fails, permission is missing, or approval has not been given.
+
+For the detailed authority, verification, security, and publication rules, see [`AGENTS.md`](./AGENTS.md) and [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
+
+---
+
+# Developer guide
+
+The sections below are for contributors who need to run, test, or change the application.
 
 ## Project structure
 
 ```text
 apps/
-  agent-runtime/   Hybrid runtime; deterministic authority and verification
-  web/             Next.js rep, manager, account, and admin workspace
+  agent-runtime/   Recommendation runtime
+  web/             Next.js sales, manager, account, and admin workspace
   api-python/      FastAPI support service
 packages/
-  shared-schemas/  Zod source of truth and JSON Schema generation
-  supabase-client/ Typed Supabase clients and generated DB types
-  security/        RBAC, approval, PII and security policy
-  observability/   PII-safe event and telemetry layer
-  testing-evals/   Deterministic, planned generative, and async judge evals
+  shared-schemas/  Zod schemas and JSON Schema generation
+  supabase-client/ Typed Supabase clients and generated database types
+  security/        Access, approval, PII, and security policy
+  observability/   PII-safe events and telemetry
+  testing-evals/   Deterministic and asynchronous evaluations
   config-*/        Shared TypeScript and ESLint configuration
-infra/             Docker Compose and per-service Dockerfiles
-supabase/          Migrations, RLS policies, seed, and config
+infra/             Docker Compose and service Dockerfiles
+supabase/          Migrations, Row Level Security policies, seed, and configuration
 scripts/           Build and verification helpers
-docs/              PRD, architecture, context, and decision records
-.github/workflows/ CI, eval, security, and deployment workflows
-```
-
-Target runtime-generation locations:
-
-```text
-apps/agent-runtime/src/
-  inference/                               model adapter and provider boundary
-  agents/sales-execution/
-    execution.agent.ts                    drafting orchestration
-    execution.prompt.ts                   versioned prompt contract
-    execution.policy.ts                   model, budget, and fallback policy
-    validate-draft-grounding.ts           claim-to-source verifier
-    tools/                                deterministic template fallback
-packages/shared-schemas/src/              generated-draft schema
-packages/testing-evals/src/               drafting and grounding evals
+docs/              Product, architecture, context, and decision records
+.github/workflows/ CI, evaluation, security, and deployment workflows
 ```
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill only what is needed. Never commit secrets.
+Copy `.env.example` to `.env` and add only the values that you need. Never commit secrets.
 
 | Group | Variables | Purpose |
-| ----- | --------- | ------- |
-| Supabase | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL` | Database, auth, RLS |
-| Judge | `EVAL_JUDGE_ENABLED`, `ANTHROPIC_API_KEY`, `EVAL_JUDGE_MODEL` | Async evaluation only |
-| CRM | `CRM_BASE_URL`, `CRM_API_KEY` | External source; mock in non-production only |
-| Approval | `REQUIRE_HUMAN_APPROVAL` | Hard safety switch |
-| Observability | `SENTRY_*`, `LANGFUSE_*` | Error and trace sinks |
+| --- | --- | --- |
+| Supabase | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL` | Database, authentication, and access control |
+| Judge | `EVAL_JUDGE_ENABLED`, `ANTHROPIC_API_KEY`, `EVAL_JUDGE_MODEL` | Asynchronous evaluation only |
+| CRM | `CRM_BASE_URL`, `CRM_API_KEY` | External CRM source; mock use is limited to non-production environments |
+| Approval | `REQUIRE_HUMAN_APPROVAL` | Required approval control |
+| Observability | `SENTRY_*`, `LANGFUSE_*` | Error and trace services |
 
-Runtime drafting variables will be added only when the model adapter is
-implemented. Dead configuration is intentionally avoided.
+Runtime drafting variables will be added when the model adapter is implemented.
 
-## Commands
+## Run the checks
 
 ```bash
 pnpm install --frozen-lockfile
@@ -294,15 +162,14 @@ Optional asynchronous judge:
 EVAL_JUDGE_ENABLED=true pnpm test:judge
 ```
 
-## Testing and evaluations
+## Testing
 
-The current deterministic suites cover scoring, stable ranking, guardrails,
-adversarial security, and a golden run.
+The current deterministic tests cover scoring, stable ranking, guardrails, adversarial security, and a golden run.
 
-The hybrid implementation must add and register deployment-blocking tests for:
+The runtime AI drafting implementation must add deployment-blocking tests for:
 
 - generated-output schema
-- authoritative-field immutability
+- protected-field immutability
 - claim-to-source grounding
 - prompt-injection resistance
 - model timeout and token budgets
@@ -310,21 +177,7 @@ The hybrid implementation must add and register deployment-blocking tests for:
 - approval and publication separation
 - model and prompt provenance
 
-These runtime-generation gates are planned, not currently shipped. The LLM judge
-remains outside the runtime path.
-
-## Data and security
-
-Persistence, authentication, and access control live in Supabase migrations.
-
-- Reps see only their accounts; managers and admins are policy-scoped.
-- Service-role credentials remain server-only.
-- `audit_evidence` is append-only for critical decisions and side effects.
-- Customer-facing sends and CRM write-back fail closed without approval.
-- CSV formula characters are neutralized before export.
-- CRM and customer text are untrusted data, including inside prompts.
-- The runtime drafter receives no general tool registry or side-effecting tools.
-- Model-provider payloads must be authorized, minimized, and redacted.
+These runtime-generation checks are planned and are not currently shipped. The LLM judge remains outside the live recommendation path.
 
 ## Deployment
 
@@ -333,20 +186,24 @@ Persistence, authentication, and access control live in Supabase migrations.
 - Deploy `apps/web` on Vercel with Root Directory `apps/web`.
 - Apply `supabase/migrations` before production traffic.
 - Use `ci.yml`, `evals.yml`, `security.yml`, and `deploy.yml` as promotion gates.
-- Do not enable runtime LLM drafting until its implementation-specific gates pass.
+- Do not enable runtime AI drafting until its implementation-specific checks pass.
 
 ## Contributing
 
-Read [`AGENTS.md`](./AGENTS.md) first. It is the root operating contract.
-Never push directly to `main`; work through a branch and reviewed change.
+Read [`AGENTS.md`](./AGENTS.md) before you make a change. It is the repository operating contract.
 
-## Docs
+Do not push directly to `main`. Use a branch and a reviewed pull request.
 
-- [`AGENTS.md`](./AGENTS.md) — operating contract
+## Technical documentation
+
+The README is the product entry point. Detailed implementation and governance information stays in the repository documentation so that users do not need to understand the internal architecture to understand the product.
+
+- [`AGENTS.md`](./AGENTS.md) — repository operating contract
 - [`docs/PRD.md`](./docs/PRD.md) — product requirements
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — system design
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — detailed system design
 - [`docs/CONTEXT.md`](./docs/CONTEXT.md) — delivery process
-- [`docs/decisions/ADR-001-hybrid-runtime-drafting.md`](./docs/decisions/ADR-001-hybrid-runtime-drafting.md) — approved authority boundary
+- [`docs/decisions/ADR-001-hybrid-runtime-drafting.md`](./docs/decisions/ADR-001-hybrid-runtime-drafting.md) — approved AI authority boundary
+- [`docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md`](./docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md) — harness economics and minimum-sufficient-control doctrine
 
 ## License
 
