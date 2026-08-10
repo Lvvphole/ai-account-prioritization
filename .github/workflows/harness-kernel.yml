@@ -20,6 +20,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -34,10 +35,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify affected repository contracts
+        env:
+          HARNESS_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HARNESS_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: >-
           pnpm harness:verify
-          --base "${{ github.event.pull_request.base.sha }}"
-          --head "${{ github.event.pull_request.head.sha }}"
+          --base "$HARNESS_BASE_SHA"
+          --head "$HARNESS_HEAD_SHA"
           --evidence verification-reports/harness-evidence.json
 
       - name: Preserve harness evidence
