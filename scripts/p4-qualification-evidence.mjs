@@ -12,6 +12,8 @@ const FAILURE_CODE_PATTERN = /(QUALIFICATION_[A-Z0-9_]+|DRAFT_MODEL_[A-Z0-9_]+|M
 const QUALIFICATION_VERDICTS = new Set(["PASS", "FAIL", "BLOCKED"]);
 const MISSING_DECISION_METADATA = "MISSING_DECISION_METADATA";
 
+const sha256Text = (value) => createHash("sha256").update(value).digest("hex");
+
 const sha256File = (path) =>
   existsSync(path) ? createHash("sha256").update(readFileSync(path)).digest("hex") : null;
 
@@ -36,6 +38,28 @@ const reportVerdict = (path) => {
 
 const hasDecisionMetadata = (value) => typeof value === "string" && value.trim().length > 0;
 
+const validStartedRequestEvidence = (record) => {
+  if (typeof record.requestBodyJson !== "string" || record.requestBodyJson.length === 0) return false;
+  if (typeof record.requestBodySha256 !== "string" || !/^[a-f0-9]{64}$/.test(record.requestBodySha256)) {
+    return false;
+  }
+  if (sha256Text(record.requestBodyJson) !== record.requestBodySha256) return false;
+
+  try {
+    const requestBody = JSON.parse(record.requestBodyJson);
+    return (
+      requestBody !== null &&
+      typeof requestBody === "object" &&
+      !Array.isArray(requestBody) &&
+      typeof requestBody.model === "string" &&
+      requestBody.model.length > 0 &&
+      requestBody.model === record.model
+    );
+  } catch {
+    return false;
+  }
+};
+
 const isInvocationRecord = (record) => {
   if (!record || typeof record !== "object" || Array.isArray(record)) return false;
   if (record.kind !== "p4-provider-invocation-v1") return false;
@@ -47,12 +71,7 @@ const isInvocationRecord = (record) => {
     return false;
   }
 
-  if (record.phase === "started") {
-    return (
-      record.requestBodySha256 === null ||
-      (typeof record.requestBodySha256 === "string" && /^[a-f0-9]{64}$/.test(record.requestBodySha256))
-    );
-  }
+  if (record.phase === "started") return validStartedRequestEvidence(record);
 
   if (!Number.isInteger(record.durationMs) || record.durationMs < 0) return false;
   if (record.outcome === "http_response") {
