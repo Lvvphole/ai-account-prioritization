@@ -14,4 +14,5 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
         P4_EXPECTED_SOURCE_SHA: ${{ inputs.qualification-source-sha }}
-      run: bash "${{ github.action_path }}/publish.sh"
+        P4_PUBLISH_ACTION_PATH: ${{ github.action_path }}
+      run: bash "$P4_PUBLISH_ACTION_PATH/publish.sh"
