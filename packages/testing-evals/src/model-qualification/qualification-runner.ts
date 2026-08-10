@@ -418,6 +418,9 @@ const classifyCandidate = (
   ) {
     return { verdict: "BLOCKED", reasons: ["PROVIDER_OR_MODEL_UNAVAILABLE"] };
   }
+  if (metrics.providerInvokedRuns === 0) {
+    return { verdict: "BLOCKED", reasons: ["MODEL_INVOCATION_EVIDENCE_MISSING"] };
+  }
   if (runs.some((run) => run.revisionEvidence === "missing")) {
     return { verdict: "BLOCKED", reasons: ["MODEL_REVISION_EVIDENCE_MISSING"] };
   }
@@ -435,6 +438,9 @@ const classifyCandidate = (
   }
 
   const reasons: string[] = [];
+  if (metrics.modelVerifierPasses === 0) {
+    reasons.push("MODEL_VERIFIER_PASS_EVIDENCE_MISSING");
+  }
   if (runs.some((run) => run.revisionEvidence === "mismatched")) {
     reasons.push("MODEL_REVISION_MISMATCH");
   }
