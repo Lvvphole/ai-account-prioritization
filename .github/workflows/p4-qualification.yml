@@ -5,7 +5,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: p4-production-qualification
@@ -19,11 +18,14 @@ env:
   P4_TRANSFER_ARTIFACT: p4-qualification-transfer-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
-  preflight:
-    name: Verify P4 Evidence Archive Prerequisite
+  qualify:
+    name: Live P4 Qualification
     if: github.ref == 'refs/heads/main'
+    environment:
+      name: p4-production-qualification
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
     steps:
       - name: Verify immutable releases are enabled
         env:
@@ -40,15 +42,6 @@ jobs:
           )"
           test "$immutable_enabled" = "true"
 
-  qualify:
-    name: Live P4 Qualification
-    if: needs.preflight.result == 'success'
-    needs: preflight
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-    steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.P4_QUALIFICATION_SOURCE_SHA }}
@@ -63,7 +56,7 @@ jobs:
         id: qualification
         continue-on-error: true
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.P4_ANTHROPIC_API_KEY }}
           P4_ADMISSION_DECISION_OWNER: ${{ vars.P4_ADMISSION_DECISION_OWNER }}
           P4_ADMISSION_DECISION_REF: ${{ vars.P4_ADMISSION_DECISION_REF }}
         run: pnpm qualify:models
@@ -85,14 +78,12 @@ jobs:
 
   archive:
     name: Archive P4 Qualification Evidence
-    if: always() && needs.preflight.result == 'success' && needs.qualify.result == 'success'
-    needs:
-      - preflight
-      - qualify
+    if: always() && needs.qualify.result == 'success'
+    needs: qualify
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      actions: read
+      contents: write # Needed only to create and publish the immutable evidence release.
+      actions: read # Needed only to download this run's bounded transfer artifact.
     steps:
       - name: Download, publish, and verify immutable qualification evidence
         env:
