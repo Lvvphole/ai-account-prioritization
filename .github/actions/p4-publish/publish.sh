@@ -28,7 +28,9 @@ jq -e '
   (.workflow.qualificationSourceSha | type == "string") and
   (.decision.owner | type == "string") and
   (.decision.ref | type == "string") and
-  (.qualification.outcome == "success" or .qualification.outcome == "failure") and
+  (.qualification.executionOutcome == "success" or .qualification.executionOutcome == "failure") and
+  (.qualification.verdict == null or .qualification.verdict == "PASS" or .qualification.verdict == "FAIL" or .qualification.verdict == "BLOCKED") and
+  (.qualification.commandExitCode | type == "number") and
   (.qualification.policyFileSha256 | test("^[a-f0-9]{64}$")) and
   (.invocations.startedCount | type == "number") and
   (.invocations.completedCount | type == "number") and
@@ -45,7 +47,8 @@ release_tag="$(jq -er '.release.tag' "$manifest")"
 recorded_transfer="$(jq -er '.release.transferArtifact' "$manifest")"
 decision_owner="$(jq -er '.decision.owner' "$manifest")"
 decision_ref="$(jq -er '.decision.ref' "$manifest")"
-qualification_outcome="$(jq -er '.qualification.outcome' "$manifest")"
+execution_outcome="$(jq -er '.qualification.executionOutcome' "$manifest")"
+qualification_verdict="$(jq -r '.qualification.verdict // "NONE"' "$manifest")"
 invocation_started="$(jq -er '.invocations.startedCount' "$manifest")"
 invocation_completed="$(jq -er '.invocations.completedCount' "$manifest")"
 invalid_invocations="$(jq -er '.invocations.invalidRecordCount' "$manifest")"
@@ -87,7 +90,8 @@ if [ "$report_present" = "true" ]; then
 fi
 
 if [ "$admission_publish" = "true" ]; then
-  test "$qualification_outcome" = "success"
+  test "$execution_outcome" = "success"
+  test "$qualification_verdict" = "PASS"
   test "$admission_present" = "true"
   admission_path="$(jq -er '.artifacts.admission.path' "$manifest")"
   admission_hash="$(jq -er '.artifacts.admission.sha256' "$manifest")"
@@ -95,7 +99,8 @@ if [ "$admission_publish" = "true" ]; then
   assets+=("$admission_path")
 fi
 
-if [ "$qualification_outcome" = "success" ]; then
+if [ "$execution_outcome" = "success" ]; then
+  test "$qualification_verdict" = "PASS"
   test "$report_present" = "true"
   test "$admission_publish" = "true"
   test "$invocation_present" = "true"
@@ -141,4 +146,4 @@ for asset in "${assets[@]}"; do
   gh release verify-asset "$release_tag" "$asset" --repo "$GITHUB_REPOSITORY"
 done
 
-test "$qualification_outcome" = "success"
+test "$execution_outcome" = "success"
