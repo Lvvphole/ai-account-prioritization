@@ -57,10 +57,10 @@ const invocationRows = () => [
   },
 ];
 
-const writeInvocations = (root) =>
+const writeInvocations = (root, suffix = "") =>
   writeFileSync(
     join(root, "p4-output/invocations-1234-2.ndjson"),
-    `${invocationRows().map((row) => JSON.stringify(row)).join("\n")}\n`,
+    `${invocationRows().map((row) => JSON.stringify(row)).join("\n")}\n${suffix}`,
   );
 
 test("success requires report, admission, and completed invocation evidence", () => {
@@ -75,6 +75,7 @@ test("success requires report, admission, and completed invocation evidence", ()
     assert.equal(manifest.qualification.outcome, "success");
     assert.equal(manifest.invocations.startedCount, 1);
     assert.equal(manifest.invocations.completedCount, 1);
+    assert.equal(manifest.invocations.invalidRecordCount, 0);
     assert.deepEqual(manifest.invocations.models, [{ provider: "anthropic", model: "claude-test" }]);
     assert.equal(manifest.artifacts.admission.publishEligible, true);
   } finally {
@@ -111,6 +112,23 @@ test("an apparent command success fails closed when evidence is incomplete", () 
     const manifest = buildEvidenceManifest(args(root));
     assert.equal(manifest.qualification.outcome, "failure");
     assert.equal(manifest.qualification.exitCode, 2);
+    assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
+    assert.equal(manifest.artifacts.admission.publishEligible, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("malformed invocation evidence cannot satisfy a successful epoch", () => {
+  const root = fixture();
+  try {
+    writeFileSync(join(root, "p4-output/qualification-1234-2.json"), "{\"verdict\":\"PASS\"}\n");
+    writeFileSync(join(root, "p4-output/admission-1234-2.json"), "{\"decision\":\"ADMITTED\"}\n");
+    writeInvocations(root, "not-json\n");
+
+    const manifest = buildEvidenceManifest(args(root));
+    assert.equal(manifest.invocations.invalidRecordCount, 1);
+    assert.equal(manifest.qualification.outcome, "failure");
     assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
     assert.equal(manifest.artifacts.admission.publishEligible, false);
   } finally {
