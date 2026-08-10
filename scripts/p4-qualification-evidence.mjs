@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 export const P4_EVIDENCE_CONTRACT_VERSION = "p4-qualification-evidence-v1";
 
 const FAILURE_CODE_PATTERN = /(QUALIFICATION_[A-Z0-9_]+|DRAFT_MODEL_[A-Z0-9_]+|MISSING_CREDENTIAL)/g;
+const QUALIFICATION_VERDICTS = new Set(["PASS", "FAIL", "BLOCKED"]);
 
 const sha256File = (path) =>
   existsSync(path) ? createHash("sha256").update(readFileSync(path)).digest("hex") : null;
@@ -21,6 +22,16 @@ const artifact = (root, path, publishEligible) => ({
   sha256: sha256File(path),
   ...(publishEligible === undefined ? {} : { publishEligible }),
 });
+
+const reportVerdict = (path) => {
+  if (!existsSync(path)) return null;
+  try {
+    const verdict = JSON.parse(readFileSync(path, "utf8"))?.verdict;
+    return QUALIFICATION_VERDICTS.has(verdict) ? verdict : null;
+  } catch {
+    return null;
+  }
+};
 
 const invocationSummary = (path) => {
   if (!existsSync(path)) {
@@ -94,15 +105,23 @@ export function buildEvidenceManifest({
   const invocationPath = join(outputDir, `invocations-${runId}-${runAttempt}.ndjson`);
   const invocations = invocationSummary(invocationPath);
   const report = artifact(sourceDir, reportPath);
+  const verdict = reportVerdict(reportPath);
   const admissionPresent = existsSync(admissionPath);
   const completeSuccessEvidence =
-    report.present &&
+    verdict === "PASS" &&
     admissionPresent &&
     invocations.present &&
     invocations.startedCount > 0 &&
     invocations.startedCount === invocations.completedCount &&
     invocations.invalidRecordCount === 0;
   const success = exitCode === 0 && completeSuccessEvidence;
+  const terminalFailureCode = success
+    ? null
+    : exitCode === 0
+      ? "QUALIFICATION_EVIDENCE_INCOMPLETE"
+      : verdict && verdict !== "PASS"
+        ? `QUALIFICATION_${verdict}`
+        : failureReasonCode;
 
   return {
     contractVersion: P4_EVIDENCE_CONTRACT_VERSION,
@@ -116,15 +135,12 @@ export function buildEvidenceManifest({
       ref: decisionRef || null,
     },
     qualification: {
-      outcome: success ? "success" : "failure",
+      executionOutcome: success ? "success" : "failure",
+      verdict,
       startedAt,
       completedAt,
-      exitCode: success ? 0 : (exitCode || 2),
-      failureReasonCode: success
-        ? null
-        : exitCode === 0
-          ? "QUALIFICATION_EVIDENCE_INCOMPLETE"
-          : failureReasonCode,
+      commandExitCode: success ? 0 : (exitCode || 2),
+      failureReasonCode: terminalFailureCode,
       failureMessageSha256: success ? null : stderrSha256,
       policyFileSha256: sha256File(join(sourceDir, "config/p4-qualification-policy.json")),
     },
@@ -217,7 +233,7 @@ const runQualification = async (sourceDir) => {
   });
 
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  process.exitCode = manifest.qualification.outcome === "success" ? 0 : 2;
+  process.exitCode = manifest.qualification.executionOutcome === "success" ? 0 : 2;
 };
 
 const args = process.argv.slice(2);
