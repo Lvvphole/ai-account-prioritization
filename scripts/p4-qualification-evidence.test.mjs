@@ -11,6 +11,8 @@ import {
 } from "./p4-qualification-evidence.mjs";
 
 const SOURCE_SHA = "66554636d6de2f9167ae7611448b3c17a41f542e";
+const CONTROL_SHA = "1111111111111111111111111111111111111111";
+const PUBLISHER_SHA = "2222222222222222222222222222222222222222";
 const AUDIT_MODULE_PATH = new URL("./p4-provider-invocation-audit.cjs", import.meta.url).pathname;
 const REQUEST_BODY_JSON = JSON.stringify({
   model: "claude-test",
@@ -44,6 +46,8 @@ const args = (sourceDir, overrides = {}) => ({
   runId: "1234",
   runAttempt: 2,
   sourceSha: SOURCE_SHA,
+  controlRevision: CONTROL_SHA,
+  publisherRevision: PUBLISHER_SHA,
   transferArtifact: "p4-qualification-transfer-1234-2",
   decisionOwner: "Lvvphole",
   decisionRef: "https://github.com/Lvvphole/ai-account-prioritization/issues/65",
@@ -55,9 +59,18 @@ const args = (sourceDir, overrides = {}) => ({
   ...overrides,
 });
 
+const invocationContext = {
+  kind: "p4-provider-invocation-v2",
+  runId: "1234",
+  runAttempt: 2,
+  qualificationSourceSha: SOURCE_SHA,
+  controlRevision: CONTROL_SHA,
+  publisherRevision: PUBLISHER_SHA,
+};
+
 const invocationRows = () => [
   {
-    kind: "p4-provider-invocation-v1",
+    ...invocationContext,
     phase: "started",
     sequence: 1,
     timestamp: "2026-08-10T13:00:00.100Z",
@@ -67,7 +80,7 @@ const invocationRows = () => [
     requestBodyJson: REQUEST_BODY_JSON,
   },
   {
-    kind: "p4-provider-invocation-v1",
+    ...invocationContext,
     phase: "completed",
     sequence: 1,
     timestamp: "2026-08-10T13:00:00.500Z",
@@ -97,13 +110,36 @@ const writeReport = (root, verdict) =>
 const writeAdmission = (root) =>
   writeFileSync(join(root, "p4-output/admission-1234-2.json"), "{\"decision\":\"ADMITTED\"}\n");
 
-test("provider audit preserves the exact request body without credential headers", () => {
+const providerAuditEnvironment = (auditPath) => ({
+  ...process.env,
+  P4_INVOCATION_AUDIT: auditPath,
+  P4_AUDIT_SUPABASE_URL: "https://audit.supabase.test",
+  P4_AUDIT_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+  P4_AUDIT_WRITER_TOKEN: "test-writer-token",
+  GITHUB_RUN_ID: "1234",
+  GITHUB_RUN_ATTEMPT: "2",
+  P4_QUALIFICATION_SOURCE_SHA: SOURCE_SHA,
+  GITHUB_SHA: CONTROL_SHA,
+  P4_PUBLISHER_REVISION: PUBLISHER_SHA,
+  TEST_PROVIDER_SECRET: "qualification-test-secret",
+  TEST_REQUEST_BODY_JSON: REQUEST_BODY_JSON,
+});
+
+test("provider audit persists started evidence before network send and preserves the exact request body", () => {
   const root = fixture();
   try {
     const auditPath = join(root, "p4-output/provider-audit.ndjson");
-    const secret = "qualification-test-secret";
     const childScript = `
-      globalThis.fetch = async () => ({ status: 200 });
+      const calls = [];
+      globalThis.fetch = async (input, init = {}) => {
+        const url = String(input);
+        if (url.includes("append_p4_qualification_invocation_audit")) {
+          calls.push({ kind: "audit", record: JSON.parse(init.body).p_record });
+          return { ok: true, status: 200 };
+        }
+        calls.push({ kind: "provider", url });
+        return { ok: true, status: 200 };
+      };
       require(${JSON.stringify(AUDIT_MODULE_PATH)});
       (async () => {
         await fetch("https://api.anthropic.com/v1/messages", {
@@ -111,22 +147,26 @@ test("provider audit preserves the exact request body without credential headers
           headers: { "x-api-key": process.env.TEST_PROVIDER_SECRET },
           body: process.env.TEST_REQUEST_BODY_JSON,
         });
+        process.stdout.write(JSON.stringify(calls));
       })().catch((error) => {
         console.error(error);
         process.exitCode = 1;
       });
     `;
     const result = spawnSync(process.execPath, ["-e", childScript], {
-      env: {
-        ...process.env,
-        P4_INVOCATION_AUDIT: auditPath,
-        TEST_PROVIDER_SECRET: secret,
-        TEST_REQUEST_BODY_JSON: REQUEST_BODY_JSON,
-      },
+      env: providerAuditEnvironment(auditPath),
       encoding: "utf8",
     });
 
     assert.equal(result.status, 0, result.stderr);
+    const calls = JSON.parse(result.stdout);
+    assert.deepEqual(calls.map((call) => call.kind), ["audit", "provider", "audit"]);
+    assert.equal(calls[0].record.phase, "started");
+    assert.equal(calls[0].record.requestBodyJson, REQUEST_BODY_JSON);
+    assert.equal(calls[0].record.requestBodySha256, REQUEST_BODY_SHA256);
+    assert.equal(calls[0].record.controlRevision, CONTROL_SHA);
+    assert.equal(calls[0].record.publisherRevision, PUBLISHER_SHA);
+
     const auditText = readFileSync(auditPath, "utf8");
     const records = auditText
       .trim()
@@ -135,14 +175,57 @@ test("provider audit preserves the exact request body without credential headers
     assert.equal(records.length, 2);
     assert.equal(records[0].phase, "started");
     assert.equal(records[0].requestBodyJson, REQUEST_BODY_JSON);
-    assert.equal(records[0].requestBodySha256, REQUEST_BODY_SHA256);
-    assert.equal(auditText.includes(secret), false);
+    assert.equal(auditText.includes(providerAuditEnvironment(auditPath).TEST_PROVIDER_SECRET), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("success requires PASS, admission, completed invocation evidence, and decision metadata", () => {
+test("durable started-audit failure blocks the provider request", () => {
+  const root = fixture();
+  try {
+    const auditPath = join(root, "p4-output/provider-audit.ndjson");
+    const childScript = `
+      const calls = [];
+      globalThis.fetch = async (input) => {
+        const url = String(input);
+        if (url.includes("append_p4_qualification_invocation_audit")) {
+          calls.push("audit");
+          return { ok: false, status: 503 };
+        }
+        calls.push("provider");
+        return { ok: true, status: 200 };
+      };
+      require(${JSON.stringify(AUDIT_MODULE_PATH)});
+      (async () => {
+        try {
+          await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            body: process.env.TEST_REQUEST_BODY_JSON,
+          });
+        } catch (error) {
+          process.stdout.write(JSON.stringify({ calls, message: error.message }));
+        }
+      })().catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+      });
+    `;
+    const result = spawnSync(process.execPath, ["-e", childScript], {
+      env: providerAuditEnvironment(auditPath),
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const outcome = JSON.parse(result.stdout);
+    assert.deepEqual(outcome.calls, ["audit"]);
+    assert.match(outcome.message, /Durable P4 invocation audit append failed with HTTP 503/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("success requires PASS, admission, completed invocation evidence, decision metadata, and revision provenance", () => {
   const root = fixture();
   try {
     writeReport(root, "PASS");
@@ -154,8 +237,44 @@ test("success requires PASS, admission, completed invocation evidence, and decis
     assert.equal(manifest.qualification.executionOutcome, "success");
     assert.equal(manifest.qualification.verdict, "PASS");
     assert.equal(manifest.qualification.commandExitCode, 0);
+    assert.equal(manifest.workflow.controlRevision, CONTROL_SHA);
+    assert.equal(manifest.workflow.publisherRevision, PUBLISHER_SHA);
     assert.equal(manifest.invocations.invalidRecordCount, 0);
     assert.equal(manifest.artifacts.admission.publishEligible, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("invalid control or publisher revisions fail before evidence can be accepted", () => {
+  const root = fixture();
+  try {
+    assert.throws(
+      () => buildEvidenceManifest(args(root, { controlRevision: "not-a-sha" })),
+      /controlRevision must be a full lowercase Git commit SHA/,
+    );
+    assert.throws(
+      () => buildEvidenceManifest(args(root, { publisherRevision: "" })),
+      /publisherRevision must be a full lowercase Git commit SHA/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("invocation provenance must match the manifest workflow provenance", () => {
+  const root = fixture();
+  try {
+    writeReport(root, "PASS");
+    writeAdmission(root);
+    const rows = invocationRows();
+    rows[0] = { ...rows[0], controlRevision: "3".repeat(40) };
+    writeInvocationRows(root, rows);
+
+    const manifest = buildEvidenceManifest(args(root));
+    assert.ok(manifest.invocations.invalidRecordCount > 0);
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.artifacts.admission.publishEligible, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
