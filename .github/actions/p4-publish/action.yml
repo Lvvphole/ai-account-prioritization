@@ -1,0 +1,17 @@
+name: Publish P4 qualification evidence
+description: Validate one P4 evidence manifest and publish its immutable release assets.
+
+inputs:
+  qualification-source-sha:
+    description: Decision-authorized source commit for the qualification epoch.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate and publish immutable evidence
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        P4_EXPECTED_SOURCE_SHA: ${{ inputs.qualification-source-sha }}
+      run: bash "${{ github.action_path }}/publish.sh"
