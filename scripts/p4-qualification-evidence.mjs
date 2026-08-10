@@ -10,6 +10,7 @@ export const P4_EVIDENCE_CONTRACT_VERSION = "p4-qualification-evidence-v1";
 
 const FAILURE_CODE_PATTERN = /(QUALIFICATION_[A-Z0-9_]+|DRAFT_MODEL_[A-Z0-9_]+|MISSING_CREDENTIAL)/g;
 const QUALIFICATION_VERDICTS = new Set(["PASS", "FAIL", "BLOCKED"]);
+const MISSING_DECISION_METADATA = "MISSING_DECISION_METADATA";
 
 const sha256File = (path) =>
   existsSync(path) ? createHash("sha256").update(readFileSync(path)).digest("hex") : null;
@@ -33,6 +34,36 @@ const reportVerdict = (path) => {
   }
 };
 
+const hasDecisionMetadata = (value) => typeof value === "string" && value.trim().length > 0;
+
+const isInvocationRecord = (record) => {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return false;
+  if (record.kind !== "p4-provider-invocation-v1") return false;
+  if (record.phase !== "started" && record.phase !== "completed") return false;
+  if (!Number.isInteger(record.sequence) || record.sequence < 1) return false;
+  if (typeof record.timestamp !== "string" || record.timestamp.length === 0) return false;
+  if (typeof record.provider !== "string" || record.provider.length === 0) return false;
+  if (record.model !== null && (typeof record.model !== "string" || record.model.length === 0)) {
+    return false;
+  }
+
+  if (record.phase === "started") {
+    return (
+      record.requestBodySha256 === null ||
+      (typeof record.requestBodySha256 === "string" && /^[a-f0-9]{64}$/.test(record.requestBodySha256))
+    );
+  }
+
+  if (!Number.isInteger(record.durationMs) || record.durationMs < 0) return false;
+  if (record.outcome === "http_response") {
+    return Number.isInteger(record.httpStatus) && record.httpStatus >= 100 && record.httpStatus <= 599;
+  }
+  if (record.outcome === "network_error") {
+    return typeof record.errorName === "string" && record.errorName.length > 0;
+  }
+  return false;
+};
+
 const invocationSummary = (path) => {
   if (!existsSync(path)) {
     return {
@@ -46,37 +77,67 @@ const invocationSummary = (path) => {
   }
 
   const text = readFileSync(path, "utf8");
-  const records = [];
+  const startedBySequence = new Map();
+  const completedSequences = new Set();
+  const modelsByIdentity = new Map();
+  let startedCount = 0;
+  let completedCount = 0;
   let invalidRecordCount = 0;
+
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
+
+    let record;
     try {
-      const record = JSON.parse(line);
-      if (record?.kind === "p4-provider-invocation-v1") records.push(record);
-      else invalidRecordCount += 1;
+      record = JSON.parse(line);
     } catch {
+      invalidRecordCount += 1;
+      continue;
+    }
+
+    if (!isInvocationRecord(record)) {
+      invalidRecordCount += 1;
+      continue;
+    }
+
+    if (record.phase === "started") {
+      startedCount += 1;
+      if (startedBySequence.has(record.sequence)) {
+        invalidRecordCount += 1;
+        continue;
+      }
+      startedBySequence.set(record.sequence, record);
+      modelsByIdentity.set(`${record.provider}:${record.model ?? ""}`, {
+        provider: record.provider,
+        model: record.model,
+      });
+      continue;
+    }
+
+    completedCount += 1;
+    const started = startedBySequence.get(record.sequence);
+    if (!started || completedSequences.has(record.sequence)) {
+      invalidRecordCount += 1;
+      continue;
+    }
+
+    completedSequences.add(record.sequence);
+    if (started.provider !== record.provider || started.model !== record.model) {
       invalidRecordCount += 1;
     }
   }
 
-  const started = records.filter((record) => record.phase === "started");
-  const completed = records.filter((record) => record.phase === "completed");
-  const models = [
-    ...new Map(
-      started.map((record) => [
-        `${record.provider}:${record.model ?? ""}`,
-        { provider: record.provider, model: record.model ?? null },
-      ]),
-    ).values(),
-  ];
+  for (const sequence of startedBySequence.keys()) {
+    if (!completedSequences.has(sequence)) invalidRecordCount += 1;
+  }
 
   return {
     present: text.trim() !== "",
     sha256: sha256File(path),
-    startedCount: started.length,
-    completedCount: completed.length,
+    startedCount,
+    completedCount,
     invalidRecordCount,
-    models,
+    models: [...modelsByIdentity.values()],
   };
 };
 
@@ -107,17 +168,22 @@ export function buildEvidenceManifest({
   const report = artifact(sourceDir, reportPath);
   const verdict = reportVerdict(reportPath);
   const admissionPresent = existsSync(admissionPath);
+  const decisionOwnerPresent = hasDecisionMetadata(decisionOwner);
+  const decisionRefPresent = hasDecisionMetadata(decisionRef);
+  const commandExitCode = Number.isInteger(exitCode) && exitCode >= 0 ? exitCode : 2;
   const completeSuccessEvidence =
     verdict === "PASS" &&
     admissionPresent &&
+    decisionOwnerPresent &&
+    decisionRefPresent &&
     invocations.present &&
     invocations.startedCount > 0 &&
     invocations.startedCount === invocations.completedCount &&
     invocations.invalidRecordCount === 0;
-  const success = exitCode === 0 && completeSuccessEvidence;
+  const success = commandExitCode === 0 && completeSuccessEvidence;
   const terminalFailureCode = success
     ? null
-    : exitCode === 0
+    : commandExitCode === 0
       ? "QUALIFICATION_EVIDENCE_INCOMPLETE"
       : verdict && verdict !== "PASS"
         ? `QUALIFICATION_${verdict}`
@@ -131,15 +197,15 @@ export function buildEvidenceManifest({
       qualificationSourceSha: sourceSha,
     },
     decision: {
-      owner: decisionOwner || null,
-      ref: decisionRef || null,
+      owner: decisionOwnerPresent ? decisionOwner : MISSING_DECISION_METADATA,
+      ref: decisionRefPresent ? decisionRef : MISSING_DECISION_METADATA,
     },
     qualification: {
       executionOutcome: success ? "success" : "failure",
       verdict,
       startedAt,
       completedAt,
-      commandExitCode: success ? 0 : (exitCode || 2),
+      commandExitCode,
       failureReasonCode: terminalFailureCode,
       failureMessageSha256: success ? null : stderrSha256,
       policyFileSha256: sha256File(join(sourceDir, "config/p4-qualification-policy.json")),
