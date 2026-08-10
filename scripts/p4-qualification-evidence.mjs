@@ -6,11 +6,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const P4_EVIDENCE_CONTRACT_VERSION = "p4-qualification-evidence-v1";
+export const P4_EVIDENCE_CONTRACT_VERSION = "p4-qualification-evidence-v2";
 
 const FAILURE_CODE_PATTERN = /(QUALIFICATION_[A-Z0-9_]+|DRAFT_MODEL_[A-Z0-9_]+|MISSING_CREDENTIAL)/g;
 const QUALIFICATION_VERDICTS = new Set(["PASS", "FAIL", "BLOCKED"]);
 const MISSING_DECISION_METADATA = "MISSING_DECISION_METADATA";
+const SHA40_PATTERN = /^[a-f0-9]{40}$/;
 
 const sha256Text = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -60,9 +61,17 @@ const validStartedRequestEvidence = (record) => {
   }
 };
 
-const isInvocationRecord = (record) => {
+const hasExpectedInvocationIdentity = (record, expectedIdentity) =>
+  record.runId === expectedIdentity.runId &&
+  record.runAttempt === expectedIdentity.runAttempt &&
+  record.qualificationSourceSha === expectedIdentity.sourceSha &&
+  record.controlRevision === expectedIdentity.controlRevision &&
+  record.publisherRevision === expectedIdentity.publisherRevision;
+
+const isInvocationRecord = (record, expectedIdentity) => {
   if (!record || typeof record !== "object" || Array.isArray(record)) return false;
-  if (record.kind !== "p4-provider-invocation-v1") return false;
+  if (record.kind !== "p4-provider-invocation-v2") return false;
+  if (!hasExpectedInvocationIdentity(record, expectedIdentity)) return false;
   if (record.phase !== "started" && record.phase !== "completed") return false;
   if (!Number.isInteger(record.sequence) || record.sequence < 1) return false;
   if (typeof record.timestamp !== "string" || record.timestamp.length === 0) return false;
@@ -83,7 +92,7 @@ const isInvocationRecord = (record) => {
   return false;
 };
 
-const invocationSummary = (path) => {
+const invocationSummary = (path, expectedIdentity) => {
   if (!existsSync(path)) {
     return {
       present: false,
@@ -114,7 +123,7 @@ const invocationSummary = (path) => {
       continue;
     }
 
-    if (!isInvocationRecord(record)) {
+    if (!isInvocationRecord(record, expectedIdentity)) {
       invalidRecordCount += 1;
       continue;
     }
@@ -146,8 +155,8 @@ const invocationSummary = (path) => {
     }
   }
 
-  for (const sequence of startedBySequence.keys()) {
-    if (!completedSequences.has(sequence)) invalidRecordCount += 1;
+  for (const invocationSequence of startedBySequence.keys()) {
+    if (!completedSequences.has(invocationSequence)) invalidRecordCount += 1;
   }
 
   return {
@@ -165,11 +174,20 @@ const failureCode = (stderr, exitCode) => {
   return stderr.match(FAILURE_CODE_PATTERN)?.at(-1) ?? "UNCLASSIFIED_COMMAND_FAILURE";
 };
 
+const requireFullSha = (name, value) => {
+  if (typeof value !== "string" || !SHA40_PATTERN.test(value)) {
+    throw new Error(`${name} must be a full lowercase Git commit SHA.`);
+  }
+  return value;
+};
+
 export function buildEvidenceManifest({
   sourceDir,
   runId,
   runAttempt,
   sourceSha,
+  controlRevision,
+  publisherRevision,
   transferArtifact,
   decisionOwner,
   decisionRef,
@@ -179,11 +197,22 @@ export function buildEvidenceManifest({
   stderrSha256,
   failureReasonCode,
 }) {
+  requireFullSha("qualificationSourceSha", sourceSha);
+  requireFullSha("controlRevision", controlRevision);
+  requireFullSha("publisherRevision", publisherRevision);
+
   const outputDir = join(sourceDir, "p4-output");
   const reportPath = join(outputDir, `qualification-${runId}-${runAttempt}.json`);
   const admissionPath = join(outputDir, `admission-${runId}-${runAttempt}.json`);
   const invocationPath = join(outputDir, `invocations-${runId}-${runAttempt}.ndjson`);
-  const invocations = invocationSummary(invocationPath);
+  const expectedIdentity = {
+    runId: String(runId),
+    runAttempt: Number(runAttempt),
+    sourceSha,
+    controlRevision,
+    publisherRevision,
+  };
+  const invocations = invocationSummary(invocationPath, expectedIdentity);
   const report = artifact(sourceDir, reportPath);
   const verdict = reportVerdict(reportPath);
   const admissionPresent = existsSync(admissionPath);
@@ -214,6 +243,8 @@ export function buildEvidenceManifest({
       runId: String(runId),
       producerRunAttempt: Number(runAttempt),
       qualificationSourceSha: sourceSha,
+      controlRevision,
+      publisherRevision,
     },
     decision: {
       owner: decisionOwnerPresent ? decisionOwner : MISSING_DECISION_METADATA,
@@ -249,10 +280,15 @@ const runQualification = async (sourceDir) => {
   const runId = process.env.GITHUB_RUN_ID;
   const runAttempt = process.env.GITHUB_RUN_ATTEMPT;
   const sourceSha = process.env.P4_QUALIFICATION_SOURCE_SHA;
+  const controlRevision = process.env.GITHUB_SHA;
+  const publisherRevision = process.env.P4_PUBLISHER_REVISION;
   const transferArtifact = process.env.P4_TRANSFER_ARTIFACT;
-  if (!runId || !runAttempt || !sourceSha || !transferArtifact) {
+  if (!runId || !runAttempt || !sourceSha || !controlRevision || !publisherRevision || !transferArtifact) {
     throw new Error("P4 workflow identity is incomplete.");
   }
+  requireFullSha("P4_QUALIFICATION_SOURCE_SHA", sourceSha);
+  requireFullSha("GITHUB_SHA", controlRevision);
+  requireFullSha("P4_PUBLISHER_REVISION", publisherRevision);
 
   const outputDir = join(root, "p4-output");
   mkdirSync(outputDir, { recursive: true });
@@ -304,14 +340,15 @@ const runQualification = async (sourceDir) => {
     runId,
     runAttempt,
     sourceSha,
+    controlRevision,
+    publisherRevision,
     transferArtifact,
     decisionOwner: process.env.P4_ADMISSION_DECISION_OWNER,
     decisionRef: process.env.P4_ADMISSION_DECISION_REF,
     startedAt,
     completedAt: new Date().toISOString(),
     exitCode,
-    stderrSha256:
-      exitCode === 0 && !spawnError ? null : stderrHash.digest("hex"),
+    stderrSha256: exitCode === 0 && !spawnError ? null : stderrHash.digest("hex"),
     failureReasonCode: spawnError
       ? "QUALIFICATION_COMMAND_START_FAILED"
       : failureCode(stderr, exitCode),
