@@ -20,15 +20,28 @@ const appendAuditRecord = (record) => {
   appendFileSync(auditPath, `${JSON.stringify(record)}\n`, "utf8");
 };
 
-const modelFromBody = (body) => {
-  if (typeof body !== "string" || body.length === 0) return null;
-  try {
-    const parsed = JSON.parse(body);
-    return typeof parsed?.model === "string" && parsed.model.length > 0 ? parsed.model : null;
-  } catch {
-    return null;
+const parseWireRequestBody = (body) => {
+  if (typeof body !== "string" || body.length === 0) {
+    throw new Error("P4 provider request body must be a non-empty JSON object before invocation.");
   }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error("P4 provider request body must be valid JSON before invocation.");
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("P4 provider request body must be a JSON object before invocation.");
+  }
+  return parsed;
 };
+
+const modelFromRequestBody = (requestBody) =>
+  typeof requestBody.model === "string" && requestBody.model.length > 0
+    ? requestBody.model
+    : null;
 
 if (originalFetch) {
   globalThis.fetch = async (input, init = {}) => {
@@ -43,8 +56,9 @@ if (originalFetch) {
     const provider = providerByHost.get(url.hostname);
     if (!provider) return originalFetch(input, init);
 
-    const body = typeof init.body === "string" ? init.body : "";
-    const model = modelFromBody(body);
+    const requestBodyJson = typeof init.body === "string" ? init.body : "";
+    const requestBody = parseWireRequestBody(requestBodyJson);
+    const model = modelFromRequestBody(requestBody);
     const invocationSequence = ++sequence;
     const startedAtMs = Date.now();
 
@@ -55,7 +69,8 @@ if (originalFetch) {
       timestamp: new Date(startedAtMs).toISOString(),
       provider,
       model,
-      requestBodySha256: body ? sha256(body) : null,
+      requestBodySha256: sha256(requestBodyJson),
+      requestBodyJson,
     });
 
     try {
