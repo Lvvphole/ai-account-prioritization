@@ -7,6 +7,9 @@ echo "==> Verify security controls"
 
 required_files=(
   "scripts/verify-github-actions.sh"
+  "scripts/p4-provider-invocation-audit.cjs"
+  "scripts/p4-qualification-evidence.mjs"
+  "scripts/p4-qualification-evidence.test.mjs"
   "packages/security/package.json"
   "packages/security/src/index.ts"
   "packages/security/src/rbac.ts"
@@ -23,6 +26,7 @@ for file in "${required_files[@]}"; do
 done
 
 bash scripts/verify-github-actions.sh
+node --test scripts/p4-qualification-evidence.test.mjs
 
 # Guard: the runtime permission gate must delegate to @repo/security, and the
 # canonical approval policy must fail closed (approved-only).
