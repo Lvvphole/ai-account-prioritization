@@ -127,6 +127,7 @@ else
     --target "$P4_EXPECTED_SOURCE_SHA" \
     --title "P4 qualification ${GITHUB_RUN_ID}/${producer_attempt}" \
     --notes "Decision owner: ${decision_owner}\nDecision ref: ${decision_ref}\nQualification source: ${P4_EXPECTED_SOURCE_SHA}\nProducer attempt: ${producer_attempt}" \
+    --latest=false \
     --draft
   release_is_draft=true
   release_is_immutable=false
@@ -136,7 +137,10 @@ if [ "$release_is_draft" = "true" ]; then
   gh release upload "$release_tag" "${assets[@]}" \
     --repo "$GITHUB_REPOSITORY" \
     --clobber
-  gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" --draft=false
+  gh release edit "$release_tag" \
+    --repo "$GITHUB_REPOSITORY" \
+    --latest=false \
+    --draft=false
 else
   test "$release_is_immutable" = "true"
 fi
