@@ -2,7 +2,7 @@
 
 - Version: 1.0
 - Status: Approved Position B target specification
-- Current implementation scope: P4 provider-neutral boundary and offline cross-model qualification only
+- Current implementation scope: P4 provider-neutral boundary, offline cross-model qualification, and immutable single-configuration admission artifacts
 - Authority: `AGENTS.md`, ADR-001, ADR-002, and the product contract remain higher-priority sources for implementation scope and safety rules
 
 ## 1. Purpose
@@ -26,7 +26,7 @@ The current production spine keeps next-best-action selection deterministic. The
 - A second action ontology.
 - Production result caching.
 
-The repository permits the provider-neutral P4 boundary and offline cross-model qualification. Production permits one qualified model configuration at a time. Qualification candidates do not imply dynamic provider routing.
+The repository permits the provider-neutral P4 boundary and offline cross-model qualification. The current executable P4 flow can create one immutable production admission artifact only from the authoritative in-memory qualification result. Production permits one qualified model configuration to be active at a time. Qualification candidates do not imply dynamic provider routing or live admission replacement.
 
 ## 2. Target model-adapter shape
 
@@ -136,7 +136,7 @@ CandidateResult
   model_provenance
 ```
 
-These structures describe the target architecture. P4 Unit 2 does not implement model-selected WHAT, a capability resolver, tools, workflows, or workers.
+These structures describe the target architecture. Current P4 does not implement model-selected WHAT, a capability resolver, tools, workflows, or workers.
 
 ## 3. Authority matrix
 
@@ -215,7 +215,7 @@ deterministic verification
 
 Generated prose does not have to be byte-identical. A temperature value of zero, a seed, or a similarly named provider control does not prove determinism.
 
-The target action codes above are design examples. P4 Unit 2 does not add a second current-production action ontology. The current production next-best-action vocabulary remains deterministic and unchanged.
+The target action codes above are design examples. Current P4 does not add a second current-production action ontology. The current production next-best-action vocabulary remains deterministic and unchanged.
 
 ## 5. Variance-control levers
 
@@ -260,7 +260,7 @@ worker aggregation
   → deterministic verification
 ```
 
-P4 Unit 2 runs cross-model qualification serially. Serial execution makes the current offline evaluation order explicit and keeps spend easy to bound. Unit 2 does not implement worker fan-out.
+Current P4 runs cross-model qualification serially. Serial execution makes the offline evaluation order explicit and keeps spend easy to bound. Current P4 does not implement worker fan-out.
 
 ## 6. Candidate data status
 
@@ -277,7 +277,7 @@ Before a qualification epoch, lock and verify these inputs:
 - The pricing effective date.
 - The qualification credentials.
 
-The qualification runner calculates cost only when the locked qualification contract contains pricing and the provider returns the required token telemetry. Otherwise, cost is `n/a` in the evidence model.
+The qualification runner calculates cost only when the canonical qualification policy contains pricing and the provider returns the required token telemetry. Otherwise, cost is `n/a` in the evidence model.
 
 ## 7. OpenAI GPT candidates
 
@@ -538,7 +538,7 @@ same verifier
 same measurement protocol
 ```
 
-The current production spine still owns WHAT deterministically. Therefore, P4 Unit 2 qualifies the provider and model for the current bounded drafting and synthesis role. The Unit 2 runner does not claim target WHAT, HOW, tool-selection, or delegation metrics that the current spine cannot authoritatively exercise.
+The current production spine still owns WHAT deterministically. Therefore, current P4 qualifies the provider and model for the bounded drafting and synthesis role. The qualification runner does not claim target WHAT, HOW, tool-selection, or delegation metrics that the current spine cannot authoritatively exercise.
 
 When the repository separately admits target WHAT and HOW capabilities, the qualification contract can add the corresponding metrics without changing the authority rules in this specification.
 
@@ -561,9 +561,9 @@ The full target qualification metric set is:
 | Latency | Record measured model and end-to-end latency where available. |
 | Cost per verified PASS | Compare economics when locked pricing and measured token telemetry exist. |
 
-### 12.2 Current Unit 2 metric boundary
+### 12.2 Current P4 metric boundary
 
-P4 Unit 2 implements these measurements for the current drafting and synthesis role:
+Current P4 implements these measurements for the drafting and synthesis role:
 
 - Grounding pass rate.
 - Model verifier pass rate.
@@ -574,9 +574,9 @@ P4 Unit 2 implements these measurements for the current drafting and synthesis r
 - Accepted artifact variants by frozen case.
 - Provider latency when measured.
 - Provider input, cached-input, and output tokens when measured.
-- Cost per verified PASS only when the qualification contract supplies locked pricing and the provider supplies required token telemetry.
+- Cost per verified PASS only when the canonical qualification policy supplies pricing and the provider supplies required token telemetry.
 
-P4 Unit 2 reports these target metrics as `n/a` because the related capabilities remain deferred:
+Current P4 reports these target metrics as `n/a` because the related capabilities remain deferred:
 
 - Canonical WHAT correctness.
 - Canonical WHAT agreement.
@@ -602,75 +602,103 @@ required evidence
     → BLOCKED
 ```
 
-The qualification harness does not invent numerical effectiveness, fallback, latency, or economic thresholds. The locked qualification contract must supply the thresholds that the product requires.
+The qualification harness does not invent numerical effectiveness, fallback, latency, or economic thresholds. `config/p4-qualification-policy.json` supplies the current executable thresholds and candidate records.
 
 The false-accept threshold is zero because an incorrect accepted result violates the deterministic acceptance boundary.
 
-The qualification harness does not rank models automatically. After qualification, compare qualified candidates with the locked product criteria. A human or other authorized product decision admits one production configuration.
+The qualification harness does not rank models. Candidate array order in `config/p4-qualification-policy.json` is the deterministic admission priority. In the same trusted process that evaluates the epoch, the first candidate with a `QUALIFIED` verdict is selected. Decision-owner metadata records the authorized decision context but cannot override configured candidate priority. If no candidate qualifies, the result is `BLOCKED` and no admission artifact is created.
 
 Production does not route among the qualification candidates.
 
-## 13. P4 Unit 2 executable implementation
+## 13. Current P4 executable qualification and admission
 
-P4 Unit 2 implements an offline qualification harness in `packages/testing-evals/src/model-qualification`.
+Current P4 implements offline qualification and deterministic single-configuration admission in `packages/testing-evals/src/model-qualification`.
 
 The implementation has these properties:
 
-- It uses a frozen, versioned current-spine corpus.
-- It computes a corpus hash.
-- It requires an explicit positive integer `k`.
-- It requires one shared budget envelope for the candidate set.
-- It requires explicit product-owned qualification thresholds.
-- It executes candidates in a stable serial order.
+- `config/p4-qualification-policy.json` is the single executable qualification-policy source.
+- Candidate array order in that file is the deterministic admission priority.
+- It uses a frozen, versioned current-spine corpus and computes a corpus hash.
+- It requires an explicit positive integer `k`, explicit budgets, and explicit product-owned thresholds from the canonical policy.
+- It executes candidate evaluation serially in a stable report order.
+- It preserves the original canonical candidate order in `qualificationPolicyHash` because that order controls admission priority.
 - It uses the real current `attachHybridActionDraft` path for schema, grounding, fallback, and authority reconciliation.
 - It records the actual non-secret provider output configuration used by the qualification adapter.
-- It does not copy credentials into reports.
+- It does not copy credentials into reports or admission artifacts.
 - It returns `QUALIFIED`, `DISQUALIFIED`, or `BLOCKED` for each candidate.
-- It returns `PASS`, `FAIL`, or `BLOCKED` for the qualification epoch.
-- It does not admit a production model automatically.
+- It evaluates and selects the first `QUALIFIED` candidate in canonical policy order in the same trusted process.
+- It writes the full qualification report as audit evidence only.
+- It creates a minimal immutable production admission artifact only when a candidate qualifies.
+- It requires a new unused admission-output path before provider spend and uses exclusive-create semantics for the final artifact write.
+- It never overwrites, deletes, revokes, or hot-replaces an admission artifact that may already be loaded by running workers.
+- It has no separate persisted-report replay or `admit:model` step.
 - It does not change the production provider registry.
-- It does not implement model-controlled WHAT, tools, workers, routing, or caching.
+- It does not implement live admission replacement, shared runtime revocation state, model-controlled WHAT, tools, workers, routing, or caching.
 
-Run an offline qualification epoch from the repository root:
+Run the canonical qualification and admission process from the repository root:
 
 ```bash
-P4_QUALIFICATION_CONFIG=/absolute/path/to/locked-qualification.json \
-  pnpm qualify:models
+ANTHROPIC_API_KEY=<provider-credential> \
+P4_ADMISSION_DECISION_OWNER=<decision-owner> \
+P4_ADMISSION_DECISION_REF=<durable-decision-reference> \
+pnpm qualify:models
 ```
 
-The optional `P4_QUALIFICATION_REPORT` variable sets the report path. The default report path is under the existing ignored evaluation-results directory.
+The current canonical policy uses `ANTHROPIC_API_KEY` as the credential environment variable for its configured candidates. Do not commit live provider credentials.
 
-The qualification contract includes this required shape:
+Optional output controls are:
 
 ```text
-contractVersion = p4-model-qualification-v1
+P4_QUALIFICATION_REPORT
+  default: generated file under packages/testing-evals/src/eval-results/
+
+P4_PRODUCTION_MODEL_ADMISSION_OUTPUT
+  default: config/production-model-admission.json
+  requirement: the path must not already exist
+```
+
+The CLI always reads `config/p4-qualification-policy.json`. It does not accept an alternate qualification-policy path.
+
+The current qualification contract includes this required shape:
+
+```text
+contractVersion = p4-model-qualification-v2
 corpusVersion = current-spine-drafting-corpus-v1
 k = explicit product value
 fallback = template | hold
-budgets = explicit shared bounds
+qualificationEpochMaxRunTokens = explicit offline epoch bound
+budgets = explicit production-shaped bounds
 thresholds = explicit product-owned bounds
-candidates = explicit provider/model/configuration records
+candidates = explicit ordered provider/model/configuration records
 ```
-
-Do not commit live provider credentials. Each candidate names an environment variable through `credentialEnv`.
 
 ## 14. Production admission boundary
 
-P4 Unit 2 creates qualification evidence. P4 Unit 2 does not create production admission authority.
+The current qualification process can create one immutable production admission artifact only from the authoritative in-memory result of the same qualification epoch. The full qualification report is audit evidence and is not replayed by a later authority.
 
-The next authorized P4 stage can admit one configuration only after the qualification evidence exists and an authorized decision selects the configuration.
-
-The production configuration must then stay pinned and singular:
+An admission artifact is not hot-swapped into already-running workers. Runtime policy is loaded at process startup. Current P4 therefore separates qualification from runtime activation:
 
 ```text
-qualified candidate set
+canonical ordered candidate set
         ↓
-authorized admission decision
+qualification verdicts
         ↓
-ONE provider + ONE model + ONE qualified configuration
+first QUALIFIED candidate in configured order
+        ↓
+immutable admission artifact at a new unused path
+        ↓
+controlled deployment drains/stops existing workers
+        ↓
+runtime restarts with P4_PRODUCTION_MODEL_ADMISSION set to that artifact
+        ↓
+ONE active provider + ONE active model + ONE active qualified configuration
         ↓
 Acceptance B
 ```
+
+The decision owner and decision reference are required audit metadata. They do not select the candidate and cannot override canonical policy order.
+
+Current P4 does not implement live replacement or revocation of an active model admission. Qualifying a successor at a different unused path does not change the model already loaded by running workers. Activating a successor requires a controlled deployment that drains or stops the existing runtime before restart. A future hot-replacement or shared-revocation mechanism requires separate implementation authorization and ADR-002 evidence.
 
 A production failure can use the configured deterministic template fallback or hold. A production failure cannot silently switch to another provider or model.
 

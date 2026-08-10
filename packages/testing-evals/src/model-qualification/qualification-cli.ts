@@ -1,50 +1,84 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
-  parseModelQualificationConfig,
-  type QualificationOverallVerdict,
-} from "./qualification-contract";
+  prepareQualificationOutputPaths,
+  releaseQualificationOutputPaths,
+  writeProductionAdmissionOutput,
+  writeQualificationReportOutput,
+} from "./admission-output-lifecycle";
+import { parseModelQualificationConfig } from "./qualification-contract";
 import { createNetworkQualificationResolver } from "./qualification-provider-clients";
-import { runCurrentSpineModelQualification } from "./qualification-runner";
+import { runLockedP4QualificationEpoch } from "./locked-qualification";
 
-const exitCodeFor = (verdict: QualificationOverallVerdict): number =>
-  verdict === "PASS" ? 0 : verdict === "FAIL" ? 1 : 2;
+const CANONICAL_P4_QUALIFICATION_POLICY = "config/p4-qualification-policy.json";
+
+const required = (value: string | undefined, name: string): string => {
+  if (!value?.trim()) throw new Error(`${name} is required.`);
+  return value;
+};
 
 async function main(): Promise<void> {
-  const configPath = process.env.P4_QUALIFICATION_CONFIG;
-  if (!configPath) {
-    throw new Error(
-      "P4_QUALIFICATION_CONFIG is required. Point it to a locked qualification JSON contract.",
-    );
-  }
-
-  const absoluteConfigPath = resolve(configPath);
-  const config = parseModelQualificationConfig(
-    JSON.parse(readFileSync(absoluteConfigPath, "utf8")) as unknown,
-  );
-  const report = await runCurrentSpineModelQualification(
-    config,
-    createNetworkQualificationResolver(process.env),
-  );
-  const outputPath = resolve(
+  const configPath = resolve(CANONICAL_P4_QUALIFICATION_POLICY);
+  const reportPath = resolve(
     process.env.P4_QUALIFICATION_REPORT ??
       `packages/testing-evals/src/eval-results/model-qualification-${Date.now()}.json`,
   );
-  mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  const admissionPath = resolve(
+    process.env.P4_PRODUCTION_MODEL_ADMISSION_OUTPUT ?? "config/production-model-admission.json",
+  );
 
-  // eslint-disable-next-line no-console
-  console.log(`P4 offline model qualification: ${report.verdict}`);
-  for (const candidate of report.candidates) {
-    // eslint-disable-next-line no-console
-    console.log(
-      `${candidate.candidate.id}: ${candidate.verdict}` +
-        (candidate.reasons.length ? ` (${candidate.reasons.join(",")})` : ""),
+  const config = parseModelQualificationConfig(
+    JSON.parse(readFileSync(configPath, "utf8")) as unknown,
+  );
+  const decision = {
+    decisionOwner: required(
+      process.env.P4_ADMISSION_DECISION_OWNER,
+      "P4_ADMISSION_DECISION_OWNER",
+    ),
+    decisionRef: required(process.env.P4_ADMISSION_DECISION_REF, "P4_ADMISSION_DECISION_REF"),
+  };
+
+  // Reserve both immutable outputs before any provider spend. A concurrent
+  // qualification process that targets either destination must fail here.
+  const outputReservation = prepareQualificationOutputPaths(reportPath, admissionPath);
+  try {
+    const result = await runLockedP4QualificationEpoch(
+      config,
+      createNetworkQualificationResolver(process.env),
+      decision,
     );
+
+    writeQualificationReportOutput(reportPath, `${JSON.stringify(result.report, null, 2)}\n`);
+
+    if (result.admission) {
+      writeProductionAdmissionOutput(
+        admissionPath,
+        `${JSON.stringify(result.admission, null, 2)}\n`,
+      );
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`P4 locked qualification epoch: ${result.verdict}`);
+    for (const candidate of result.report.candidates) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `${candidate.candidate.id}: ${candidate.verdict}` +
+          (candidate.reasons.length ? ` (${candidate.reasons.join(",")})` : ""),
+      );
+    }
+    // eslint-disable-next-line no-console
+    console.log(`Selected: ${result.selectedCandidateId ?? "BLOCK/template"}`);
+    // eslint-disable-next-line no-console
+    console.log(`Audit report: ${reportPath}`);
+    if (result.admission) {
+      // eslint-disable-next-line no-console
+      console.log(`Production admission artifact: ${admissionPath}`);
+    }
+
+    process.exitCode = result.verdict === "PASS" ? 0 : 2;
+  } finally {
+    releaseQualificationOutputPaths(outputReservation);
   }
-  // eslint-disable-next-line no-console
-  console.log(`Report: ${outputPath}`);
-  process.exitCode = exitCodeFor(report.verdict);
 }
 
 main().catch((error) => {

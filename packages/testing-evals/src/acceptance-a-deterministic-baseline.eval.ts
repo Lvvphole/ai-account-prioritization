@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
-  createSeedStore,
   createSupabaseRepository,
   resetStore,
   runDailyPrioritizationForAllOwners,
@@ -9,47 +8,38 @@ import {
   type DataStore,
   type RuntimeModelClient,
 } from "agent-runtime";
-import type { Recommendation } from "@repo/shared-schemas";
+import type { Account, Recommendation } from "@repo/shared-schemas";
+import {
+  ACCEPTANCE_A_DURABLE_OWNER_ID,
+  ACCEPTANCE_A_NOW,
+  ACCEPTANCE_A_WORKSPACE_ID,
+  buildAcceptanceACrmFixture,
+  type AcceptanceACrmFixture,
+} from "./acceptance-a-crm-fixture";
 
-const WORKSPACE_ID = "aaaaaaaa-0000-0000-0000-000000000001";
-const OWNER_ID = "33333333-3333-3333-3333-333333333333";
 const OTHER_USER_ID = "44444444-4444-4444-4444-444444444444";
-const ACCOUNT_ID = "c2000000-0000-0000-0000-000000000001";
-const NOW = "2026-06-25T07:00:00.000Z";
 
-function acceptanceStore(): DataStore {
-  const seed = createSeedStore();
-  const sourceAccount = seed.accounts.find((account) => account.id === "acc_001");
-  const sourceContact = seed.contacts.find((contact) => contact.accountId === "acc_001");
-  const sourceOpportunity = seed.opportunities.find(
-    (opportunity) => opportunity.accountId === "acc_001",
-  );
-  const sourceActivities = seed.activities.filter((activity) => activity.accountId === "acc_001");
-
-  if (!sourceAccount || !sourceContact || !sourceOpportunity || sourceActivities.length === 0) {
-    throw new Error("ACCEPTANCE_A_SEED_INCOMPLETE");
-  }
-
+function cloneStore(source: DataStore): DataStore {
   return {
-    accounts: [
-      {
-        ...sourceAccount,
-        id: ACCOUNT_ID,
-        ownerId: OWNER_ID,
-        name: "Acceptance A Account",
-        dataQualityFlags: ["missing_primary_contact"],
-      },
-    ],
-    contacts: [{ ...sourceContact, accountId: ACCOUNT_ID }],
-    opportunities: [{ ...sourceOpportunity, accountId: ACCOUNT_ID }],
-    activities: sourceActivities.map((activity) => ({ ...activity, accountId: ACCOUNT_ID })),
+    accounts: source.accounts.map((account) => ({
+      ...account,
+      intentSignals: [...account.intentSignals],
+      dataQualityFlags: [...account.dataQualityFlags],
+    })),
+    contacts: source.contacts.map((contact) => ({ ...contact })),
+    opportunities: source.opportunities.map((opportunity) => ({ ...opportunity })),
+    activities: source.activities.map((activity) => ({ ...activity })),
     auditLog: [],
     analytics: [],
   };
 }
 
-async function runAcceptanceProfile(modelClient: RuntimeModelClient) {
-  resetStore(acceptanceStore());
+async function runAcceptanceProfile(
+  modelClient: RuntimeModelClient,
+  fixture: AcceptanceACrmFixture,
+) {
+  const store = cloneStore(fixture.store);
+  resetStore(store);
   const draftingPolicy = runtimeDraftingPolicyFromEnv({
     RUNTIME_DRAFTING_ENABLED: "false",
   });
@@ -57,16 +47,16 @@ async function runAcceptanceProfile(modelClient: RuntimeModelClient) {
   expect(draftingPolicy.enabled).toBe(false);
 
   const runs = await runDailyPrioritizationForAllOwners({
-    now: NOW,
-    approvals: { [ACCOUNT_ID]: true },
+    now: ACCEPTANCE_A_NOW,
+    approvals: Object.fromEntries(store.accounts.map((account) => [account.id, true])),
     drafting: {
       policy: draftingPolicy,
       modelClient,
     },
   });
 
-  expect(runs).toHaveLength(1);
-  return runs[0];
+  expect(runs).toHaveLength(fixture.workspaceMemberIds.length);
+  return runs;
 }
 
 function psql(sql: string, variables: Record<string, string> = {}): string {
@@ -86,13 +76,61 @@ function psql(sql: string, variables: Record<string, string> = {}): string {
   }).trim();
 }
 
-async function exerciseDurableSpine(recommendation: Recommendation): Promise<void> {
+function seedDurableRepresentativeAccount(account: Account): void {
+  const variables = {
+    workspace_id: ACCEPTANCE_A_WORKSPACE_ID,
+    account_id: account.id,
+    account_name: account.name,
+    owner_id: account.ownerId,
+    tier: account.tier,
+    lifecycle_stage: account.lifecycleStage,
+    industry: account.industry ?? "",
+    employee_count: String(account.employeeCount ?? 0),
+    open_pipeline_usd: String(account.openPipelineUsd),
+    health_score: String(account.healthScore ?? 50),
+  };
+
+  psql(
+    `insert into public.accounts (
+       id, workspace_id, name, owner_id, tier, lifecycle_stage, industry,
+       employee_count, open_pipeline_usd, health_score, intent_signals, data_quality_flags
+     ) values (
+       :'account_id'::uuid, :'workspace_id'::uuid, :'account_name', :'owner_id'::uuid,
+       :'tier'::public.account_tier, :'lifecycle_stage'::public.lifecycle_stage,
+       nullif(:'industry', ''), :'employee_count'::integer, :'open_pipeline_usd'::numeric,
+       :'health_score'::integer, array[]::text[], array[]::text[]
+     )
+     on conflict (id) do nothing;`,
+    variables,
+  );
+
+  expect(
+    psql(
+      `select count(*) from public.accounts
+        where id = :'account_id'::uuid
+          and workspace_id = :'workspace_id'::uuid
+          and owner_id = :'owner_id'::uuid
+          and name = :'account_name'
+          and tier = :'tier'::public.account_tier
+          and lifecycle_stage = :'lifecycle_stage'::public.lifecycle_stage
+          and open_pipeline_usd = :'open_pipeline_usd'::numeric;`,
+      variables,
+    ),
+  ).toBe("1");
+}
+
+async function exerciseDurableSpine(
+  recommendation: Recommendation,
+  account: Account,
+): Promise<void> {
   const payload = recommendation.nextBestAction.draft;
   if (!payload) throw new Error("ACCEPTANCE_A_VISIBLE_PAYLOAD_REQUIRED");
 
+  seedDurableRepresentativeAccount(account);
+
   const durableRepository = createSupabaseRepository(
-    { kind: "service", actorId: "acceptance_a", workspaceId: WORKSPACE_ID },
-    NOW,
+    { kind: "service", actorId: "acceptance_a", workspaceId: ACCEPTANCE_A_WORKSPACE_ID },
+    ACCEPTANCE_A_NOW,
     {
       rpcClient: () => ({
         async rpc(functionName, args) {
@@ -117,20 +155,17 @@ async function exerciseDurableSpine(recommendation: Recommendation): Promise<voi
     },
   );
 
-  // This is the production Supabase repository persistence method. Its narrow
-  // RPC port is bound to the same temporary PostgreSQL instance that the
-  // migration verifier prepared, so the exact runtime artifact continues into
-  // the durable representative path instead of being recreated as a SQL fixture.
   await durableRepository.persistPublishedRecommendations([recommendation]);
 
   const variables = {
-    workspace_id: WORKSPACE_ID,
-    owner_id: OWNER_ID,
+    workspace_id: ACCEPTANCE_A_WORKSPACE_ID,
+    owner_id: recommendation.ownerId,
     other_user_id: OTHER_USER_ID,
+    account_id: recommendation.accountId,
     recommendation_id: recommendation.id,
     payload,
   };
-  const ownerClaims = JSON.stringify({ sub: OWNER_ID, role: "authenticated" });
+  const ownerClaims = JSON.stringify({ sub: recommendation.ownerId, role: "authenticated" });
   const otherClaims = JSON.stringify({ sub: OTHER_USER_ID, role: "authenticated" });
 
   expect(
@@ -272,7 +307,7 @@ async function exerciseDurableSpine(recommendation: Recommendation): Promise<voi
       psql(
         `select count(*) from public.audit_evidence
           where workspace_id = :'workspace_id'::uuid
-            and account_id = '${ACCOUNT_ID}'::uuid
+            and account_id = :'account_id'::uuid
             and evidence ->> 'recommendationId' = :'recommendation_id'
             and action in (
               'persist_recommendation',
@@ -287,14 +322,16 @@ async function exerciseDurableSpine(recommendation: Recommendation): Promise<voi
 }
 
 /**
- * Acceptance A is the model-disabled production baseline. The normal eval pass
- * proves deterministic runtime behavior. The dedicated Acceptance A root gate
- * additionally keeps a migrated PostgreSQL instance alive and drives the exact
- * generated recommendation through the production Supabase persistence method,
- * RLS read, approval, execution, and follow-up boundaries.
+ * Acceptance A is the model-disabled production baseline. This version starts
+ * from the user-approved CRM-derived synthetic fixture, drives it through the
+ * real parser, mapping/normalization, validation, approval assessment and commit
+ * planner, materializes only planned canonical writes into the deterministic
+ * runtime, and then carries one exact recommendation through the durable
+ * persistence, RLS, payload approval, protected execution and follow-up spine.
  */
 describe("Acceptance A — deterministic baseline", () => {
-  it("completes without a model call and preserves one artifact end to end", async () => {
+  it("completes from the CRM-derived synthetic fixture without a model call", async () => {
+    const fixture = await buildAcceptanceACrmFixture();
     let modelCalls = 0;
     const forbiddenModelClient: RuntimeModelClient = {
       async generate() {
@@ -303,33 +340,49 @@ describe("Acceptance A — deterministic baseline", () => {
       },
     };
 
-    const first = await runAcceptanceProfile(forbiddenModelClient);
-    const second = await runAcceptanceProfile(forbiddenModelClient);
+    expect(fixture.ingestion.map((batch) => [batch.objectType, batch.rows, batch.commitEntries])).toEqual([
+      ["account", 1_925, 1_925],
+      ["account_health", 1_925, 1_925],
+      ["opportunity", 11_000, 11_000],
+    ]);
+    expect(fixture.ingestion.every((batch) => batch.secondApprovalRequired)).toBe(true);
+    expect(fixture.ingestion.every((batch) => batch.quarantined === 0 && batch.rejected === 0)).toBe(true);
+
+    const first = await runAcceptanceProfile(forbiddenModelClient, fixture);
+    const second = await runAcceptanceProfile(forbiddenModelClient, fixture);
 
     expect(modelCalls).toBe(0);
     expect(JSON.stringify(first)).toBe(JSON.stringify(second));
-    expect(first?.totalAccountsConsidered).toBe(1);
-    expect(first?.blockedCount).toBe(0);
-    expect(first?.recommendations).toHaveLength(1);
+    expect(first.reduce((sum, run) => sum + run.totalAccountsConsidered, 0)).toBe(1_925);
+    expect(first.reduce((sum, run) => sum + run.blockedCount, 0)).toBe(0);
 
-    const recommendation = first?.recommendations[0];
-    expect(recommendation?.accountId).toBe(ACCOUNT_ID);
-    expect(recommendation?.ownerId).toBe(OWNER_ID);
-    expect(recommendation?.rank).toBe(1);
-    expect(recommendation?.reasonCodes).toContain("data_quality_blocked");
-    expect(recommendation?.nextBestAction.type).toBe("log_research_note");
-    expect(recommendation?.nextBestAction.crmWriteBack).toBe(true);
-    expect(recommendation?.nextBestAction.draft).toBeTruthy();
-    expect(recommendation?.approvalStatus).toBe("approved");
-    expect(recommendation?.verification.status).toBe("passed");
-    expect(recommendation?.verification.permissionGranted).toBe(true);
-    expect(recommendation?.sourceSignals.length).toBeGreaterThan(0);
-    expect(recommendation?.sourceSignals.every((signal) => signal.verified)).toBe(true);
-    expect(recommendation?.published).toBe(true);
+    const recommendations = first.flatMap((run) => run.recommendations);
+    expect(recommendations.length).toBeGreaterThan(0);
+    expect(
+      recommendations.every(
+        (recommendation) =>
+          recommendation.verification.status === "passed" &&
+          recommendation.verification.permissionGranted === true &&
+          recommendation.sourceSignals.length > 0 &&
+          recommendation.sourceSignals.every((signal) => signal.verified) &&
+          recommendation.published === true,
+      ),
+    ).toBe(true);
+
+    const durableRun = first.find((run) => run.ownerId === ACCEPTANCE_A_DURABLE_OWNER_ID);
+    expect(durableRun).toBeDefined();
+    const recommendation = durableRun?.recommendations.find(
+      (candidate) =>
+        (candidate.nextBestAction.customerFacing || candidate.nextBestAction.crmWriteBack) &&
+        Boolean(candidate.nextBestAction.draft),
+    );
+    expect(recommendation).toBeDefined();
 
     if (process.env.ACCEPTANCE_A_DATABASE_BACKED === "true") {
       if (!recommendation) throw new Error("ACCEPTANCE_A_RECOMMENDATION_REQUIRED");
-      await exerciseDurableSpine(recommendation);
+      const account = fixture.store.accounts.find((candidate) => candidate.id === recommendation.accountId);
+      if (!account) throw new Error("ACCEPTANCE_A_ACCOUNT_REQUIRED");
+      await exerciseDurableSpine(recommendation, account);
     }
-  });
+  }, 30_000);
 });

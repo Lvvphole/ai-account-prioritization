@@ -64,6 +64,7 @@ export interface QualificationRunRecord {
 
 export interface QualificationMetrics {
   totalRuns: number;
+  providerInvokedRuns: number;
   modelVerifierPasses: number;
   modelVerifierPassRate: number;
   fallbackOrHoldRuns: number;
@@ -75,6 +76,10 @@ export interface QualificationMetrics {
   schemaPassRate: number;
   groundingPassRate: number;
   requestIdentityStable: boolean;
+  invocationStartIdentityStable: boolean;
+  effectiveProviderConfigurationComplete: boolean;
+  effectiveProviderConfigurationStable: boolean;
+  telemetryWithinReservation: boolean;
   acceptedArtifactVariantsByCase: Record<string, number>;
   measuredLatencyRuns: number;
   p95LatencyMs: number | null;
@@ -116,10 +121,11 @@ export interface ModelQualificationReport {
 const orderedObject = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(orderedObject);
   if (value === null || typeof value !== "object") return value;
-  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-    a < b ? -1 : a > b ? 1 : 0,
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, child]) => [key, orderedObject(child)]),
   );
-  return Object.fromEntries(entries.map(([key, child]) => [key, orderedObject(child)]));
 };
 
 const authorityProjection = (recommendation: Recommendation): unknown => {
@@ -178,8 +184,7 @@ const costForRun = (
   if (cached > telemetry.inputTokens) return null;
   if (cached > 0 && candidate.pricing.cachedInputUsdPerMillionTokens === undefined) return null;
   const uncached = telemetry.inputTokens - cached;
-  const inputCost =
-    (uncached * candidate.pricing.inputUsdPerMillionTokens) / 1_000_000;
+  const inputCost = (uncached * candidate.pricing.inputUsdPerMillionTokens) / 1_000_000;
   const cachedCost =
     cached === 0
       ? 0
@@ -198,8 +203,59 @@ const percentile95 = (values: number[]): number | null => {
 const ratio = (numerator: number, denominator: number): number =>
   denominator === 0 ? 0 : numerator / denominator;
 
+const safeNonNegativeInteger = (value: number | null): value is number =>
+  value !== null && Number.isSafeInteger(value) && value >= 0;
+
+const containsSecretLikeKey = (value: unknown): boolean => {
+  if (Array.isArray(value)) return value.some(containsSecretLikeKey);
+  if (value === null || typeof value !== "object") return false;
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = key.toLowerCase().replace(/[^a-z]/g, "");
+    if (
+      normalized === "credential" ||
+      normalized === "apikey" ||
+      normalized === "authorization" ||
+      normalized === "token"
+    ) {
+      return true;
+    }
+    if (containsSecretLikeKey(child)) return true;
+  }
+  return false;
+};
+
+const providerConfigurationValid = (value: Record<string, unknown> | null): boolean =>
+  value !== null && Object.keys(value).length > 0 && !containsSecretLikeKey(value);
+
+const telemetryWithinReservation = (
+  run: QualificationRunRecord,
+  config: ModelQualificationConfig,
+): boolean => {
+  if (!run.providerInvoked) {
+    return run.inputTokens === null && run.outputTokens === null && run.cachedInputTokens === null;
+  }
+  if (
+    !safeNonNegativeInteger(run.inputTokenUpperBound) ||
+    !safeNonNegativeInteger(run.reservedRunTokens) ||
+    !safeNonNegativeInteger(run.inputTokens) ||
+    !safeNonNegativeInteger(run.outputTokens)
+  ) {
+    return false;
+  }
+  const cached = run.cachedInputTokens ?? 0;
+  if (!Number.isSafeInteger(cached) || cached < 0 || cached > run.inputTokens) return false;
+  return (
+    run.inputTokenUpperBound <= config.budgets.maxInputTokens &&
+    run.reservedRunTokens === run.inputTokenUpperBound + config.budgets.maxOutputTokens &&
+    run.inputTokens <= run.inputTokenUpperBound &&
+    run.outputTokens <= config.budgets.maxOutputTokens &&
+    run.inputTokens + run.outputTokens <= run.reservedRunTokens
+  );
+};
+
 const emptyMetrics = (): QualificationMetrics => ({
   totalRuns: 0,
+  providerInvokedRuns: 0,
   modelVerifierPasses: 0,
   modelVerifierPassRate: 0,
   fallbackOrHoldRuns: 0,
@@ -211,6 +267,10 @@ const emptyMetrics = (): QualificationMetrics => ({
   schemaPassRate: 0,
   groundingPassRate: 0,
   requestIdentityStable: false,
+  invocationStartIdentityStable: false,
+  effectiveProviderConfigurationComplete: false,
+  effectiveProviderConfigurationStable: false,
+  telemetryWithinReservation: false,
   acceptedArtifactVariantsByCase: {},
   measuredLatencyRuns: 0,
   p95LatencyMs: null,
@@ -228,11 +288,27 @@ const emptyMetrics = (): QualificationMetrics => ({
   delegationValidity: null,
 });
 
+const identityStableByCase = (
+  runs: QualificationRunRecord[],
+  cases: readonly CurrentSpineQualificationCase[],
+  field: "requestIdentityHash" | "invocationStartHash",
+): boolean => {
+  for (const item of cases) {
+    const invoked = runs.filter((run) => run.caseId === item.id && run.providerInvoked);
+    if (invoked.length === 0) continue;
+    const identities = new Set(invoked.map((run) => run[field]));
+    if (identities.size !== 1 || identities.has(null)) return false;
+  }
+  return true;
+};
+
 const aggregateMetrics = (
+  config: ModelQualificationConfig,
   runs: QualificationRunRecord[],
   cases: readonly CurrentSpineQualificationCase[],
 ): QualificationMetrics => {
   if (runs.length === 0) return emptyMetrics();
+  const providerInvokedRuns = runs.filter((run) => run.providerInvoked);
   const modelPasses = runs.filter((run) => run.verifierPass).length;
   const fallbackRuns = runs.filter((run) => run.source !== "model").length;
   const falseAccepts = runs.filter((run) => run.falseAccept).length;
@@ -240,38 +316,40 @@ const aggregateMetrics = (
   const oracleCorrect = runs.filter((run) => run.qualificationOracleCorrect === true).length;
   const schemaPasses = runs.filter((run) => run.schemaValidation === "passed").length;
   const groundingPasses = runs.filter((run) => run.groundingValidation === "passed").length;
-  const latencies = runs.flatMap((run) => (run.latencyMs === null ? [] : [run.latencyMs]));
-  const tokenRuns = runs.filter(
+  const latencies = providerInvokedRuns.flatMap((run) =>
+    run.latencyMs === null ? [] : [run.latencyMs],
+  );
+  const tokenRuns = providerInvokedRuns.filter(
     (run) => run.inputTokens !== null && run.outputTokens !== null,
   );
-  const costRuns = runs.filter((run) => run.costUsd !== null);
+  const costRuns = providerInvokedRuns.filter((run) => run.costUsd !== null);
   const variants: Record<string, number> = {};
-  let requestIdentityStable = true;
 
   for (const item of cases) {
     const caseRuns = runs.filter((run) => run.caseId === item.id);
-    const invokedRuns = caseRuns.filter((run) => run.providerInvoked);
-    const identities = new Set(
-      invokedRuns.flatMap((run) => (run.requestIdentityHash ? [run.requestIdentityHash] : [])),
-    );
-    if (
-      invokedRuns.length > 0 &&
-      (identities.size !== 1 || invokedRuns.some((run) => run.requestIdentityHash === null))
-    ) {
-      requestIdentityStable = false;
-    }
     variants[item.id] = new Set(
       caseRuns.flatMap((run) => (run.acceptedArtifactHash ? [run.acceptedArtifactHash] : [])),
     ).size;
   }
 
+  const providerConfigs = providerInvokedRuns.map((run) => run.effectiveProviderConfiguration);
+  const effectiveProviderConfigurationComplete = providerConfigs.every(providerConfigurationValid);
+  const effectiveProviderConfigurationHashes = new Set(
+    providerConfigs.flatMap((value) =>
+      providerConfigurationValid(value) ? [hashQualificationMaterial(value)] : [],
+    ),
+  );
+  const effectiveProviderConfigurationStable =
+    effectiveProviderConfigurationComplete && effectiveProviderConfigurationHashes.size <= 1;
+
   const totalCost =
-    costRuns.length === runs.length
+    providerInvokedRuns.length > 0 && costRuns.length === providerInvokedRuns.length
       ? roundMoney(costRuns.reduce((sum, run) => sum + (run.costUsd as number), 0))
       : null;
 
   return {
     totalRuns: runs.length,
+    providerInvokedRuns: providerInvokedRuns.length,
     modelVerifierPasses: modelPasses,
     modelVerifierPassRate: ratio(modelPasses, runs.length),
     fallbackOrHoldRuns: fallbackRuns,
@@ -282,21 +360,27 @@ const aggregateMetrics = (
     qualificationOracleCorrectRuns: oracleCorrect,
     schemaPassRate: ratio(schemaPasses, runs.length),
     groundingPassRate: ratio(groundingPasses, runs.length),
-    requestIdentityStable,
+    requestIdentityStable: identityStableByCase(runs, cases, "requestIdentityHash"),
+    invocationStartIdentityStable: identityStableByCase(runs, cases, "invocationStartHash"),
+    effectiveProviderConfigurationComplete,
+    effectiveProviderConfigurationStable,
+    telemetryWithinReservation: providerInvokedRuns.every((run) =>
+      telemetryWithinReservation(run, config),
+    ),
     acceptedArtifactVariantsByCase: variants,
     measuredLatencyRuns: latencies.length,
     p95LatencyMs: percentile95(latencies),
     measuredTokenRuns: tokenRuns.length,
     totalInputTokens:
-      tokenRuns.length === runs.length
+      providerInvokedRuns.length > 0 && tokenRuns.length === providerInvokedRuns.length
         ? tokenRuns.reduce((sum, run) => sum + (run.inputTokens as number), 0)
         : null,
     totalCachedInputTokens:
-      tokenRuns.length === runs.length
+      providerInvokedRuns.length > 0 && tokenRuns.length === providerInvokedRuns.length
         ? tokenRuns.reduce((sum, run) => sum + (run.cachedInputTokens ?? 0), 0)
         : null,
     totalOutputTokens:
-      tokenRuns.length === runs.length
+      providerInvokedRuns.length > 0 && tokenRuns.length === providerInvokedRuns.length
         ? tokenRuns.reduce((sum, run) => sum + (run.outputTokens as number), 0)
         : null,
     measuredCostRuns: costRuns.length,
@@ -316,10 +400,12 @@ const classifyCandidate = (
   runs: QualificationRunRecord[],
   metrics: QualificationMetrics,
 ): { verdict: QualificationCandidateVerdict; reasons: string[] } => {
-  const reasons: string[] = [];
   const expectedRuns = config.k * CURRENT_SPINE_QUALIFICATION_CORPUS.length;
   if (runs.length !== expectedRuns) {
     return { verdict: "BLOCKED", reasons: ["QUALIFICATION_RUN_SET_INCOMPLETE"] };
+  }
+  if (runs.some((run) => run.failureCode === "QUALIFICATION_EPOCH_BUDGET_EXCEEDED")) {
+    return { verdict: "BLOCKED", reasons: ["QUALIFICATION_EPOCH_BUDGET_EXCEEDED"] };
   }
   if (
     runs.length > 0 &&
@@ -332,9 +418,28 @@ const classifyCandidate = (
   ) {
     return { verdict: "BLOCKED", reasons: ["PROVIDER_OR_MODEL_UNAVAILABLE"] };
   }
-
+  if (metrics.providerInvokedRuns === 0) {
+    return { verdict: "BLOCKED", reasons: ["MODEL_INVOCATION_EVIDENCE_MISSING"] };
+  }
   if (runs.some((run) => run.revisionEvidence === "missing")) {
     return { verdict: "BLOCKED", reasons: ["MODEL_REVISION_EVIDENCE_MISSING"] };
+  }
+  if (!metrics.effectiveProviderConfigurationComplete && metrics.providerInvokedRuns > 0) {
+    return { verdict: "BLOCKED", reasons: ["EFFECTIVE_PROVIDER_CONFIGURATION_INCOMPLETE"] };
+  }
+  if (!metrics.telemetryWithinReservation && metrics.providerInvokedRuns > 0) {
+    return { verdict: "BLOCKED", reasons: ["TOKEN_TELEMETRY_BOUND_FAILED"] };
+  }
+  if (
+    config.thresholds.requireCompleteTokenTelemetry &&
+    metrics.measuredTokenRuns !== metrics.providerInvokedRuns
+  ) {
+    return { verdict: "BLOCKED", reasons: ["TOKEN_TELEMETRY_INCOMPLETE"] };
+  }
+
+  const reasons: string[] = [];
+  if (metrics.modelVerifierPasses === 0) {
+    reasons.push("MODEL_VERIFIER_PASS_EVIDENCE_MISSING");
   }
   if (runs.some((run) => run.revisionEvidence === "mismatched")) {
     reasons.push("MODEL_REVISION_MISMATCH");
@@ -344,18 +449,15 @@ const classifyCandidate = (
   }
   if (metrics.authorityViolations > 0) reasons.push("AUTHORITY_IMMUTABILITY_FAILED");
   if (!metrics.requestIdentityStable) reasons.push("REQUEST_IDENTITY_UNSTABLE");
+  if (!metrics.invocationStartIdentityStable) reasons.push("INVOCATION_START_IDENTITY_UNSTABLE");
+  if (!metrics.effectiveProviderConfigurationStable) {
+    reasons.push("EFFECTIVE_PROVIDER_CONFIGURATION_UNSTABLE");
+  }
   if (metrics.modelVerifierPassRate < config.thresholds.minModelVerifierPassRate) {
     reasons.push("MODEL_VERIFIER_PASS_RATE_FAILED");
   }
   if (metrics.fallbackRate > config.thresholds.maxFallbackRate) {
     reasons.push("FALLBACK_RATE_FAILED");
-  }
-
-  if (
-    config.thresholds.requireCompleteTokenTelemetry &&
-    metrics.measuredTokenRuns !== metrics.totalRuns
-  ) {
-    return { verdict: "BLOCKED", reasons: [...reasons, "TOKEN_TELEMETRY_INCOMPLETE"] };
   }
   if (config.thresholds.maxP95LatencyMs !== undefined) {
     if (metrics.p95LatencyMs === null) {
@@ -421,18 +523,21 @@ const runCandidate = async (
   const cases = [...CURRENT_SPINE_QUALIFICATION_CORPUS].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
-  // One candidate receives one shared reservation budget for the complete frozen
-  // case set and all repeated runs. A repeated call cannot reset spend authority.
-  const runBudget = createRuntimeDraftRunBudget(config.budgets.maxRunTokens);
+  let qualificationEpochReservedTokens = 0;
 
-  for (const item of cases) {
-    for (let runIndex = 1; runIndex <= config.k; runIndex += 1) {
+  // Each runIndex is one production-shaped batch with its own maxRunTokens cap.
+  // The separate offline epoch cap is enforced immediately before provider spend.
+  for (let runIndex = 1; runIndex <= config.k; runIndex += 1) {
+    const runBudget = createRuntimeDraftRunBudget(config.budgets.maxRunTokens);
+
+    for (const item of cases) {
       let request: RuntimeModelRequest | undefined;
       let invocationConfig: RuntimeModelInvocationConfig | undefined;
       let providerConfig: Record<string, unknown> | null = null;
       let invocationStart: HybridDraftInvocationStart | undefined;
       let providerErrorCode: string | undefined;
       let observedCallLatencyMs: number | null = null;
+      let qualificationEpochBudgetExceeded = false;
 
       const capturingClient = {
         async generate(modelRequest: RuntimeModelRequest, callConfig: RuntimeModelInvocationConfig) {
@@ -458,6 +563,14 @@ const runCandidate = async (
         modelClient: capturingClient,
         beforeModelInvoke: async (start) => {
           invocationStart = start;
+          if (
+            qualificationEpochReservedTokens + start.reservedRunTokens >
+            config.qualificationEpochMaxRunTokens
+          ) {
+            qualificationEpochBudgetExceeded = true;
+            throw new Error("QUALIFICATION_EPOCH_BUDGET_EXCEEDED");
+          }
+          qualificationEpochReservedTokens += start.reservedRunTokens;
         },
       });
 
@@ -530,13 +643,15 @@ const runCandidate = async (
         authorityImmutable: immutable,
         verifierPass,
         falseAccept,
-        failureCode: result.outcome.failureCode,
+        failureCode: qualificationEpochBudgetExceeded
+          ? "QUALIFICATION_EPOCH_BUDGET_EXCEEDED"
+          : result.outcome.failureCode,
         providerErrorCode,
-        latencyMs: telemetry?.latencyMs ?? observedCallLatencyMs,
-        inputTokens: telemetry?.inputTokens ?? null,
-        cachedInputTokens: telemetry?.cachedInputTokens ?? null,
-        outputTokens: telemetry?.outputTokens ?? null,
-        costUsd: costForRun(candidate, telemetry),
+        latencyMs: providerInvoked ? (telemetry?.latencyMs ?? observedCallLatencyMs) : null,
+        inputTokens: providerInvoked ? (telemetry?.inputTokens ?? null) : null,
+        cachedInputTokens: providerInvoked ? (telemetry?.cachedInputTokens ?? null) : null,
+        outputTokens: providerInvoked ? (telemetry?.outputTokens ?? null) : null,
+        costUsd: providerInvoked ? costForRun(candidate, telemetry) : null,
         acceptedArtifactHash,
         observedModelRevisionOrFingerprint: observedRevision ?? null,
         revisionEvidence,
@@ -544,7 +659,7 @@ const runCandidate = async (
     }
   }
 
-  const metrics = aggregateMetrics(runs, cases);
+  const metrics = aggregateMetrics(config, runs, cases);
   const classification = classifyCandidate(config, runs, metrics);
   return {
     candidate,
@@ -569,21 +684,18 @@ export async function runCurrentSpineModelQualification(
   }
 
   const verdict: QualificationOverallVerdict = candidateReports.some(
-    (candidate) => candidate.verdict === "BLOCKED",
+    (candidate) => candidate.verdict === "QUALIFIED",
   )
-    ? "BLOCKED"
-    : candidateReports.some((candidate) => candidate.verdict === "QUALIFIED")
-      ? "PASS"
+    ? "PASS"
+    : candidateReports.some((candidate) => candidate.verdict === "BLOCKED")
+      ? "BLOCKED"
       : "FAIL";
 
   return {
     contractVersion: P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
     corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
     corpusHash: CURRENT_SPINE_QUALIFICATION_CORPUS_HASH,
-    qualificationPolicyHash: hashQualificationMaterial({
-      ...config,
-      candidates: sortedCandidates,
-    }),
+    qualificationPolicyHash: hashQualificationMaterial(config),
     executionMode: "serial_offline",
     currentProductionWhatOwner: "deterministic",
     targetWhatHowMetricsStatus: "not_applicable_until_separately_authorized",

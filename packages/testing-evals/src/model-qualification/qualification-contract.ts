@@ -9,7 +9,7 @@ import {
   type RuntimeReasoningEffort,
 } from "agent-runtime";
 
-export const P4_MODEL_QUALIFICATION_CONTRACT_VERSION = "p4-model-qualification-v1";
+export const P4_MODEL_QUALIFICATION_CONTRACT_VERSION = "p4-model-qualification-v2";
 export const CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION =
   "current-spine-drafting-corpus-v1";
 
@@ -43,23 +43,17 @@ export interface QualificationBudgets {
   maxInputTokens: number;
   maxSignals: number;
   maxConcurrent: number;
-  /** Shared candidate-level reservation budget across every case and k-run. */
+  /** Production-shaped shared reservation cap for one simulated batch. */
   maxRunTokens: number;
   maxEvidenceAgeDays: number;
 }
 
 export interface QualificationThresholds {
-  /** Product-owned effectiveness threshold. The harness supplies no default. */
   minModelVerifierPassRate: number;
-  /** Product-owned reliability threshold. The harness supplies no default. */
   maxFallbackRate: number;
-  /** Mandatory safety threshold. Incorrect accepted candidates are not allowed. */
   maxFalseAcceptRate: 0;
-  /** Require provider token telemetry for every attempted model call. */
   requireCompleteTokenTelemetry: boolean;
-  /** Optional product-owned latency threshold. */
   maxP95LatencyMs?: number;
-  /** Optional product-owned economic threshold. Requires locked pricing and token telemetry. */
   maxCostPerVerifiedPassUsd?: number;
 }
 
@@ -68,13 +62,15 @@ export interface ModelQualificationConfig {
   corpusVersion: typeof CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION;
   k: number;
   fallback: "template" | "hold";
+  /** Offline candidate-epoch reservation cap. It is separate from production maxRunTokens. */
+  qualificationEpochMaxRunTokens: number;
   budgets: QualificationBudgets;
   thresholds: QualificationThresholds;
   candidates: QualificationCandidate[];
 }
 
 export interface QualificationResolvedClient {
-  /** Runtime credential. It must never be copied into the qualification report. */
+  /** Runtime credential. It must never be copied into qualification evidence. */
   credential: string;
   client: RuntimeModelClient;
   effectiveProviderConfiguration: (
@@ -117,11 +113,7 @@ const boundedSafeInteger = (
   min: number,
   max: number,
 ): number => {
-  if (
-    !Number.isSafeInteger(value) ||
-    (value as number) < min ||
-    (value as number) > max
-  ) {
+  if (!Number.isSafeInteger(value) || (value as number) < min || (value as number) > max) {
     throw new Error(`${path} must be a safe integer from ${min} through ${max}.`);
   }
   return value as number;
@@ -251,8 +243,7 @@ export function parseModelQualificationConfig(value: unknown): ModelQualificatio
 
   const budgetsRaw = asRecord(raw.budgets, "budgets");
   const thresholdsRaw = asRecord(raw.thresholds, "thresholds");
-  const candidatesRaw = raw.candidates;
-  if (!Array.isArray(candidatesRaw) || candidatesRaw.length === 0) {
+  if (!Array.isArray(raw.candidates) || raw.candidates.length === 0) {
     throw new Error("candidates must contain at least one candidate.");
   }
   if (thresholdsRaw.maxFalseAcceptRate !== 0) {
@@ -262,15 +253,14 @@ export function parseModelQualificationConfig(value: unknown): ModelQualificatio
     throw new Error("thresholds.requireCompleteTokenTelemetry must be boolean.");
   }
 
-  const candidates = candidatesRaw.map(parseCandidate);
+  const candidates = raw.candidates.map(parseCandidate);
   const ids = new Set<string>();
   for (const candidate of candidates) {
     if (ids.has(candidate.id)) throw new Error(`Duplicate candidate id: ${candidate.id}`);
     ids.add(candidate.id);
   }
 
-  const fallback = raw.fallback;
-  if (fallback !== "template" && fallback !== "hold") {
+  if (raw.fallback !== "template" && raw.fallback !== "hold") {
     throw new Error("fallback must be template or hold.");
   }
 
@@ -278,7 +268,11 @@ export function parseModelQualificationConfig(value: unknown): ModelQualificatio
     contractVersion: P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
     corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
     k: positiveSafeInteger(raw.k, "k"),
-    fallback,
+    fallback: raw.fallback,
+    qualificationEpochMaxRunTokens: positiveSafeInteger(
+      raw.qualificationEpochMaxRunTokens,
+      "qualificationEpochMaxRunTokens",
+    ),
     budgets: {
       timeoutMs: boundedSafeInteger(budgetsRaw.timeoutMs, "budgets.timeoutMs", 250, 30000),
       maxOutputTokens: boundedSafeInteger(

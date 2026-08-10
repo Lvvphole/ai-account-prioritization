@@ -1,0 +1,77 @@
+{
+  "version": 2,
+  "fixtureId": "acceptance-a-crm-derived-synthetic-v2",
+  "purpose": "Non-production Acceptance A only",
+  "source": {
+    "originalFile": "sales_pipeline_ingestion_constrained_11000.csv",
+    "sha256": "34e7acfbf58740f057cc5b10da49ad6d03f1aae8376d1b8101b6ef9944b29692",
+    "rows": 11000
+  },
+  "sourceShape": {
+    "ownerCount": 30,
+    "resolvedAccountReferenceRows": 9200,
+    "uniqueResolvedAccounts": 125,
+    "unresolvedMissingAccountRows": 1800,
+    "resolvedStageCounts": {
+      "closed_won": 5275,
+      "closed_lost": 3090,
+      "qualification": 633,
+      "discovery": 202
+    },
+    "unresolvedStageCounts": {
+      "qualification": 1376,
+      "discovery": 424
+    },
+    "resolvedLifecycleCounts": {
+      "open_opportunity": 98,
+      "customer": 26,
+      "dormant": 1
+    },
+    "unresolvedOwnerCounts": [52, 7, 14, 16, 30, 31, 40, 41, 43, 46, 48, 48, 53, 56, 60, 64, 66, 67, 68, 69, 72, 73, 73, 74, 75, 81, 86, 92, 93, 162]
+  },
+  "generated": {
+    "csvSha256": "32fdb3314796f7fc719bebc649c5829f9f205d45d72a623337263ffe540c5dd1",
+    "csvBytes": 2279978,
+    "rows": 14850,
+    "accounts": 1925,
+    "accountHealth": 1925,
+    "opportunities": 11000,
+    "owners": 30,
+    "totalOpenPipelineUsd": 260152000
+  },
+  "durableRepresentative": {
+    "ownerId": "33333333-3333-3333-3333-333333333333",
+    "sourceUnresolvedOpportunityCount": 52
+  },
+  "fabrication": {
+    "sourceDataRetention": "No customer/source rows are committed to the repository. Only source-derived cardinalities and distributions plus the approved source hash are retained.",
+    "missingAccountExternalId": "Create one unique synthetic test account per unresolved opportunity; do not merge unknown accounts.",
+    "resolvedAccounts": "Represent the 125 source-resolved accounts as de-identified deterministic test account slots.",
+    "ownerId": "Use 30 deterministic synthetic owner ids; one owner uses the existing Acceptance A durable test principal.",
+    "resolvedAccountOwner": "Assign resolved account slots round-robin across the 30 synthetic owners because the source file has opportunity sales_agent values, not an independent authoritative account-owner field.",
+    "tier": "Uniform mid_market synthetic default so fabricated tier does not create relative rank differences.",
+    "lifecycleStage": "Generate the source-derived 98 open, 26 customer, and 1 dormant resolved-account shape; every unresolved synthetic account is open_opportunity.",
+    "employeeCount": "Uniform synthetic value 1000 to exercise schema/completeness without affecting current scoring.",
+    "healthScore": "Uniform synthetic value 50 with flat usage and 0 tickets; no relative health ranking bias.",
+    "amountUsd": "Generate deterministic non-negative test amounts; the source had 2635 missing close values on all open opportunities.",
+    "closeDate": "Use one fixed valid test date for closed opportunities; open opportunity close dates remain empty.",
+    "contacts": "None fabricated.",
+    "activities": "None fabricated; no fabricated interaction is marked verified."
+  },
+  "runtimeMaterialization": {
+    "internalRecordIds": "Deterministic UUIDs derived from generated external ids.",
+    "opportunityProbability": "Use the canonical Opportunity schema default (0); probability does not influence current account scoring.",
+    "isClosed": "Derived from stage: closed_won or closed_lost => true; otherwise false.",
+    "isWon": "Derived from stage: closed_won => true; otherwise false.",
+    "createdAtUpdatedAt": "Use fixed Acceptance A clock 2026-08-03T07:00:00.000Z.",
+    "contacts": "Empty.",
+    "activities": "Empty."
+  },
+  "safety": {
+    "productionUse": false,
+    "syntheticFixture": true,
+    "humanApprovedFabrication": true,
+    "approvalInvariantBypassed": false,
+    "verifiedInteractionEvidenceFabricated": false
+  }
+}

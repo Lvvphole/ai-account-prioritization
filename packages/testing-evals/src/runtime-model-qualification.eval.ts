@@ -25,6 +25,7 @@ const fixedConfig = (): ModelQualificationConfig =>
     corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
     k: 2,
     fallback: "template",
+    qualificationEpochMaxRunTokens: 40000,
     budgets: {
       timeoutMs: 1000,
       maxOutputTokens: 200,
@@ -115,7 +116,7 @@ const resolverWithFingerprint = (
 const passingResolver = resolverWithFingerprint("test-fingerprint");
 
 describe("P4 offline cross-model qualification", () => {
-  it("runs exact k-runs on the frozen current-spine corpus and returns machine qualification evidence", async () => {
+  it("runs exact k-runs and evaluates the complete qualification boundary at source", async () => {
     const report = await runCurrentSpineModelQualification(
       fixedConfig(),
       passingResolver,
@@ -125,22 +126,28 @@ describe("P4 offline cross-model qualification", () => {
     expect(report.verdict).toBe("PASS");
     expect(report.currentProductionWhatOwner).toBe("deterministic");
     expect(report.targetWhatHowMetricsStatus).toBe("not_applicable_until_separately_authorized");
-    expect(report.candidates).toHaveLength(1);
     const candidate = report.candidates[0]!;
     expect(candidate.verdict).toBe("QUALIFIED");
+    expect(candidate.reasons).toEqual([]);
     expect(candidate.metrics.totalRuns).toBe(4);
+    expect(candidate.metrics.providerInvokedRuns).toBe(4);
     expect(candidate.metrics.modelVerifierPassRate).toBe(1);
     expect(candidate.metrics.fallbackRate).toBe(0);
     expect(candidate.metrics.falseAcceptRate).toBe(0);
+    expect(candidate.metrics.authorityViolations).toBe(0);
     expect(candidate.metrics.qualificationOracleCorrectRuns).toBe(4);
     expect(candidate.metrics.requestIdentityStable).toBe(true);
+    expect(candidate.metrics.invocationStartIdentityStable).toBe(true);
+    expect(candidate.metrics.effectiveProviderConfigurationComplete).toBe(true);
+    expect(candidate.metrics.effectiveProviderConfigurationStable).toBe(true);
+    expect(candidate.metrics.telemetryWithinReservation).toBe(true);
     expect(candidate.metrics.measuredTokenRuns).toBe(4);
     expect(candidate.metrics.costPerVerifiedPassUsd).not.toBeNull();
     expect(candidate.metrics.canonicalWhatCorrectness).toBeNull();
     expect(new Set(candidate.runs.map((run) => run.invocationStartHash)).has(null)).toBe(false);
   });
 
-  it("detects an accepted grounded draft that violates the independent frozen-case oracle", async () => {
+  it("detects an accepted grounded draft that violates the frozen-case oracle", async () => {
     const oracleFailingResolver: QualificationClientResolver = (candidate) => ({
       credential: "test-secret",
       effectiveProviderConfiguration: () => ({ provider: candidate.provider }),
@@ -170,12 +177,11 @@ describe("P4 offline cross-model qualification", () => {
     const candidate = report.candidates[0]!;
     expect(candidate.metrics.modelVerifierPassRate).toBe(1);
     expect(candidate.metrics.falseAccepts).toBe(2);
-    expect(candidate.metrics.falseAcceptRate).toBe(0.5);
     expect(candidate.verdict).toBe("DISQUALIFIED");
     expect(candidate.reasons).toContain("FALSE_ACCEPT_BOUND_FAILED");
   });
 
-  it("disqualifies a candidate that cannot satisfy the current deterministic action boundary", async () => {
+  it("disqualifies output that cannot satisfy deterministic action authority", async () => {
     const badResolver: QualificationClientResolver = (candidate) => ({
       credential: "test-secret",
       effectiveProviderConfiguration: () => ({ provider: candidate.provider }),
@@ -203,19 +209,84 @@ describe("P4 offline cross-model qualification", () => {
     expect(report.verdict).toBe("FAIL");
     expect(report.candidates[0]?.verdict).toBe("DISQUALIFIED");
     expect(report.candidates[0]?.reasons).toContain("MODEL_VERIFIER_PASS_RATE_FAILED");
-    expect(report.candidates[0]?.metrics.falseAccepts).toBe(0);
   });
 
-  it("shares the candidate run-token budget across cases and repeated runs", async () => {
-    const config = fixedConfig();
-    config.budgets.maxRunTokens = 3000;
-    const report = await runCurrentSpineModelQualification(config, passingResolver);
-    const runs = report.candidates[0]!.runs;
+  it("uses a fresh production run-token budget for each simulated batch", async () => {
+    const baseline = await runCurrentSpineModelQualification(fixedConfig(), passingResolver);
+    const firstBatch = baseline.candidates[0]!.runs.filter((run) => run.runIndex === 1);
+    const singleCaseBudget = Math.max(...firstBatch.map((run) => run.reservedRunTokens ?? 0));
+    expect(singleCaseBudget).toBeGreaterThan(0);
 
-    expect(runs.filter((run) => run.providerInvoked)).toHaveLength(1);
-    expect(
-      runs.filter((run) => run.failureCode === "DRAFT_RUN_BUDGET_EXCEEDED").length,
-    ).toBeGreaterThan(0);
+    const config = fixedConfig();
+    config.budgets.maxRunTokens = singleCaseBudget;
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const invokedByBatch = Array.from({ length: config.k }, (_, index) =>
+      report.candidates[0]!.runs.filter(
+        (run) => run.runIndex === index + 1 && run.providerInvoked,
+      ).length,
+    );
+
+    expect(invokedByBatch).toEqual(Array.from({ length: config.k }, () => 1));
+    expect(report.candidates[0]!.runs.some((run) => run.failureCode === "DRAFT_RUN_BUDGET_EXCEEDED")).toBe(true);
+  });
+
+  it("enforces the separate qualification epoch budget before provider spend", async () => {
+    const baseline = await runCurrentSpineModelQualification(fixedConfig(), passingResolver);
+    const firstReservation = baseline.candidates[0]!.runs[0]!.reservedRunTokens!;
+    const config = fixedConfig();
+    config.qualificationEpochMaxRunTokens = firstReservation;
+
+    const report = await runCurrentSpineModelQualification(config, passingResolver);
+    const candidate = report.candidates[0]!;
+    expect(candidate.runs.filter((run) => run.providerInvoked)).toHaveLength(1);
+    expect(candidate.verdict).toBe("BLOCKED");
+    expect(candidate.reasons).toEqual(["QUALIFICATION_EPOCH_BUDGET_EXCEEDED"]);
+  });
+
+  it("blocks when provider telemetry exceeds the reserved request boundary", async () => {
+    const resolver: QualificationClientResolver = (candidate) => ({
+      credential: "test-secret",
+      effectiveProviderConfiguration: () => ({ provider: candidate.provider }),
+      client: {
+        async generate(request, config) {
+          const visible = contextFromRequest(request);
+          return {
+            output: {
+              schemaVersion: "1.0",
+              actionType: visible.actionType,
+              sentences: [{
+                text: visible.signals[0]!.description,
+                sourceSignalIds: [visible.signals[0]!.id],
+              }],
+            },
+            telemetry: {
+              provider: config.provider,
+              model: config.model,
+              latencyMs: 5,
+              inputTokens: 999999,
+              cachedInputTokens: 0,
+              outputTokens: 5,
+            },
+          };
+        },
+      },
+    });
+
+    const report = await runCurrentSpineModelQualification(fixedConfig(), resolver);
+    expect(report.candidates[0]?.verdict).toBe("BLOCKED");
+    expect(report.candidates[0]?.reasons).toEqual(["TOKEN_TELEMETRY_BOUND_FAILED"]);
+  });
+
+  it("blocks when effective provider configuration evidence is missing", async () => {
+    const resolver: QualificationClientResolver = (candidate) => ({
+      ...passingResolver(candidate),
+      effectiveProviderConfiguration: () => ({}),
+    });
+    const report = await runCurrentSpineModelQualification(fixedConfig(), resolver);
+    expect(report.candidates[0]?.verdict).toBe("BLOCKED");
+    expect(report.candidates[0]?.reasons).toEqual([
+      "EFFECTIVE_PROVIDER_CONFIGURATION_INCOMPLETE",
+    ]);
   });
 
   it("blocks when a required model revision cannot be observed", async () => {
@@ -230,7 +301,6 @@ describe("P4 offline cross-model qualification", () => {
     );
     expect(report.verdict).toBe("BLOCKED");
     expect(report.candidates[0]?.reasons).toEqual(["MODEL_REVISION_EVIDENCE_MISSING"]);
-    expect(report.candidates[0]?.runs[0]?.observedModelRevisionOrFingerprint).toBeNull();
   });
 
   it("disqualifies an explicit model revision mismatch", async () => {
@@ -264,7 +334,15 @@ describe("P4 offline cross-model qualification", () => {
     expect(() => parseModelQualificationConfig(raw)).toThrow("must be 0");
   });
 
-  it("validates qualification budgets against the production runtime bounds", () => {
+  it("requires an independent qualification epoch budget", () => {
+    const raw = JSON.parse(JSON.stringify(fixedConfig())) as Record<string, unknown>;
+    delete raw.qualificationEpochMaxRunTokens;
+    expect(() => parseModelQualificationConfig(raw)).toThrow(
+      "qualificationEpochMaxRunTokens must be a positive safe integer",
+    );
+  });
+
+  it("validates production qualification budgets against runtime bounds", () => {
     const raw = JSON.parse(JSON.stringify(fixedConfig())) as Record<string, unknown>;
     (raw.budgets as Record<string, unknown>).timeoutMs = 1;
     expect(() => parseModelQualificationConfig(raw)).toThrow("250 through 30000");

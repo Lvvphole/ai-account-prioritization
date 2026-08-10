@@ -1,0 +1,56 @@
+{
+  "contractVersion": "p4-model-qualification-v2",
+  "corpusVersion": "current-spine-drafting-corpus-v1",
+  "k": 30,
+  "fallback": "template",
+  "qualificationEpochMaxRunTokens": 172650,
+  "budgets": {
+    "timeoutMs": 5000,
+    "maxOutputTokens": 600,
+    "maxInputTokens": 4000,
+    "maxSignals": 6,
+    "maxConcurrent": 4,
+    "maxRunTokens": 20000,
+    "maxEvidenceAgeDays": 90
+  },
+  "thresholds": {
+    "minModelVerifierPassRate": 1,
+    "maxFallbackRate": 0,
+    "maxFalseAcceptRate": 0,
+    "requireCompleteTokenTelemetry": true
+  },
+  "candidates": [
+    {
+      "id": "anthropic-haiku-4-5-default",
+      "provider": "anthropic",
+      "modelId": "claude-haiku-4-5-20251001",
+      "reasoningProfile": "provider_default",
+      "structuredOutputProfile": "json_schema",
+      "toolSchemaProfile": "not_applicable_current_spine",
+      "samplingProfile": "provider_default",
+      "credentialEnv": "ANTHROPIC_API_KEY",
+      "pricing": {
+        "inputUsdPerMillionTokens": 1,
+        "outputUsdPerMillionTokens": 5,
+        "effectiveDate": "2026-08-09",
+        "source": "Anthropic Claude Platform pricing verified 2026-08-09"
+      }
+    },
+    {
+      "id": "anthropic-sonnet-4-6-low",
+      "provider": "anthropic",
+      "modelId": "claude-sonnet-4-6",
+      "reasoningProfile": "low",
+      "structuredOutputProfile": "json_schema",
+      "toolSchemaProfile": "not_applicable_current_spine",
+      "samplingProfile": "provider_default",
+      "credentialEnv": "ANTHROPIC_API_KEY",
+      "pricing": {
+        "inputUsdPerMillionTokens": 3,
+        "outputUsdPerMillionTokens": 15,
+        "effectiveDate": "2026-08-09",
+        "source": "Anthropic Claude Platform pricing verified 2026-08-09"
+      }
+    }
+  ]
+}
