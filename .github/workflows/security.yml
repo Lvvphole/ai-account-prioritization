@@ -22,6 +22,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # Gate 1: inspect the committed workflow tree before repository-controlled
+      # install, generation, build, or verification code can modify the checkout.
+      - name: Audit GitHub Actions workflows before repository code
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          version: 1.29.0
+          persona: auditor
+          online-audits: false
+          advanced-security: false
+          annotations: true
+
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
@@ -34,8 +45,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Gate 1: no committed secrets (Rule #30). Runs BEFORE any step that can
-      # rewrite tracked files, so it reflects the committed tree.
+      # Gate 2: no committed secrets (Rule #30).
       - name: Secret scan
         run: pnpm scan:secrets
 
@@ -46,14 +56,14 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # Gate 2: workflow audit, RBAC, approval policy, and PII controls.
+      # Gate 3: root-executable workflow audit, RBAC, approval policy, and PII controls.
       - name: Verify security controls
         run: pnpm verify:security
 
-      # Gate 3: Prisma stays excluded (Execution Rule #28).
+      # Gate 4: Prisma stays excluded (Execution Rule #28).
       - name: Check no Prisma
         run: pnpm check:no-prisma
 
-      # Gate 4: PII-safe in-product observability package.
+      # Gate 5: PII-safe in-product observability package.
       - name: Verify observability package
         run: pnpm verify:observability
