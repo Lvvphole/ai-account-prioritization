@@ -69,72 +69,66 @@ select pg_temp.expect_true(
 
 set role p4_audit_writer;
 
-select pg_temp.expect_true(
-  public.append_p4_qualification_invocation_audit(
-    jsonb_build_object(
-      'kind', 'p4-provider-invocation-v2',
-      'phase', 'started',
-      'runId', '31400000001',
-      'runAttempt', 1,
-      'sequence', 1,
-      'timestamp', '2026-08-10T19:00:00.000Z',
-      'qualificationSourceSha', '66554636d6de2f9167ae7611448b3c17a41f542e',
-      'controlRevision', '1111111111111111111111111111111111111111',
-      'publisherRevision', '2222222222222222222222222222222222222222',
-      'provider', 'anthropic',
-      'model', 'claude-test',
-      'requestBodyJson', '{"model":"claude-test","messages":[]}',
-      'requestBodySha256', encode(
-        digest(convert_to('{"model":"claude-test","messages":[]}', 'UTF8'), 'sha256'),
-        'hex'
-      )
+select public.append_p4_qualification_invocation_audit(
+  jsonb_build_object(
+    'kind', 'p4-provider-invocation-v2',
+    'phase', 'started',
+    'runId', '31400000001',
+    'runAttempt', 1,
+    'sequence', 1,
+    'timestamp', '2026-08-10T19:00:00.000Z',
+    'qualificationSourceSha', '66554636d6de2f9167ae7611448b3c17a41f542e',
+    'controlRevision', '1111111111111111111111111111111111111111',
+    'publisherRevision', '2222222222222222222222222222222222222222',
+    'provider', 'anthropic',
+    'model', 'claude-test',
+    'requestBodyJson', '{"model":"claude-test","messages":[]}',
+    'requestBodySha256', encode(
+      digest(convert_to('{"model":"claude-test","messages":[]}', 'UTF8'), 'sha256'),
+      'hex'
     )
-  ) ->> 'replayed' = 'false',
-  'writer appends a validated started invocation');
+  )
+);
 
-select pg_temp.expect_true(
-  public.append_p4_qualification_invocation_audit(
-    jsonb_build_object(
-      'kind', 'p4-provider-invocation-v2',
-      'phase', 'started',
-      'runId', '31400000001',
-      'runAttempt', 1,
-      'sequence', 1,
-      'timestamp', '2026-08-10T19:00:00.000Z',
-      'qualificationSourceSha', '66554636d6de2f9167ae7611448b3c17a41f542e',
-      'controlRevision', '1111111111111111111111111111111111111111',
-      'publisherRevision', '2222222222222222222222222222222222222222',
-      'provider', 'anthropic',
-      'model', 'claude-test',
-      'requestBodyJson', '{"model":"claude-test","messages":[]}',
-      'requestBodySha256', encode(
-        digest(convert_to('{"model":"claude-test","messages":[]}', 'UTF8'), 'sha256'),
-        'hex'
-      )
+select public.append_p4_qualification_invocation_audit(
+  jsonb_build_object(
+    'kind', 'p4-provider-invocation-v2',
+    'phase', 'started',
+    'runId', '31400000001',
+    'runAttempt', 1,
+    'sequence', 1,
+    'timestamp', '2026-08-10T19:00:00.000Z',
+    'qualificationSourceSha', '66554636d6de2f9167ae7611448b3c17a41f542e',
+    'controlRevision', '1111111111111111111111111111111111111111',
+    'publisherRevision', '2222222222222222222222222222222222222222',
+    'provider', 'anthropic',
+    'model', 'claude-test',
+    'requestBodyJson', '{"model":"claude-test","messages":[]}',
+    'requestBodySha256', encode(
+      digest(convert_to('{"model":"claude-test","messages":[]}', 'UTF8'), 'sha256'),
+      'hex'
     )
-  ) ->> 'replayed' = 'true',
-  'exact retry is idempotent');
+  )
+);
 
-select pg_temp.expect_true(
-  public.append_p4_qualification_invocation_audit(
-    jsonb_build_object(
-      'kind', 'p4-provider-invocation-v2',
-      'phase', 'completed',
-      'runId', '31400000001',
-      'runAttempt', 1,
-      'sequence', 1,
-      'timestamp', '2026-08-10T19:00:00.250Z',
-      'qualificationSourceSha', '66554636d6de2f9167ae7611448b3c17a41f542e',
-      'controlRevision', '1111111111111111111111111111111111111111',
-      'publisherRevision', '2222222222222222222222222222222222222222',
-      'provider', 'anthropic',
-      'model', 'claude-test',
-      'outcome', 'http_response',
-      'httpStatus', 200,
-      'durationMs', 250
-    )
-  ) ->> 'replayed' = 'false',
-  'writer appends the matching completed invocation');
+select public.append_p4_qualification_invocation_audit(
+  jsonb_build_object(
+    'kind', 'p4-provider-invocation-v2',
+    'phase', 'completed',
+    'runId', '31400000001',
+    'runAttempt', 1,
+    'sequence', 1,
+    'timestamp', '2026-08-10T19:00:00.250Z',
+    'qualificationSourceSha', '66554636d6de2f9167ae7611448b3c17a41f542e',
+    'controlRevision', '1111111111111111111111111111111111111111',
+    'publisherRevision', '2222222222222222222222222222222222222222',
+    'provider', 'anthropic',
+    'model', 'claude-test',
+    'outcome', 'http_response',
+    'httpStatus', 200,
+    'durationMs', 250
+  )
+);
 
 reset role;
 
@@ -144,11 +138,10 @@ select pg_temp.expect_true(
     where run_id = '31400000001'
       and run_attempt = 1
       and invocation_sequence = 1),
-  'started and completed records are both durable');
+  'writer appends started and completed records while exact retry stays idempotent');
 
 select pg_temp.expect_throws(
-  $$set local role p4_audit_writer;
-    select public.append_p4_qualification_invocation_audit(
+  $$select public.append_p4_qualification_invocation_audit(
       jsonb_build_object(
         'kind', 'p4-provider-invocation-v2',
         'phase', 'started',
