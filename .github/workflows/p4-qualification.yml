@@ -101,9 +101,10 @@ jobs:
 
           test -f "$P4_QUALIFICATION_REPORT"
           test -f p4-output/qualification-outcome.txt
+          qualification_outcome="$(cat p4-output/qualification-outcome.txt)"
 
           assets=("$P4_QUALIFICATION_REPORT")
-          if [ -f "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" ]; then
+          if [ "$qualification_outcome" = "success" ] && [ -f "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" ]; then
             assets+=("$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT")
           fi
 
@@ -121,10 +122,10 @@ jobs:
           gh release verify-asset "$P4_QUALIFICATION_RELEASE_TAG" \
             "$P4_QUALIFICATION_REPORT" \
             --repo "$GITHUB_REPOSITORY"
-          if [ -f "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" ]; then
+          if [ "$qualification_outcome" = "success" ] && [ -f "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" ]; then
             gh release verify-asset "$P4_QUALIFICATION_RELEASE_TAG" \
               "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" \
               --repo "$GITHUB_REPOSITORY"
           fi
 
-          test "$(cat p4-output/qualification-outcome.txt)" = "success"
+          test "$qualification_outcome" = "success"
