@@ -12,6 +12,7 @@ concurrency:
 
 env:
   P4_QUALIFICATION_SOURCE_SHA: 66554636d6de2f9167ae7611448b3c17a41f542e
+  P4_PUBLISHER_REVISION: e561e3f3a0773683e1e821ff1877ff439737bdc7
 
 jobs:
   qualify:
@@ -25,12 +26,18 @@ jobs:
     env:
       P4_TRANSFER_ARTIFACT: p4-qualification-transfer-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Verify immutable releases are enabled
+      - name: Verify live qualification prerequisites
         env:
           GH_TOKEN: ${{ secrets.P4_REPOSITORY_ADMIN_READ_TOKEN }}
+          P4_AUDIT_SUPABASE_URL: ${{ vars.P4_AUDIT_SUPABASE_URL }}
+          P4_AUDIT_SUPABASE_PUBLISHABLE_KEY: ${{ vars.P4_AUDIT_SUPABASE_PUBLISHABLE_KEY }}
+          P4_AUDIT_WRITER_TOKEN: ${{ secrets.P4_AUDIT_WRITER_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$GH_TOKEN"
+          test -n "$P4_AUDIT_SUPABASE_URL"
+          test -n "$P4_AUDIT_SUPABASE_PUBLISHABLE_KEY"
+          test -n "$P4_AUDIT_WRITER_TOKEN"
           immutable_enabled="$(
             gh api \
               --header 'Accept: application/vnd.github+json' \
@@ -77,6 +84,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.P4_ANTHROPIC_API_KEY }}
           P4_ADMISSION_DECISION_OWNER: ${{ vars.P4_ADMISSION_DECISION_OWNER }}
           P4_ADMISSION_DECISION_REF: ${{ vars.P4_ADMISSION_DECISION_REF }}
+          P4_AUDIT_SUPABASE_URL: ${{ vars.P4_AUDIT_SUPABASE_URL }}
+          P4_AUDIT_SUPABASE_PUBLISHABLE_KEY: ${{ vars.P4_AUDIT_SUPABASE_PUBLISHABLE_KEY }}
+          P4_AUDIT_WRITER_TOKEN: ${{ secrets.P4_AUDIT_WRITER_TOKEN }}
         run: >-
           node "$GITHUB_WORKSPACE/.p4-control/scripts/p4-qualification-evidence.mjs"
           run --source-dir "$GITHUB_WORKSPACE/.p4-source"
@@ -100,6 +110,6 @@ jobs:
       actions: read # Needed only to read this run's bounded transfer artifact.
     steps:
       - name: Publish verified P4 evidence contract
-        uses: Lvvphole/ai-account-prioritization/.github/actions/p4-publish@1b08a69c734701759e69e61e5d50cd274701d013
+        uses: Lvvphole/ai-account-prioritization/.github/actions/p4-publish@e561e3f3a0773683e1e821ff1877ff439737bdc7
         with:
           qualification-source-sha: ${{ env.P4_QUALIFICATION_SOURCE_SHA }}
