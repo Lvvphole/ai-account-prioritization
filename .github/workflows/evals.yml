@@ -6,20 +6,24 @@ on:
   pull_request:
     branches: ["**"]
   workflow_dispatch:
-    inputs:
-      enable_judge:
-        description: "Run the async LLM-as-a-judge gate"
-        type: boolean
-        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deterministic:
     name: Deterministic Evals
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: pnpm
@@ -32,24 +36,25 @@ jobs:
         run: pnpm test:evals
 
   judge:
-    name: Async LLM-as-a-Judge (non-runtime)
+    name: Async Judge Eval (offline/local)
     runs-on: ubuntu-latest
     needs: deterministic
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm generate:schemas
       - run: pnpm build
-      - name: Judge eval gate (deployment-blocking)
+      - name: Judge eval gate (offline/local)
         env:
-          # When the secret is absent, the judge degrades to a deterministic
-          # heuristic so this gate is always runnable.
+          # CI does not expose a provider credential to this branch-triggered workflow.
+          # Without a provider key, test:judge uses its deterministic heuristic fallback.
+          # This result is not evidence that a deployment model judge passed.
           EVAL_JUDGE_ENABLED: "true"
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVAL_JUDGE_MODEL: claude-opus-4-8
         run: pnpm test:judge
