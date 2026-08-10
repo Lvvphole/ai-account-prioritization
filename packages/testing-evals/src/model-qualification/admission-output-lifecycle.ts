@@ -51,7 +51,12 @@ export function prepareQualificationOutputPaths(
  * provider tokens. Current P4 does not hot-replace or revoke an active admission.
  */
 export function prepareProductionAdmissionOutput(admissionPath: string): void {
-  validateUnusedCreatableOutput(admissionPath, "Production admission output");
+  if (existsSync(admissionPath)) {
+    throw new Error(
+      `Production admission output already exists at ${admissionPath}. Current P4 does not hot-replace or revoke active admissions. Choose a new unused P4_PRODUCTION_MODEL_ADMISSION_OUTPUT path.`,
+    );
+  }
+  validateOutputParentCreatable(admissionPath);
 }
 
 const writeImmutableOutput = (path: string, serialized: string): void => {
