@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Verify the security package and that the runtime's approval gate delegates to
-# it (no silent re-implementation or weakening of the human-approval gate).
-echo "==> Verify security package & approval-gate delegation"
+# Verify GitHub Actions workflow safety, the security package, and the runtime's
+# approval-gate delegation. The checks fail closed on deterministic violations.
+echo "==> Verify security controls"
 
 required_files=(
+  "scripts/verify-github-actions.sh"
   "packages/security/package.json"
   "packages/security/src/index.ts"
   "packages/security/src/rbac.ts"
@@ -20,6 +21,8 @@ for file in "${required_files[@]}"; do
     exit 1
   fi
 done
+
+bash scripts/verify-github-actions.sh
 
 # Guard: the runtime permission gate must delegate to @repo/security, and the
 # canonical approval policy must fail closed (approved-only).
@@ -39,4 +42,4 @@ pnpm --filter @repo/security build
 pnpm --filter @repo/security typecheck
 pnpm --filter @repo/security test
 
-echo "PASSED: security package present, fail-closed, and wired into the runtime."
+echo "PASSED: security controls, package, and approval-gate delegation."
