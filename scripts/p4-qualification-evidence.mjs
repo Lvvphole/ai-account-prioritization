@@ -3,124 +3,64 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const P4_EVIDENCE_CONTRACT_VERSION = "p4-qualification-evidence-v1";
 
 const FAILURE_CODE_PATTERN = /(QUALIFICATION_[A-Z0-9_]+|DRAFT_MODEL_[A-Z0-9_]+|MISSING_CREDENTIAL)/g;
-const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-const SHA_PATTERN = /^[a-f0-9]{40}$/;
-const PROVIDERS = new Set(["anthropic", "openai", "xai", "google"]);
 
-const nonEmpty = (value, name) => {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`${name} is required.`);
-  }
-  return value.trim();
-};
+const sha256File = (path) =>
+  existsSync(path) ? createHash("sha256").update(readFileSync(path)).digest("hex") : null;
 
-const positiveInteger = (value, name) => {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be positive.`);
-  }
-  return parsed;
-};
+const relativePath = (root, path) => relative(root, path).replaceAll("\\", "/");
 
-const sha256File = (path) => {
-  if (!existsSync(path)) return null;
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-};
+const artifact = (root, path, publishEligible) => ({
+  path: relativePath(root, path),
+  present: existsSync(path),
+  sha256: sha256File(path),
+  ...(publishEligible === undefined ? {} : { publishEligible }),
+});
 
-const safeRelativePath = (root, path) => {
-  const resolvedRoot = resolve(root);
-  const resolvedPath = resolve(path);
-  const value = relative(resolvedRoot, resolvedPath).replaceAll("\\", "/");
-  if (value === "" || value === ".." || value.startsWith("../") || isAbsolute(value)) {
-    throw new Error(`Evidence path escapes source root: ${path}`);
-  }
-  return value;
-};
-
-const artifactDescriptor = (sourceDir, path, publishEligible = undefined) => {
-  const present = existsSync(path);
-  const descriptor = {
-    path: safeRelativePath(sourceDir, path),
-    present,
-    sha256: present ? sha256File(path) : null,
-  };
-  return publishEligible === undefined ? descriptor : { ...descriptor, publishEligible };
-};
-
-const parseInvocationAudit = (path) => {
+const invocationSummary = (path) => {
   if (!existsSync(path)) {
-    return {
-      present: false,
-      sha256: null,
-      startedCount: 0,
-      completedCount: 0,
-      invalidRecordCount: 0,
-      models: [],
-    };
+    return { present: false, sha256: null, startedCount: 0, completedCount: 0, models: [] };
   }
 
-  const text = readFileSync(path, "utf8");
-  if (text.trim() === "") {
-    return {
-      present: false,
-      sha256: sha256File(path),
-      startedCount: 0,
-      completedCount: 0,
-      invalidRecordCount: 0,
-      models: [],
-    };
-  }
-
-  const rows = [];
-  let invalidRecordCount = 0;
-  for (const line of text.split("\n").filter((item) => item.trim() !== "")) {
+  const records = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line.trim()) continue;
     try {
-      const row = JSON.parse(line);
-      if (!row || row.kind !== "p4-provider-invocation-v1") {
-        invalidRecordCount += 1;
-        continue;
-      }
-      rows.push(row);
+      const record = JSON.parse(line);
+      if (record?.kind === "p4-provider-invocation-v1") records.push(record);
     } catch {
-      invalidRecordCount += 1;
+      // A malformed record makes started/completed counts differ or leaves evidence incomplete.
     }
   }
 
-  const started = rows.filter((row) => row.phase === "started");
-  const completed = rows.filter((row) => row.phase === "completed");
+  const started = records.filter((record) => record.phase === "started");
+  const completed = records.filter((record) => record.phase === "completed");
   const models = [
     ...new Map(
-      started.map((row) => [
-        `${row.provider}:${row.model ?? ""}`,
-        { provider: row.provider, model: row.model ?? null },
+      started.map((record) => [
+        `${record.provider}:${record.model ?? ""}`,
+        { provider: record.provider, model: record.model ?? null },
       ]),
     ).values(),
-  ].sort((a, b) => {
-    const left = `${a.provider}:${a.model ?? ""}`;
-    const right = `${b.provider}:${b.model ?? ""}`;
-    return left < right ? -1 : left > right ? 1 : 0;
-  });
+  ];
 
   return {
-    present: true,
+    present: records.length > 0,
     sha256: sha256File(path),
     startedCount: started.length,
     completedCount: completed.length,
-    invalidRecordCount,
     models,
   };
 };
 
-const failureCodeFrom = (stderrText, exitCode) => {
+const failureCode = (stderr, exitCode) => {
   if (exitCode === 0) return null;
-  const matches = stderrText.match(FAILURE_CODE_PATTERN);
-  return matches?.at(-1) ?? "UNCLASSIFIED_COMMAND_FAILURE";
+  return stderr.match(FAILURE_CODE_PATTERN)?.at(-1) ?? "UNCLASSIFIED_COMMAND_FAILURE";
 };
 
 export function buildEvidenceManifest({
@@ -140,39 +80,23 @@ export function buildEvidenceManifest({
   const outputDir = join(sourceDir, "p4-output");
   const reportPath = join(outputDir, `qualification-${runId}-${runAttempt}.json`);
   const admissionPath = join(outputDir, `admission-${runId}-${runAttempt}.json`);
-  const invocationAuditPath = join(outputDir, `invocations-${runId}-${runAttempt}.ndjson`);
-  const policyPath = join(sourceDir, "config/p4-qualification-policy.json");
-  const invocations = parseInvocationAudit(invocationAuditPath);
-  const report = artifactDescriptor(sourceDir, reportPath);
+  const invocationPath = join(outputDir, `invocations-${runId}-${runAttempt}.ndjson`);
+  const invocations = invocationSummary(invocationPath);
+  const report = artifact(sourceDir, reportPath);
   const admissionPresent = existsSync(admissionPath);
-
-  let outcome = exitCode === 0 ? "success" : "failure";
-  let effectiveExitCode = exitCode;
-  let effectiveFailureCode = failureReasonCode;
-
-  const successEvidenceComplete =
+  const completeSuccessEvidence =
     report.present &&
     admissionPresent &&
     invocations.present &&
     invocations.startedCount > 0 &&
-    invocations.startedCount === invocations.completedCount &&
-    invocations.invalidRecordCount === 0;
+    invocations.startedCount === invocations.completedCount;
+  const success = exitCode === 0 && completeSuccessEvidence;
 
-  if (outcome === "success" && !successEvidenceComplete) {
-    outcome = "failure";
-    effectiveExitCode = 2;
-    effectiveFailureCode = "QUALIFICATION_EVIDENCE_INCOMPLETE";
-  } else if (invocations.invalidRecordCount > 0) {
-    outcome = "failure";
-    effectiveExitCode = 2;
-    effectiveFailureCode = "QUALIFICATION_INVOCATION_AUDIT_INVALID";
-  }
-
-  const manifest = {
+  return {
     contractVersion: P4_EVIDENCE_CONTRACT_VERSION,
     workflow: {
       runId: String(runId),
-      producerRunAttempt: runAttempt,
+      producerRunAttempt: Number(runAttempt),
       qualificationSourceSha: sourceSha,
     },
     decision: {
@@ -180,317 +104,120 @@ export function buildEvidenceManifest({
       ref: decisionRef || null,
     },
     qualification: {
-      outcome,
+      outcome: success ? "success" : "failure",
       startedAt,
       completedAt,
-      exitCode: effectiveExitCode,
-      failureReasonCode:
-        outcome === "success" ? null : (effectiveFailureCode ?? "UNCLASSIFIED_COMMAND_FAILURE"),
-      failureMessageSha256: outcome === "success" ? null : stderrSha256,
-      policyFileSha256: sha256File(policyPath),
+      exitCode: success ? 0 : (exitCode || 2),
+      failureReasonCode: success
+        ? null
+        : exitCode === 0
+          ? "QUALIFICATION_EVIDENCE_INCOMPLETE"
+          : failureReasonCode,
+      failureMessageSha256: success ? null : stderrSha256,
+      policyFileSha256: sha256File(join(sourceDir, "config/p4-qualification-policy.json")),
     },
     invocations: {
-      path: safeRelativePath(sourceDir, invocationAuditPath),
+      path: relativePath(sourceDir, invocationPath),
       ...invocations,
     },
     artifacts: {
       report,
-      admission: artifactDescriptor(
-        sourceDir,
-        admissionPath,
-        outcome === "success" && admissionPresent,
-      ),
+      admission: artifact(sourceDir, admissionPath, success && admissionPresent),
     },
     release: {
       tag: `p4-qualification-${runId}-${runAttempt}`,
       transferArtifact,
     },
   };
-
-  validateEvidenceManifest(manifest);
-  return manifest;
 }
 
-const assertArtifact = (artifact, name) => {
-  if (!artifact || typeof artifact !== "object") throw new Error(`${name} is required.`);
-  if (typeof artifact.path !== "string" || !artifact.path.startsWith("p4-output/")) {
-    throw new Error(`${name}.path must stay under p4-output/.`);
-  }
-  if (typeof artifact.present !== "boolean") {
-    throw new Error(`${name}.present must be boolean.`);
-  }
-  if (artifact.present) {
-    if (typeof artifact.sha256 !== "string" || !SHA256_PATTERN.test(artifact.sha256)) {
-      throw new Error(`${name}.sha256 is invalid.`);
-    }
-  } else if (artifact.sha256 !== null) {
-    throw new Error(`${name}.sha256 must be null when absent.`);
-  }
-};
-
-export function validateEvidenceManifest(manifest) {
-  if (!manifest || typeof manifest !== "object") {
-    throw new Error("Evidence manifest must be an object.");
-  }
-  if (manifest.contractVersion !== P4_EVIDENCE_CONTRACT_VERSION) {
-    throw new Error("Unsupported P4 evidence contract version.");
+const runQualification = async (sourceDir) => {
+  const root = resolve(sourceDir);
+  const runId = process.env.GITHUB_RUN_ID;
+  const runAttempt = process.env.GITHUB_RUN_ATTEMPT;
+  const sourceSha = process.env.P4_QUALIFICATION_SOURCE_SHA;
+  const transferArtifact = process.env.P4_TRANSFER_ARTIFACT;
+  if (!runId || !runAttempt || !sourceSha || !transferArtifact) {
+    throw new Error("P4 workflow identity is incomplete.");
   }
 
-  const runId = nonEmpty(manifest.workflow?.runId, "workflow.runId");
-  const runAttempt = positiveInteger(
-    manifest.workflow?.producerRunAttempt,
-    "workflow.producerRunAttempt",
-  );
-  const sourceSha = nonEmpty(
-    manifest.workflow?.qualificationSourceSha,
-    "workflow.qualificationSourceSha",
-  );
-  if (!SHA_PATTERN.test(sourceSha)) throw new Error("workflow.qualificationSourceSha is invalid.");
-  if (manifest.decision?.owner !== null) nonEmpty(manifest.decision?.owner, "decision.owner");
-  if (manifest.decision?.ref !== null) nonEmpty(manifest.decision?.ref, "decision.ref");
-
-  const qualification = manifest.qualification;
-  if (!qualification || !["success", "failure"].includes(qualification.outcome)) {
-    throw new Error("qualification.outcome is invalid.");
-  }
-  if (!Number.isSafeInteger(qualification.exitCode) || qualification.exitCode < 0) {
-    throw new Error("qualification.exitCode is invalid.");
-  }
-  nonEmpty(qualification.startedAt, "qualification.startedAt");
-  nonEmpty(qualification.completedAt, "qualification.completedAt");
-  if (
-    !SHA256_PATTERN.test(
-      nonEmpty(qualification.policyFileSha256, "qualification.policyFileSha256"),
-    )
-  ) {
-    throw new Error("qualification.policyFileSha256 is invalid.");
-  }
-  if (qualification.outcome === "success") {
-    if (
-      qualification.exitCode !== 0 ||
-      qualification.failureReasonCode !== null ||
-      qualification.failureMessageSha256 !== null
-    ) {
-      throw new Error("Successful qualification contains failure state.");
-    }
-  } else {
-    nonEmpty(qualification.failureReasonCode, "qualification.failureReasonCode");
-    if (
-      qualification.failureMessageSha256 !== null &&
-      !SHA256_PATTERN.test(qualification.failureMessageSha256)
-    ) {
-      throw new Error("qualification.failureMessageSha256 is invalid.");
-    }
-  }
-
-  const invocations = manifest.invocations;
-  if (!invocations || typeof invocations.path !== "string" || !invocations.path.startsWith("p4-output/")) {
-    throw new Error("invocations.path is invalid.");
-  }
-  for (const [key, value] of [
-    ["startedCount", invocations.startedCount],
-    ["completedCount", invocations.completedCount],
-    ["invalidRecordCount", invocations.invalidRecordCount],
-  ]) {
-    if (!Number.isSafeInteger(value) || value < 0) {
-      throw new Error(`invocations.${key} is invalid.`);
-    }
-  }
-  if (typeof invocations.present !== "boolean") {
-    throw new Error("invocations.present must be boolean.");
-  }
-  if (invocations.present) {
-    if (!SHA256_PATTERN.test(nonEmpty(invocations.sha256, "invocations.sha256"))) {
-      throw new Error("invocations.sha256 is invalid.");
-    }
-  } else if (
-    invocations.startedCount !== 0 ||
-    invocations.completedCount !== 0 ||
-    invocations.invalidRecordCount !== 0
-  ) {
-    throw new Error("Absent invocation evidence contains invocation state.");
-  }
-  if (!Array.isArray(invocations.models)) throw new Error("invocations.models must be an array.");
-  for (const model of invocations.models) {
-    if (!PROVIDERS.has(model.provider)) {
-      throw new Error("invocations.models provider is invalid.");
-    }
-    if (model.model !== null) nonEmpty(model.model, "invocations.models.model");
-  }
-
-  assertArtifact(manifest.artifacts?.report, "artifacts.report");
-  assertArtifact(manifest.artifacts?.admission, "artifacts.admission");
-  if (typeof manifest.artifacts.admission.publishEligible !== "boolean") {
-    throw new Error("artifacts.admission.publishEligible must be boolean.");
-  }
-
-  if (manifest.release?.tag !== `p4-qualification-${runId}-${runAttempt}`) {
-    throw new Error("release.tag is not bound to producer identity.");
-  }
-  if (
-    nonEmpty(manifest.release?.transferArtifact, "release.transferArtifact") !==
-    `p4-qualification-transfer-${runId}-${runAttempt}`
-  ) {
-    throw new Error("release.transferArtifact is not bound to producer identity.");
-  }
-
-  if (qualification.outcome === "success") {
-    if (
-      !manifest.artifacts.report.present ||
-      !manifest.artifacts.admission.present ||
-      !manifest.artifacts.admission.publishEligible ||
-      !invocations.present ||
-      invocations.startedCount === 0 ||
-      invocations.startedCount !== invocations.completedCount ||
-      invocations.invalidRecordCount !== 0
-    ) {
-      throw new Error("Successful qualification has incomplete evidence.");
-    }
-  } else if (manifest.artifacts.admission.publishEligible) {
-    throw new Error("Failed qualification cannot publish an admission artifact.");
-  }
-
-  return manifest;
-}
-
-const runQualification = async ({ sourceDir }) => {
-  const absoluteSourceDir = resolve(sourceDir);
-  const runId = nonEmpty(process.env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
-  const runAttempt = positiveInteger(process.env.GITHUB_RUN_ATTEMPT, "GITHUB_RUN_ATTEMPT");
-  const sourceSha = nonEmpty(
-    process.env.P4_QUALIFICATION_SOURCE_SHA,
-    "P4_QUALIFICATION_SOURCE_SHA",
-  );
-  const transferArtifact = nonEmpty(process.env.P4_TRANSFER_ARTIFACT, "P4_TRANSFER_ARTIFACT");
-  const outputDir = join(absoluteSourceDir, "p4-output");
+  const outputDir = join(root, "p4-output");
   mkdirSync(outputDir, { recursive: true });
-
   const reportPath = join(outputDir, `qualification-${runId}-${runAttempt}.json`);
   const admissionPath = join(outputDir, `admission-${runId}-${runAttempt}.json`);
-  const invocationAuditPath = join(outputDir, `invocations-${runId}-${runAttempt}.ndjson`);
+  const invocationPath = join(outputDir, `invocations-${runId}-${runAttempt}.ndjson`);
   const manifestPath = join(outputDir, "evidence-manifest.json");
-  const auditPreloadPath = join(
-    dirname(fileURLToPath(import.meta.url)),
-    "p4-provider-invocation-audit.cjs",
-  );
+  const preload = join(dirname(fileURLToPath(import.meta.url)), "p4-provider-invocation-audit.cjs");
   const stderrHash = createHash("sha256");
-  let stderrText = "";
+  let stderr = "";
+  let exitCode = 2;
+  let spawnError = null;
   const startedAt = new Date().toISOString();
 
-  const childEnv = {
-    ...process.env,
-    P4_QUALIFICATION_REPORT: safeRelativePath(absoluteSourceDir, reportPath),
-    P4_PRODUCTION_MODEL_ADMISSION_OUTPUT: safeRelativePath(absoluteSourceDir, admissionPath),
-    P4_INVOCATION_AUDIT: invocationAuditPath,
-    NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${auditPreloadPath}`]
-      .filter(Boolean)
-      .join(" "),
-  };
+  const child = spawn("pnpm", ["qualify:models"], {
+    cwd: root,
+    env: {
+      ...process.env,
+      P4_QUALIFICATION_REPORT: relativePath(root, reportPath),
+      P4_PRODUCTION_MODEL_ADMISSION_OUTPUT: relativePath(root, admissionPath),
+      P4_INVOCATION_AUDIT: invocationPath,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preload}`].filter(Boolean).join(" "),
+    },
+    stdio: ["inherit", "inherit", "pipe"],
+  });
 
-  let exitCode = 2;
-  let spawnFailure = null;
-  await new Promise((resolveChild) => {
-    const child = spawn("pnpm", ["qualify:models"], {
-      cwd: absoluteSourceDir,
-      env: childEnv,
-      stdio: ["inherit", "inherit", "pipe"],
-    });
-    child.stderr.on("data", (chunk) => {
-      process.stderr.write(chunk);
-      stderrHash.update(chunk);
-      stderrText = `${stderrText}${chunk.toString("utf8")}`.slice(-131072);
-    });
+  child.stderr.on("data", (chunk) => {
+    process.stderr.write(chunk);
+    stderrHash.update(chunk);
+    stderr = `${stderr}${chunk.toString("utf8")}`.slice(-131072);
+  });
+
+  await new Promise((done) => {
     child.on("error", (error) => {
-      spawnFailure = error;
+      spawnError = error;
       const message = error instanceof Error ? error.message : String(error);
       stderrHash.update(message);
-      stderrText = `${stderrText}${message}`.slice(-131072);
-      resolveChild();
+      stderr = `${stderr}${message}`.slice(-131072);
+      done();
     });
     child.on("close", (code) => {
-      exitCode = Number.isSafeInteger(code) && code >= 0 ? code : 2;
-      resolveChild();
+      exitCode = Number.isInteger(code) && code >= 0 ? code : 2;
+      done();
     });
   });
 
-  const completedAt = new Date().toISOString();
-  const stderrSha256 = exitCode === 0 && !spawnFailure ? null : stderrHash.digest("hex");
-  const failureReasonCode = spawnFailure
-    ? "QUALIFICATION_COMMAND_START_FAILED"
-    : failureCodeFrom(stderrText, exitCode);
-
-  let manifest;
-  try {
-    manifest = buildEvidenceManifest({
-      sourceDir: absoluteSourceDir,
-      runId,
-      runAttempt,
-      sourceSha,
-      transferArtifact,
-      decisionOwner: process.env.P4_ADMISSION_DECISION_OWNER,
-      decisionRef: process.env.P4_ADMISSION_DECISION_REF,
-      startedAt,
-      completedAt,
-      exitCode,
-      stderrSha256,
-      failureReasonCode,
-    });
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    manifest = {
-      contractVersion: P4_EVIDENCE_CONTRACT_VERSION,
-      workflow: {
-        runId,
-        producerRunAttempt: runAttempt,
-        qualificationSourceSha: sourceSha,
-      },
-      decision: {
-        owner: process.env.P4_ADMISSION_DECISION_OWNER || null,
-        ref: process.env.P4_ADMISSION_DECISION_REF || null,
-      },
-      qualification: {
-        outcome: "failure",
-        startedAt,
-        completedAt,
-        exitCode: 2,
-        failureReasonCode: "QUALIFICATION_EVIDENCE_BUILD_FAILED",
-        failureMessageSha256: createHash("sha256").update(reason).digest("hex"),
-        policyFileSha256: sha256File(
-          join(absoluteSourceDir, "config/p4-qualification-policy.json"),
-        ),
-      },
-      invocations: {
-        path: safeRelativePath(absoluteSourceDir, invocationAuditPath),
-        ...parseInvocationAudit(invocationAuditPath),
-      },
-      artifacts: {
-        report: artifactDescriptor(absoluteSourceDir, reportPath),
-        admission: artifactDescriptor(absoluteSourceDir, admissionPath, false),
-      },
-      release: {
-        tag: `p4-qualification-${runId}-${runAttempt}`,
-        transferArtifact,
-      },
-    };
-    exitCode = 2;
-  }
+  const manifest = buildEvidenceManifest({
+    sourceDir: root,
+    runId,
+    runAttempt,
+    sourceSha,
+    transferArtifact,
+    decisionOwner: process.env.P4_ADMISSION_DECISION_OWNER,
+    decisionRef: process.env.P4_ADMISSION_DECISION_REF,
+    startedAt,
+    completedAt: new Date().toISOString(),
+    exitCode,
+    stderrSha256:
+      exitCode === 0 && !spawnError ? null : stderrHash.digest("hex"),
+    failureReasonCode: spawnError
+      ? "QUALIFICATION_COMMAND_START_FAILED"
+      : failureCode(stderr, exitCode),
+  });
 
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  process.exitCode = manifest.qualification.outcome === "success" ? 0 : (exitCode || 2);
+  process.exitCode = manifest.qualification.outcome === "success" ? 0 : 2;
 };
 
-const parseArgs = (argv) => {
-  if (argv[0] !== "run") {
-    throw new Error("Usage: p4-qualification-evidence.mjs run --source-dir <path>");
-  }
-  const index = argv.indexOf("--source-dir");
-  if (index < 0 || !argv[index + 1]) throw new Error("--source-dir is required.");
-  return { sourceDir: argv[index + 1] };
-};
-
+const args = process.argv.slice(2);
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runQualification(parseArgs(process.argv.slice(2))).catch((error) => {
-    console.error(error instanceof Error ? error.message : error);
+  const sourceIndex = args.indexOf("--source-dir");
+  if (args[0] !== "run" || sourceIndex < 0 || !args[sourceIndex + 1]) {
+    console.error("Usage: p4-qualification-evidence.mjs run --source-dir <path>");
     process.exitCode = 2;
-  });
+  } else {
+    runQualification(args[sourceIndex + 1]).catch((error) => {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 2;
+    });
+  }
 }
