@@ -1,0 +1,46 @@
+name: P4 Qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-production-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: Live P4 Qualification
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      P4_ADMISSION_DECISION_OWNER: ${{ vars.P4_ADMISSION_DECISION_OWNER }}
+      P4_ADMISSION_DECISION_REF: ${{ vars.P4_ADMISSION_DECISION_REF }}
+      P4_QUALIFICATION_REPORT: p4-output/qualification-${{ github.run_id }}-${{ github.run_attempt }}.json
+      P4_PRODUCTION_MODEL_ADMISSION_OUTPUT: p4-output/admission-${{ github.run_id }}-${{ github.run_attempt }}.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run canonical P4 qualification
+        run: pnpm qualify:models
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: p4-output/qualification-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: error
+      - name: Upload production admission
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-admission-${{ github.run_id }}-${{ github.run_attempt }}
+          path: p4-output/admission-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: error
