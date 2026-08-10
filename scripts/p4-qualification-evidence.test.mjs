@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,6 +11,25 @@ import {
 } from "./p4-qualification-evidence.mjs";
 
 const SOURCE_SHA = "66554636d6de2f9167ae7611448b3c17a41f542e";
+const AUDIT_MODULE_PATH = new URL("./p4-provider-invocation-audit.cjs", import.meta.url).pathname;
+const REQUEST_BODY_JSON = JSON.stringify({
+  model: "claude-test",
+  max_tokens: 256,
+  system: "Qualification system prompt",
+  messages: [{ role: "user", content: "Qualification user prompt" }],
+  output_config: {
+    format: {
+      type: "json_schema",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: { summary: { type: "string" } },
+        required: ["summary"],
+      },
+    },
+  },
+});
+const REQUEST_BODY_SHA256 = createHash("sha256").update(REQUEST_BODY_JSON).digest("hex");
 
 const fixture = () => {
   const root = mkdtempSync(join(tmpdir(), "p4-evidence-"));
@@ -42,7 +63,8 @@ const invocationRows = () => [
     timestamp: "2026-08-10T13:00:00.100Z",
     provider: "anthropic",
     model: "claude-test",
-    requestBodySha256: "a".repeat(64),
+    requestBodySha256: REQUEST_BODY_SHA256,
+    requestBodyJson: REQUEST_BODY_JSON,
   },
   {
     kind: "p4-provider-invocation-v1",
@@ -74,6 +96,51 @@ const writeReport = (root, verdict) =>
 
 const writeAdmission = (root) =>
   writeFileSync(join(root, "p4-output/admission-1234-2.json"), "{\"decision\":\"ADMITTED\"}\n");
+
+test("provider audit preserves the exact request body without credential headers", () => {
+  const root = fixture();
+  try {
+    const auditPath = join(root, "p4-output/provider-audit.ndjson");
+    const secret = "qualification-test-secret";
+    const childScript = `
+      globalThis.fetch = async () => ({ status: 200 });
+      require(${JSON.stringify(AUDIT_MODULE_PATH)});
+      (async () => {
+        await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": process.env.TEST_PROVIDER_SECRET },
+          body: process.env.TEST_REQUEST_BODY_JSON,
+        });
+      })().catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+      });
+    `;
+    const result = spawnSync(process.execPath, ["-e", childScript], {
+      env: {
+        ...process.env,
+        P4_INVOCATION_AUDIT: auditPath,
+        TEST_PROVIDER_SECRET: secret,
+        TEST_REQUEST_BODY_JSON: REQUEST_BODY_JSON,
+      },
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const auditText = readFileSync(auditPath, "utf8");
+    const records = auditText
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(records.length, 2);
+    assert.equal(records[0].phase, "started");
+    assert.equal(records[0].requestBodyJson, REQUEST_BODY_JSON);
+    assert.equal(records[0].requestBodySha256, REQUEST_BODY_SHA256);
+    assert.equal(auditText.includes(secret), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("success requires PASS, admission, completed invocation evidence, and decision metadata", () => {
   const root = fixture();
@@ -185,6 +252,47 @@ test("malformed invocation evidence cannot satisfy a successful epoch", () => {
 
     const manifest = buildEvidenceManifest(args(root));
     assert.equal(manifest.invocations.invalidRecordCount, 1);
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
+    assert.equal(manifest.artifacts.admission.publishEligible, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("missing request body evidence cannot satisfy a successful epoch", () => {
+  const root = fixture();
+  try {
+    writeReport(root, "PASS");
+    writeAdmission(root);
+    const rows = invocationRows();
+    delete rows[0].requestBodyJson;
+    writeInvocationRows(root, rows);
+
+    const manifest = buildEvidenceManifest(args(root));
+    assert.ok(manifest.invocations.invalidRecordCount > 0);
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
+    assert.equal(manifest.artifacts.admission.publishEligible, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("tampered request body evidence cannot satisfy a successful epoch", () => {
+  const root = fixture();
+  try {
+    writeReport(root, "PASS");
+    writeAdmission(root);
+    const rows = invocationRows();
+    rows[0] = {
+      ...rows[0],
+      requestBodyJson: JSON.stringify({ ...JSON.parse(REQUEST_BODY_JSON), system: "tampered" }),
+    };
+    writeInvocationRows(root, rows);
+
+    const manifest = buildEvidenceManifest(args(root));
+    assert.ok(manifest.invocations.invalidRecordCount > 0);
     assert.equal(manifest.qualification.executionOutcome, "failure");
     assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
     assert.equal(manifest.artifacts.admission.publishEligible, false);
