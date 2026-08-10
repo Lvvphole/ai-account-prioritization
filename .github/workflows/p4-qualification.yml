@@ -98,6 +98,6 @@ jobs:
       actions: read # Needed only to read this run's bounded transfer artifact.
     steps:
       - name: Publish verified P4 evidence contract
-        uses: Lvvphole/ai-account-prioritization/.github/actions/p4-publish@bada759852a9e1058c37aaa2d3e6377428ed9d4d
+        uses: Lvvphole/ai-account-prioritization/.github/actions/p4-publish@95a710c199886b7c2ea3766861d72ef67c9c5dba
         with:
           qualification-source-sha: ${{ env.P4_QUALIFICATION_SOURCE_SHA }}
