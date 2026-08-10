@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
 
 concurrency:
   group: p4-production-qualification
@@ -15,16 +16,21 @@ env:
   P4_QUALIFICATION_REPORT: p4-output/qualification-${{ github.run_id }}-${{ github.run_attempt }}.json
   P4_PRODUCTION_MODEL_ADMISSION_OUTPUT: p4-output/admission-${{ github.run_id }}-${{ github.run_attempt }}.json
   P4_QUALIFICATION_RELEASE_TAG: p4-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+  P4_TRANSFER_ARTIFACT: p4-qualification-transfer-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   qualify:
     name: Live P4 Qualification
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.P4_QUALIFICATION_SOURCE_SHA }}
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -39,9 +45,37 @@ jobs:
           P4_ADMISSION_DECISION_OWNER: ${{ vars.P4_ADMISSION_DECISION_OWNER }}
           P4_ADMISSION_DECISION_REF: ${{ vars.P4_ADMISSION_DECISION_REF }}
         run: pnpm qualify:models
-      - name: Publish immutable qualification evidence
-        id: archive
+      - name: Record qualification outcome
         if: always()
+        env:
+          QUALIFICATION_OUTCOME: ${{ steps.qualification.outcome }}
+        run: |
+          mkdir -p p4-output
+          printf '%s\n' "$QUALIFICATION_OUTCOME" > p4-output/qualification-outcome.txt
+      - name: Transfer qualification evidence to archive job
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.P4_TRANSFER_ARTIFACT }}
+          path: p4-output/
+          if-no-files-found: error
+          retention-days: 1
+
+  archive:
+    name: Archive P4 Qualification Evidence
+    if: always() && needs.qualify.result == 'success'
+    needs: qualify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download qualification evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.P4_TRANSFER_ARTIFACT }}
+          path: p4-output
+      - name: Publish and verify immutable qualification evidence
         env:
           GH_TOKEN: ${{ github.token }}
           P4_ADMISSION_DECISION_OWNER: ${{ vars.P4_ADMISSION_DECISION_OWNER }}
@@ -49,6 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f "$P4_QUALIFICATION_REPORT"
+          test -f p4-output/qualification-outcome.txt
 
           assets=("$P4_QUALIFICATION_REPORT")
           if [ -f "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" ]; then
@@ -74,25 +109,5 @@ jobs:
               "$P4_PRODUCTION_MODEL_ADMISSION_OUTPUT" \
               --repo "$GITHUB_REPOSITORY"
           fi
-      - name: Upload qualification evidence for temporary workflow access
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: p4-qualification-${{ github.run_id }}-${{ github.run_attempt }}
-          path: p4-output/qualification-${{ github.run_id }}-${{ github.run_attempt }}.json
-          if-no-files-found: error
-      - name: Upload production admission for temporary workflow access
-        if: steps.qualification.outcome == 'success' && steps.archive.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: p4-admission-${{ github.run_id }}-${{ github.run_attempt }}
-          path: p4-output/admission-${{ github.run_id }}-${{ github.run_attempt }}.json
-          if-no-files-found: error
-      - name: Enforce qualification and durable-evidence result
-        if: always()
-        env:
-          QUALIFICATION_OUTCOME: ${{ steps.qualification.outcome }}
-          ARCHIVE_OUTCOME: ${{ steps.archive.outcome }}
-        run: |
-          test "$ARCHIVE_OUTCOME" = "success"
-          test "$QUALIFICATION_OUTCOME" = "success"
+
+          test "$(cat p4-output/qualification-outcome.txt)" = "success"
