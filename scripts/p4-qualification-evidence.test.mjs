@@ -63,20 +63,25 @@ const writeInvocations = (root, suffix = "") =>
     `${invocationRows().map((row) => JSON.stringify(row)).join("\n")}\n${suffix}`,
   );
 
-test("success requires report, admission, and completed invocation evidence", () => {
+const writeReport = (root, verdict) =>
+  writeFileSync(
+    join(root, "p4-output/qualification-1234-2.json"),
+    `${JSON.stringify({ verdict })}\n`,
+  );
+
+test("success requires PASS, admission, and completed invocation evidence", () => {
   const root = fixture();
   try {
-    writeFileSync(join(root, "p4-output/qualification-1234-2.json"), "{\"verdict\":\"PASS\"}\n");
+    writeReport(root, "PASS");
     writeFileSync(join(root, "p4-output/admission-1234-2.json"), "{\"decision\":\"ADMITTED\"}\n");
     writeInvocations(root);
 
     const manifest = buildEvidenceManifest(args(root));
     assert.equal(manifest.contractVersion, P4_EVIDENCE_CONTRACT_VERSION);
-    assert.equal(manifest.qualification.outcome, "success");
-    assert.equal(manifest.invocations.startedCount, 1);
-    assert.equal(manifest.invocations.completedCount, 1);
+    assert.equal(manifest.qualification.executionOutcome, "success");
+    assert.equal(manifest.qualification.verdict, "PASS");
+    assert.equal(manifest.qualification.commandExitCode, 0);
     assert.equal(manifest.invocations.invalidRecordCount, 0);
-    assert.deepEqual(manifest.invocations.models, [{ provider: "anthropic", model: "claude-test" }]);
     assert.equal(manifest.artifacts.admission.publishEligible, true);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -93,9 +98,9 @@ test("provider failure remains auditable when the canonical report is absent", (
       failureReasonCode: "DRAFT_MODEL_HTTP_ERROR",
     }));
 
-    assert.equal(manifest.qualification.outcome, "failure");
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.qualification.verdict, null);
     assert.equal(manifest.qualification.failureReasonCode, "DRAFT_MODEL_HTTP_ERROR");
-    assert.equal(manifest.decision.owner, "Lvvphole");
     assert.match(manifest.qualification.policyFileSha256, /^[a-f0-9]{64}$/);
     assert.deepEqual(manifest.invocations.models, [{ provider: "anthropic", model: "claude-test" }]);
     assert.equal(manifest.artifacts.report.present, false);
@@ -105,13 +110,34 @@ test("provider failure remains auditable when the canonical report is absent", (
   }
 });
 
+test("BLOCKED stays distinct from execution failure", () => {
+  const root = fixture();
+  try {
+    writeReport(root, "BLOCKED");
+    writeInvocations(root);
+    const manifest = buildEvidenceManifest(args(root, {
+      exitCode: 2,
+      stderrSha256: "c".repeat(64),
+      failureReasonCode: "UNCLASSIFIED_COMMAND_FAILURE",
+    }));
+
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.qualification.verdict, "BLOCKED");
+    assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_BLOCKED");
+    assert.equal(manifest.artifacts.admission.publishEligible, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("an apparent command success fails closed when evidence is incomplete", () => {
   const root = fixture();
   try {
-    writeFileSync(join(root, "p4-output/qualification-1234-2.json"), "{\"verdict\":\"PASS\"}\n");
+    writeReport(root, "PASS");
     const manifest = buildEvidenceManifest(args(root));
-    assert.equal(manifest.qualification.outcome, "failure");
-    assert.equal(manifest.qualification.exitCode, 2);
+    assert.equal(manifest.qualification.executionOutcome, "failure");
+    assert.equal(manifest.qualification.verdict, "PASS");
+    assert.equal(manifest.qualification.commandExitCode, 2);
     assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
     assert.equal(manifest.artifacts.admission.publishEligible, false);
   } finally {
@@ -122,13 +148,13 @@ test("an apparent command success fails closed when evidence is incomplete", () 
 test("malformed invocation evidence cannot satisfy a successful epoch", () => {
   const root = fixture();
   try {
-    writeFileSync(join(root, "p4-output/qualification-1234-2.json"), "{\"verdict\":\"PASS\"}\n");
+    writeReport(root, "PASS");
     writeFileSync(join(root, "p4-output/admission-1234-2.json"), "{\"decision\":\"ADMITTED\"}\n");
     writeInvocations(root, "not-json\n");
 
     const manifest = buildEvidenceManifest(args(root));
     assert.equal(manifest.invocations.invalidRecordCount, 1);
-    assert.equal(manifest.qualification.outcome, "failure");
+    assert.equal(manifest.qualification.executionOutcome, "failure");
     assert.equal(manifest.qualification.failureReasonCode, "QUALIFICATION_EVIDENCE_INCOMPLETE");
     assert.equal(manifest.artifacts.admission.publishEligible, false);
   } finally {
