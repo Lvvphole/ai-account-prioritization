@@ -22,15 +22,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Audit GitHub Actions workflows
-        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
-        with:
-          version: 1.29.0
-          persona: auditor
-          online-audits: false
-          advanced-security: false
-          annotations: true
-
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
@@ -55,13 +46,13 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # Gate 2: Prisma stays excluded (Execution Rule #28).
+      # Gate 2: workflow audit, RBAC, approval policy, and PII controls.
+      - name: Verify security controls
+        run: pnpm verify:security
+
+      # Gate 3: Prisma stays excluded (Execution Rule #28).
       - name: Check no Prisma
         run: pnpm check:no-prisma
-
-      # Gate 3: RBAC / approval policy / PII redaction package.
-      - name: Verify security package
-        run: pnpm verify:security
 
       # Gate 4: PII-safe in-product observability package.
       - name: Verify observability package
