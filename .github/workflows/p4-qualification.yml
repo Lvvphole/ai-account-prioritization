@@ -56,6 +56,8 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          package_json_file: .p4-source/package.json
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -98,6 +100,6 @@ jobs:
       actions: read # Needed only to read this run's bounded transfer artifact.
     steps:
       - name: Publish verified P4 evidence contract
-        uses: Lvvphole/ai-account-prioritization/.github/actions/p4-publish@95a710c199886b7c2ea3766861d72ef67c9c5dba
+        uses: Lvvphole/ai-account-prioritization/.github/actions/p4-publish@8de203ccce532618d2965edaecb63b5bec1aef73
         with:
           qualification-source-sha: ${{ env.P4_QUALIFICATION_SOURCE_SHA }}
