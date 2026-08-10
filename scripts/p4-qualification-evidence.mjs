@@ -24,17 +24,27 @@ const artifact = (root, path, publishEligible) => ({
 
 const invocationSummary = (path) => {
   if (!existsSync(path)) {
-    return { present: false, sha256: null, startedCount: 0, completedCount: 0, models: [] };
+    return {
+      present: false,
+      sha256: null,
+      startedCount: 0,
+      completedCount: 0,
+      invalidRecordCount: 0,
+      models: [],
+    };
   }
 
+  const text = readFileSync(path, "utf8");
   const records = [];
-  for (const line of readFileSync(path, "utf8").split("\n")) {
+  let invalidRecordCount = 0;
+  for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const record = JSON.parse(line);
       if (record?.kind === "p4-provider-invocation-v1") records.push(record);
+      else invalidRecordCount += 1;
     } catch {
-      // A malformed record makes started/completed counts differ or leaves evidence incomplete.
+      invalidRecordCount += 1;
     }
   }
 
@@ -50,10 +60,11 @@ const invocationSummary = (path) => {
   ];
 
   return {
-    present: records.length > 0,
+    present: text.trim() !== "",
     sha256: sha256File(path),
     startedCount: started.length,
     completedCount: completed.length,
+    invalidRecordCount,
     models,
   };
 };
@@ -89,7 +100,8 @@ export function buildEvidenceManifest({
     admissionPresent &&
     invocations.present &&
     invocations.startedCount > 0 &&
-    invocations.startedCount === invocations.completedCount;
+    invocations.startedCount === invocations.completedCount &&
+    invocations.invalidRecordCount === 0;
   const success = exitCode === 0 && completeSuccessEvidence;
 
   return {
