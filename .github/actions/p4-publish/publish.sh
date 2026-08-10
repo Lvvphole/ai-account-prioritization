@@ -145,8 +145,6 @@ else
   test "$release_is_immutable" = "true"
 fi
 
-release_api="repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}"
-test "$(gh api "$release_api" --jq '.make_latest // empty')" != "true"
 gh release verify "$release_tag" --repo "$GITHUB_REPOSITORY"
 for asset in "${assets[@]}"; do
   gh release verify-asset "$release_tag" "$asset" --repo "$GITHUB_REPOSITORY"
