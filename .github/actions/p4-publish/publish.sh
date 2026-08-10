@@ -32,6 +32,7 @@ jq -e '
   (.qualification.policyFileSha256 | test("^[a-f0-9]{64}$")) and
   (.invocations.startedCount | type == "number") and
   (.invocations.completedCount | type == "number") and
+  (.invocations.invalidRecordCount | type == "number") and
   (.artifacts.report.present | type == "boolean") and
   (.artifacts.admission.present | type == "boolean") and
   (.artifacts.admission.publishEligible | type == "boolean")
@@ -47,6 +48,7 @@ decision_ref="$(jq -er '.decision.ref' "$manifest")"
 qualification_outcome="$(jq -er '.qualification.outcome' "$manifest")"
 invocation_started="$(jq -er '.invocations.startedCount' "$manifest")"
 invocation_completed="$(jq -er '.invocations.completedCount' "$manifest")"
+invalid_invocations="$(jq -er '.invocations.invalidRecordCount' "$manifest")"
 
 test "$producer_run_id" = "$GITHUB_RUN_ID"
 test "$source_sha" = "$P4_EXPECTED_SOURCE_SHA"
@@ -99,6 +101,7 @@ if [ "$qualification_outcome" = "success" ]; then
   test "$invocation_present" = "true"
   test "$invocation_started" -gt 0
   test "$invocation_started" -eq "$invocation_completed"
+  test "$invalid_invocations" -eq 0
 else
   test "$admission_publish" = "false"
 fi
