@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertRuntimeModelSandboxStartupConfiguration,
@@ -37,6 +39,37 @@ const sandboxAccessToken = {
   projectId: "project_test",
   token: "vercel-test-token",
 };
+
+const sandboxAuthEnvNames = [
+  "VERCEL_OIDC_TOKEN",
+  "VERCEL_TEAM_ID",
+  "VERCEL_PROJECT_ID",
+  "VERCEL_TOKEN",
+] as const;
+
+function productionRuntimeModuleLoad(
+  overrides: NodeJS.ProcessEnv = {},
+) {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    NODE_ENV: "production",
+    RUNTIME_DRAFTING_ENABLED: "true",
+    RUNTIME_DRAFT_PROVIDER: "anthropic",
+  };
+  for (const name of sandboxAuthEnvNames) delete env[name];
+  Object.assign(env, overrides);
+
+  return spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", "await import('agent-runtime');"],
+    {
+      cwd: resolve(__dirname, ".."),
+      env,
+      encoding: "utf8",
+      timeout: 5_000,
+    },
+  );
+}
 
 describe("sandboxed production runtime model boundary", () => {
   it("resolves the production Anthropic registry entry and execution profile to the sandbox path", () => {
@@ -87,6 +120,19 @@ describe("sandboxed production runtime model boundary", () => {
         VERCEL_TOKEN: "vercel-token",
       }),
     ).not.toThrow();
+  });
+
+  it("enforces sandbox authentication during fresh production module loading", () => {
+    const missing = productionRuntimeModuleLoad();
+    expect(missing.status).not.toBe(0);
+    expect(`${missing.stdout}\n${missing.stderr}`).toContain(
+      "Vercel Sandbox control-plane authentication is required.",
+    );
+
+    const configured = productionRuntimeModuleLoad({
+      VERCEL_OIDC_TOKEN: "oidc-token",
+    });
+    expect(configured.status).toBe(0);
   });
 
   it("executes the Anthropic SDK request through the sandbox transport without host fallback", async () => {
