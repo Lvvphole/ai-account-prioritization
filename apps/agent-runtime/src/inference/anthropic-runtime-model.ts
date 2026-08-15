@@ -1,3 +1,7 @@
+import Anthropic, {
+  APIConnectionTimeoutError,
+  APIError,
+} from "@anthropic-ai/sdk";
 import {
   RuntimeModelError,
   type RuntimeJsonSchema,
@@ -8,10 +12,34 @@ import {
   type RuntimeReasoningEffort,
 } from "./runtime-model";
 
-interface AnthropicResponse {
-  content?: Array<{ type?: string; text?: string }>;
-  usage?: { input_tokens?: number; output_tokens?: number };
+const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
+
+interface AnthropicUsage {
+  input_tokens?: number;
+  output_tokens?: number;
 }
+
+interface AnthropicOutputConfig {
+  format: {
+    type: "json_schema";
+    schema: RuntimeJsonSchema;
+  };
+  effort?: Exclude<RuntimeReasoningEffort, "provider_default">;
+}
+
+const suppressedAmbientCustomHeaders = (): Record<string, null> => {
+  const configuredHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
+  if (!configuredHeaders) return {};
+
+  const suppressed: Record<string, null> = {};
+  for (const line of configuredHeaders.split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon < 0) continue;
+    const headerName = line.slice(0, colon).trim();
+    if (headerName) suppressed[headerName] = null;
+  }
+  return suppressed;
+};
 
 const ANTHROPIC_UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
   "$schema",
@@ -110,13 +138,13 @@ export function assertAnthropicConfig(
 
 /**
  * Build the exact non-secret Anthropic output configuration used on the wire.
- * The same function is used by durable audit snapshots and the HTTP adapter.
+ * The same function is used by durable audit snapshots and the provider adapter.
  */
 export function buildAnthropicOutputConfig(
   outputFormat: RuntimeModelOutputFormat,
   reasoningEffort: RuntimeReasoningEffort,
-): Record<string, unknown> {
-  const outputConfig: Record<string, unknown> = {
+): AnthropicOutputConfig {
+  const outputConfig: AnthropicOutputConfig = {
     format: {
       type: "json_schema",
       schema: sanitizeAnthropicJsonSchema(outputFormat.schema),
@@ -138,47 +166,35 @@ export function createAnthropicRuntimeModelClient(
         request.outputFormat,
         config.reasoningEffort,
       );
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
       const started = Date.now();
-      const failureTelemetry = (
-        usage?: AnthropicResponse["usage"],
-      ): RuntimeModelTelemetry => ({
+      const failureTelemetry = (usage?: AnthropicUsage): RuntimeModelTelemetry => ({
         provider: "anthropic",
         model: config.model,
         latencyMs: Date.now() - started,
         inputTokens: usage?.input_tokens,
         outputTokens: usage?.output_tokens,
       });
+      const client = new Anthropic({
+        apiKey: config.credential,
+        authToken: null,
+        baseURL: ANTHROPIC_API_BASE_URL,
+        defaultHeaders: suppressedAmbientCustomHeaders(),
+        fetch: fetchImpl,
+        logLevel: "off",
+        maxRetries: 0,
+        timeout: config.timeoutMs,
+      });
 
       try {
-        const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": config.credential,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: config.model,
-            max_tokens: config.maxOutputTokens,
-            system: request.system,
-            messages: [{ role: "user", content: request.user }],
-            output_config: outputConfig,
-          }),
-          signal: controller.signal,
+        const body = await client.messages.create({
+          model: config.model,
+          max_tokens: config.maxOutputTokens,
+          system: request.system,
+          messages: [{ role: "user", content: request.user }],
+          output_config: outputConfig,
         });
 
-        if (!response.ok) {
-          throw new RuntimeModelError(
-            "DRAFT_MODEL_HTTP_ERROR",
-            `Runtime model returned HTTP ${response.status}.`,
-            failureTelemetry(),
-          );
-        }
-
-        const body = (await response.json()) as AnthropicResponse;
-        const text = body.content?.find((item) => item.type === "text")?.text;
+        const text = body.content.find((item) => item.type === "text")?.text;
         if (!text) {
           throw new RuntimeModelError(
             "DRAFT_MODEL_INVALID_RESPONSE",
@@ -204,10 +220,17 @@ export function createAnthropicRuntimeModelClient(
         };
       } catch (error) {
         if (error instanceof RuntimeModelError) throw error;
-        if (error instanceof Error && error.name === "AbortError") {
+        if (error instanceof APIConnectionTimeoutError) {
           throw new RuntimeModelError(
             "DRAFT_MODEL_TIMEOUT",
             `Runtime model exceeded ${config.timeoutMs}ms timeout.`,
+            failureTelemetry(),
+          );
+        }
+        if (error instanceof APIError && error.status !== undefined) {
+          throw new RuntimeModelError(
+            "DRAFT_MODEL_HTTP_ERROR",
+            `Runtime model returned HTTP ${error.status}.`,
             failureTelemetry(),
           );
         }
@@ -216,8 +239,6 @@ export function createAnthropicRuntimeModelClient(
           error instanceof Error ? error.message : "Unknown runtime model error.",
           failureTelemetry(),
         );
-      } finally {
-        clearTimeout(timeout);
       }
     },
   };
