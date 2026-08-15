@@ -105,15 +105,19 @@ describe("PR2 sandbox isolation mutation matrix", () => {
     );
   });
 
-  it("kills removal of Vercel auth pass-through from the Acceptance B Turbo boundary", () => {
+  it("kills removal of Vercel auth pass-through from the Acceptance B Turbo task", () => {
     const turboPath = resolve(__dirname, "../../../turbo.json");
     const parsed = JSON.parse(readFileSync(turboPath, "utf8")) as unknown;
     expect(parsed).toBeTypeOf("object");
     expect(parsed).not.toBeNull();
-    const globalPassThroughEnv = (
-      parsed as { globalPassThroughEnv?: unknown }
-    ).globalPassThroughEnv;
-    expect(globalPassThroughEnv).toEqual(
+    const tasks = (parsed as { tasks?: unknown }).tasks;
+    expect(tasks).toBeTypeOf("object");
+    expect(tasks).not.toBeNull();
+    const acceptanceB = (
+      tasks as Record<string, { passThroughEnv?: unknown }>
+    )["test:acceptance:b"];
+    expect(acceptanceB).toBeDefined();
+    expect(acceptanceB?.passThroughEnv).toEqual(
       expect.arrayContaining([
         "VERCEL_OIDC_TOKEN",
         "VERCEL_TEAM_ID",
