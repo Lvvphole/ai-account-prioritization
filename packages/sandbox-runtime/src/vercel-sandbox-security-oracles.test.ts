@@ -74,6 +74,21 @@ describe("PR2 final sandbox security mapping", () => {
 
     expect(await response.text()).toBe("provider-response");
     expect(createOptions).toBeDefined();
+    expect(Object.keys(createOptions ?? {}).sort()).toEqual(
+      [
+        "env",
+        "fetch",
+        "networkPolicy",
+        "persistent",
+        "ports",
+        "projectId",
+        "runtime",
+        "signal",
+        "teamId",
+        "timeout",
+        "token",
+      ].sort(),
+    );
     expect(createOptions?.runtime).toBe("node22");
     expect(createOptions?.persistent).toBe(false);
     expect(createOptions?.ports).toEqual([]);
