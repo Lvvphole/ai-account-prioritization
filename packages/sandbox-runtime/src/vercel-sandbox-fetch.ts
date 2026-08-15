@@ -303,7 +303,16 @@ const singleAttemptControlPlaneFetch = (fetchImpl: typeof fetch): typeof fetch =
 };
 
 const defaultSandboxFactory: SandboxFactory = async (contract) =>
-  Sandbox.create(contract);
+  Sandbox.create({
+    runtime: contract.runtime,
+    persistent: contract.persistent,
+    ports: contract.ports,
+    timeout: contract.timeout,
+    env: contract.env,
+    networkPolicy: contract.networkPolicy,
+    signal: contract.signal,
+    fetch: contract.fetch,
+  });
 
 const operationSignalFor = (
   input: Parameters<typeof fetch>[0],
