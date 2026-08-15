@@ -1,7 +1,5 @@
-import {
-  anthropicRuntimeModelClient,
-  buildAnthropicOutputConfig,
-} from "./anthropic-runtime-model";
+import { buildAnthropicOutputConfig } from "./anthropic-runtime-model";
+import { sandboxedAnthropicRuntimeModelClient } from "./sandboxed-anthropic-runtime-model";
 import {
   RuntimeModelError,
   type RuntimeModelClient,
@@ -14,14 +12,15 @@ export const IMPLEMENTED_RUNTIME_MODEL_PROVIDERS = ["anthropic"] as const;
 
 /**
  * Deterministically resolve the configured provider to exactly one adapter.
- * There is no routing, fallback provider, or automatic escalation.
+ * There is no routing, fallback provider, or automatic escalation. The current
+ * production Anthropic adapter always uses the admitted sandbox transport.
  */
 export function runtimeModelClientForProvider(
   provider: RuntimeModelProvider,
 ): RuntimeModelClient {
   switch (provider) {
     case "anthropic":
-      return anthropicRuntimeModelClient;
+      return sandboxedAnthropicRuntimeModelClient;
     case "openai":
     case "xai":
     case "google":

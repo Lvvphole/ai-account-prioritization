@@ -167,7 +167,7 @@ export function buildAnthropicOutputConfig(
 }
 
 export function createAnthropicRuntimeModelClient(
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch,
 ): RuntimeModelClient {
   return {
     async generate(request, config) {
@@ -260,5 +260,3 @@ export function createAnthropicRuntimeModelClient(
     },
   };
 }
-
-export const anthropicRuntimeModelClient = createAnthropicRuntimeModelClient();

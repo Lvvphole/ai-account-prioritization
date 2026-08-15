@@ -83,11 +83,15 @@ export {
   type RuntimeReasoningEffort,
 } from "./inference/runtime-model";
 export {
-  anthropicRuntimeModelClient,
   buildAnthropicOutputConfig,
   createAnthropicRuntimeModelClient,
   sanitizeAnthropicJsonSchema,
 } from "./inference/anthropic-runtime-model";
+export {
+  createSandboxedAnthropicRuntimeModelClient,
+  sandboxedAnthropicRuntimeModelClient,
+  type SandboxedAnthropicRuntimeModelClientOptions,
+} from "./inference/sandboxed-anthropic-runtime-model";
 export {
   IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
   runtimeModelClientForProvider,
