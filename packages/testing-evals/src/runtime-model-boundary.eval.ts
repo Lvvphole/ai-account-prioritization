@@ -314,20 +314,27 @@ describe("P4 provider-neutral runtime-model boundary", () => {
     expect(networkCalls).toBe(1);
   });
 
-  it("maps the SDK request timeout to the existing runtime timeout error", async () => {
-    const fakeFetch: typeof fetch = async (_input, init) =>
-      new Promise<Response>((_resolve, reject) => {
-        const rejectAsAbort = () => {
-          const error = new Error("aborted");
-          error.name = "AbortError";
-          reject(error);
-        };
-        if (init?.signal?.aborted) {
-          rejectAsAbort();
-          return;
-        }
-        init?.signal?.addEventListener("abort", rejectAsAbort, { once: true });
+  it("enforces the runtime timeout through Anthropic response-body consumption", async () => {
+    const fakeFetch: typeof fetch = async (_input, init) => {
+      const body = new ReadableStream({
+        start(streamController) {
+          const rejectAsAbort = () => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            streamController.error(error);
+          };
+          if (init?.signal?.aborted) {
+            rejectAsAbort();
+          } else {
+            init?.signal?.addEventListener("abort", rejectAsAbort, { once: true });
+          }
+        },
       });
+      return new Response(body, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
 
     let caught: unknown;
     try {
@@ -335,7 +342,7 @@ describe("P4 provider-neutral runtime-model boundary", () => {
         provider: "anthropic",
         model: "claude-sonnet-5",
         credential: "test-secret",
-        timeoutMs: 20,
+        timeoutMs: 50,
         maxOutputTokens: 100,
         reasoningEffort: "provider_default",
       });
@@ -345,7 +352,7 @@ describe("P4 provider-neutral runtime-model boundary", () => {
 
     expect(caught).toBeInstanceOf(RuntimeModelError);
     expect((caught as RuntimeModelError).code).toBe("DRAFT_MODEL_TIMEOUT");
-    expect((caught as RuntimeModelError).message).toBe("Runtime model exceeded 20ms timeout.");
+    expect((caught as RuntimeModelError).message).toBe("Runtime model exceeded 50ms timeout.");
   });
 
   it("omits provider effort when the normalized intent is provider_default", async () => {
