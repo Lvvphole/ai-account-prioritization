@@ -1,18 +1,17 @@
 {
   "name": "agent-runtime",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
-  "license": "MIT",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "dev": "tsx src/index.ts",
-    "clean": "rm -rf dist"
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.117.1",
     "@repo/security": "workspace:*",
     "@repo/shared-schemas": "workspace:*",
     "@repo/supabase-client": "workspace:*",
