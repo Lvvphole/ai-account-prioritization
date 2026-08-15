@@ -13,6 +13,7 @@ import {
 } from "./runtime-model";
 
 const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
+const ANTHROPIC_API_VERSION = "2023-06-01";
 
 interface AnthropicUsage {
   input_tokens?: number;
@@ -27,18 +28,27 @@ interface AnthropicOutputConfig {
   effort?: Exclude<RuntimeReasoningEffort, "provider_default">;
 }
 
-const suppressedAmbientCustomHeaders = (): Record<string, null> => {
+const isolatedAnthropicDefaultHeaders = (
+  credential: string,
+): Record<string, string | null> => {
+  const headers: Record<string, string | null> = {};
   const configuredHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
-  if (!configuredHeaders) return {};
 
-  const suppressed: Record<string, null> = {};
-  for (const line of configuredHeaders.split("\n")) {
-    const colon = line.indexOf(":");
-    if (colon < 0) continue;
-    const headerName = line.slice(0, colon).trim();
-    if (headerName) suppressed[headerName] = null;
+  if (configuredHeaders) {
+    for (const line of configuredHeaders.split("\n")) {
+      const colon = line.indexOf(":");
+      if (colon < 0) continue;
+      const headerName = line.slice(0, colon).trim();
+      if (headerName) headers[headerName] = null;
+    }
   }
-  return suppressed;
+
+  headers.accept = "application/json";
+  headers.authorization = null;
+  headers["anthropic-version"] = ANTHROPIC_API_VERSION;
+  headers["content-type"] = "application/json";
+  headers["x-api-key"] = credential;
+  return headers;
 };
 
 const ANTHROPIC_UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
@@ -178,7 +188,7 @@ export function createAnthropicRuntimeModelClient(
         apiKey: config.credential,
         authToken: null,
         baseURL: ANTHROPIC_API_BASE_URL,
-        defaultHeaders: suppressedAmbientCustomHeaders(),
+        defaultHeaders: isolatedAnthropicDefaultHeaders(config.credential),
         fetch: fetchImpl,
         logLevel: "off",
         maxRetries: 0,
