@@ -1,0 +1,81 @@
+name: PR2 Apply Audit Evidence
+
+on:
+  push:
+    branches: ["pr2/vercel-sandbox-runtime-isolation"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr2-audit-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Apply exact audit evidence changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          orchestrator = Path("apps/agent-runtime/src/agents/orchestrator/orchestrator.agent.ts")
+          text = orchestrator.read_text()
+
+          old = 'import type { RlsContext } from "../../shared-tools/supabase/rls-context";\n'
+          new = old + 'import { runtimeModelExecutionProfileForProvider } from "../../inference/runtime-model-registry";\n'
+          if text.count(old) != 1:
+              raise SystemExit("orchestrator import anchor mismatch")
+          text = text.replace(old, new, 1)
+
+          old = '''async function auditDraftInvocationStart(\n  invocation: HybridDraftInvocationStart,\n  runId: string,\n  now: string,\n  repo: RuntimeRepository,\n): Promise<void> {'''
+          new = '''async function auditDraftInvocationStart(\n  invocation: HybridDraftInvocationStart,\n  executionProfileId: string | null,\n  runId: string,\n  now: string,\n  repo: RuntimeRepository,\n): Promise<void> {'''
+          if text.count(old) != 1:
+              raise SystemExit("audit signature anchor mismatch")
+          text = text.replace(old, new, 1)
+
+          old = '''        provider: invocation.provider,\n        model: invocation.model,\n        promptVersion: invocation.promptVersion,'''
+          new = '''        provider: invocation.provider,\n        model: invocation.model,\n        executionProfileId,\n        promptVersion: invocation.promptVersion,'''
+          if text.count(old) != 1:
+              raise SystemExit("audit evidence anchor mismatch")
+          text = text.replace(old, new, 1)
+
+          old = '''      await auditDraftInvocationStart(invocation, runId, now, repo);'''
+          new = '''      const executionProfileId = opts.drafting?.modelClient\n        ? null\n        : runtimeModelExecutionProfileForProvider(invocation.provider);\n      await auditDraftInvocationStart(\n        invocation,\n        executionProfileId,\n        runId,\n        now,\n        repo,\n      );'''
+          if text.count(old) != 1:
+              raise SystemExit("audit call anchor mismatch")
+          text = text.replace(old, new, 1)
+          orchestrator.write_text(text)
+
+          regression = Path("packages/testing-evals/src/runtime-drafting-review-regressions.eval.ts")
+          text = regression.read_text()
+          old = '''      expect(outcomeIndex).toBeGreaterThan(startIndex);\n    }'''
+          new = '''      expect(outcomeIndex).toBeGreaterThan(startIndex);\n      expect(start.evidence.executionProfileId).toBeNull();\n    }'''
+          if text.count(old) != 1:
+              raise SystemExit("regression audit anchor mismatch")
+          text = text.replace(old, new, 1)
+          regression.write_text(text)
+
+      - name: Verify targeted diff
+        shell: bash
+        run: |
+          git diff --check -- \
+            apps/agent-runtime/src/agents/orchestrator/orchestrator.agent.ts \
+            packages/testing-evals/src/runtime-drafting-review-regressions.eval.ts
+          git diff --name-only
+
+      - name: Commit patch and remove helper workflow
+        shell: bash
+        run: |
+          rm .github/workflows/pr2-apply-audit-evidence.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            apps/agent-runtime/src/agents/orchestrator/orchestrator.agent.ts \
+            packages/testing-evals/src/runtime-drafting-review-regressions.eval.ts \
+            .github/workflows/pr2-apply-audit-evidence.yml
+          git commit -m "PR2: record sandbox execution profile before invocation"
+          git push origin HEAD:pr2/vercel-sandbox-runtime-isolation
