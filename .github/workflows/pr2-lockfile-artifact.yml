@@ -5,7 +5,7 @@ on:
     branches: ["pr2/vercel-sandbox-runtime-isolation"]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: pr2-lockfile-${{ github.ref }}
@@ -16,8 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -34,9 +32,15 @@ jobs:
       - name: Verify patch whitespace
         run: git diff --check -- pnpm-lock.yaml
 
-      - name: Upload lockfile
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: pr2-generated-lockfile
-          path: pnpm-lock.yaml
-          if-no-files-found: error
+      - name: Commit lockfile when changed
+        shell: bash
+        run: |
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo "Lockfile already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml
+          git commit -m "chore: generate PR2 lockfile"
+          git push origin HEAD:pr2/vercel-sandbox-runtime-isolation
