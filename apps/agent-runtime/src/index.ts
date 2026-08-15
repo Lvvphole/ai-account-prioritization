@@ -94,6 +94,7 @@ export {
 } from "./inference/sandboxed-anthropic-runtime-model";
 export {
   IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
+  assertRuntimeModelSandboxStartupConfiguration,
   runtimeModelClientForProvider,
   runtimeModelExecutionProfileForProvider,
 } from "./inference/runtime-model-registry";

@@ -129,6 +129,12 @@ interface RelayResponse {
 
 type SandboxAuthEnvironment = Readonly<Record<string, string | undefined>>;
 
+interface OperationSignals {
+  signal: AbortSignal;
+  timeoutSignal: AbortSignal;
+  callerSignal?: AbortSignal;
+}
+
 export const VERCEL_SANDBOX_RUNTIME_PROFILE = Object.freeze({
   id: "vercel-sandbox-anthropic-egress-v1",
   runtime: SANDBOX_RUNTIME,
@@ -141,6 +147,12 @@ export const VERCEL_SANDBOX_RUNTIME_PROFILE = Object.freeze({
 const fixedError = (message: string): Error => {
   const error = new Error(message);
   error.name = "SandboxRuntimeError";
+  return error;
+};
+
+const timeoutError = (message: string): Error => {
+  const error = new Error(message);
+  error.name = "SandboxRuntimeTimeoutError";
   return error;
 };
 
@@ -375,17 +387,21 @@ const defaultSandboxFactory: SandboxFactory = async (contract) =>
     ...(contract.accessToken ?? {}),
   });
 
-const operationSignalFor = (
+const operationSignalsFor = (
   input: Parameters<typeof fetch>[0],
   init: Parameters<typeof fetch>[1] | undefined,
   timeoutMs: number,
-): AbortSignal => {
+): OperationSignals => {
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const callerSignal =
     init?.signal ?? (input instanceof Request ? input.signal : undefined);
-  return callerSignal
-    ? AbortSignal.any([callerSignal, timeoutSignal])
-    : timeoutSignal;
+  return {
+    signal: callerSignal
+      ? AbortSignal.any([callerSignal, timeoutSignal])
+      : timeoutSignal,
+    timeoutSignal,
+    callerSignal,
+  };
 };
 
 const cleanupReserveMsFor = (timeoutMs: number): number =>
@@ -393,6 +409,16 @@ const cleanupReserveMsFor = (timeoutMs: number): number =>
     MAX_SANDBOX_CLEANUP_RESERVE_MS,
     Math.max(1, Math.floor(timeoutMs / 2)),
   );
+
+const operationFailureFor = (signals: OperationSignals): Error => {
+  if (signals.timeoutSignal.aborted) {
+    return timeoutError("Sandbox runtime model transport timed out.");
+  }
+  if (signals.callerSignal?.aborted) {
+    return fixedError("Sandbox runtime model transport was aborted.");
+  }
+  return fixedError("Sandbox runtime model transport failed.");
+};
 
 /**
  * Create the only production fetch transport admitted for the current Anthropic
@@ -420,7 +446,7 @@ export function createVercelSandboxFetch(
 
   return async (input, init) => {
     const request = await buildRelayRequest(input, init, options.credential);
-    const signal = operationSignalFor(input, init, operationTimeoutMs);
+    const operation = operationSignalsFor(input, init, operationTimeoutMs);
     let sandbox: SandboxInstance | undefined;
     let response: Response | undefined;
     let failure: Error | undefined;
@@ -433,7 +459,7 @@ export function createVercelSandboxFetch(
         timeout: options.timeoutMs,
         env: {},
         networkPolicy: networkPolicyFor(options.credential),
-        signal,
+        signal: operation.signal,
         fetch: controlPlaneFetch,
         accessToken: options.accessToken,
       });
@@ -441,7 +467,7 @@ export function createVercelSandboxFetch(
       await sandbox.fs.writeFile(
         SANDBOX_REQUEST_PATH,
         JSON.stringify(request),
-        { signal },
+        { signal: operation.signal },
       );
 
       // Do not use Sandbox.runCommand(). It can resume a stopped sandbox and
@@ -453,7 +479,7 @@ export function createVercelSandboxFetch(
           SANDBOX_REQUEST_PATH,
           SANDBOX_RESPONSE_PATH,
         },
-        signal,
+        signal: operation.signal,
         timeoutMs: operationTimeoutMs,
       });
 
@@ -464,7 +490,7 @@ export function createVercelSandboxFetch(
       const relayResponse = parseRelayResponse(
         await sandbox.fs.readFile(SANDBOX_RESPONSE_PATH, {
           encoding: "utf8",
-          signal,
+          signal: operation.signal,
         }),
       );
 
@@ -474,9 +500,7 @@ export function createVercelSandboxFetch(
         headers: relayResponse.headers,
       });
     } catch {
-      failure = signal.aborted
-        ? fixedError("Sandbox runtime model transport was aborted.")
-        : fixedError("Sandbox runtime model transport failed.");
+      failure = operationFailureFor(operation);
     }
 
     if (sandbox) {
@@ -490,8 +514,8 @@ export function createVercelSandboxFetch(
       }
     }
 
-    if (signal.aborted && !failure) {
-      failure = fixedError("Sandbox runtime model transport was aborted.");
+    if (operation.signal.aborted && !failure) {
+      failure = operationFailureFor(operation);
     }
     if (failure) throw failure;
     if (!response) throw fixedError("Sandbox runtime model transport failed.");

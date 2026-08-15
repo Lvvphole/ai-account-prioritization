@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertRuntimeModelSandboxStartupConfiguration,
   createSandboxedAnthropicRuntimeModelClient,
   runtimeModelClientForProvider,
   runtimeModelExecutionProfileForProvider,
@@ -46,6 +47,46 @@ describe("sandboxed production runtime model boundary", () => {
       "vercel-sandbox-anthropic-egress-v1",
     );
     expect(runtimeModelExecutionProfileForProvider("openai")).toBeNull();
+  });
+
+  it("fails production startup when enabled Anthropic sandbox authentication is absent or partial", () => {
+    expect(() =>
+      assertRuntimeModelSandboxStartupConfiguration({
+        NODE_ENV: "production",
+        RUNTIME_DRAFTING_ENABLED: "true",
+        RUNTIME_DRAFT_PROVIDER: "anthropic",
+      }),
+    ).toThrow("Vercel Sandbox control-plane authentication is required.");
+
+    expect(() =>
+      assertRuntimeModelSandboxStartupConfiguration({
+        NODE_ENV: "production",
+        RUNTIME_DRAFTING_ENABLED: "true",
+        RUNTIME_DRAFT_PROVIDER: "anthropic",
+        VERCEL_TEAM_ID: "team_test",
+        VERCEL_PROJECT_ID: "project_test",
+      }),
+    ).toThrow("Vercel Sandbox control-plane authentication is incomplete.");
+
+    expect(() =>
+      assertRuntimeModelSandboxStartupConfiguration({
+        NODE_ENV: "production",
+        RUNTIME_DRAFTING_ENABLED: "true",
+        RUNTIME_DRAFT_PROVIDER: "anthropic",
+        VERCEL_OIDC_TOKEN: "oidc-token",
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      assertRuntimeModelSandboxStartupConfiguration({
+        NODE_ENV: "production",
+        RUNTIME_DRAFTING_ENABLED: "true",
+        RUNTIME_DRAFT_PROVIDER: "anthropic",
+        VERCEL_TEAM_ID: "team_test",
+        VERCEL_PROJECT_ID: "project_test",
+        VERCEL_TOKEN: "vercel-token",
+      }),
+    ).not.toThrow();
   });
 
   it("executes the Anthropic SDK request through the sandbox transport without host fallback", async () => {
@@ -144,6 +185,56 @@ describe("sandboxed production runtime model boundary", () => {
     expect(providerRequest).toContain("sandbox-brokered-anthropic-key");
     expect(providerRequest).not.toContain(config.credential);
     expect(providerRequest).not.toContain(sandboxAccessToken.token);
+  });
+
+  it("maps the reserved sandbox operation deadline to the runtime timeout contract", async () => {
+    let stopCalls = 0;
+    const timeoutConfig: RuntimeModelInvocationConfig = {
+      ...config,
+      timeoutMs: 40,
+    };
+    const client = createSandboxedAnthropicRuntimeModelClient({
+      accessToken: sandboxAccessToken,
+      createSandbox: async () => ({
+        fs: {
+          async writeFile() {},
+          async readFile() {
+            throw new Error("response read must not run after timeout");
+          },
+        },
+        currentSession() {
+          return {
+            async runCommand(params) {
+              const signal = params.signal;
+              if (!signal) throw new Error("operation signal is required");
+              await new Promise<void>((_resolve, reject) => {
+                if (signal.aborted) {
+                  reject(new Error("operation aborted"));
+                  return;
+                }
+                signal.addEventListener(
+                  "abort",
+                  () => reject(new Error("operation aborted")),
+                  { once: true },
+                );
+              });
+              return { exitCode: 0 };
+            },
+          };
+        },
+        async stop() {
+          stopCalls += 1;
+          return {};
+        },
+      }),
+    });
+
+    await expect(client.generate(request, timeoutConfig)).rejects.toMatchObject({
+      name: "RuntimeModelError",
+      code: "DRAFT_MODEL_TIMEOUT",
+      message: `Runtime model exceeded ${timeoutConfig.timeoutMs}ms timeout.`,
+    });
+    expect(stopCalls).toBe(1);
   });
 
   it("maps sandbox failure into the existing runtime error path without direct provider retry", async () => {

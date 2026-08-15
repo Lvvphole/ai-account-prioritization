@@ -26,6 +26,12 @@
     "VERIFY_ACCEPTANCE_B_RUNTIME",
     "ACCEPTANCE_B_DATABASE_BACKED"
   ],
+  "globalPassThroughEnv": [
+    "VERCEL_OIDC_TOKEN",
+    "VERCEL_TEAM_ID",
+    "VERCEL_PROJECT_ID",
+    "VERCEL_TOKEN"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

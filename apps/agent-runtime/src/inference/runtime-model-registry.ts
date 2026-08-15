@@ -1,4 +1,7 @@
-import { VERCEL_SANDBOX_RUNTIME_PROFILE } from "@repo/sandbox-runtime";
+import {
+  VERCEL_SANDBOX_RUNTIME_PROFILE,
+  assertVercelSandboxAuthentication,
+} from "@repo/sandbox-runtime";
 import { buildAnthropicOutputConfig } from "./anthropic-runtime-model";
 import { sandboxedAnthropicRuntimeModelClient } from "./sandboxed-anthropic-runtime-model";
 import {
@@ -10,6 +13,29 @@ import {
 } from "./runtime-model";
 
 export const IMPLEMENTED_RUNTIME_MODEL_PROVIDERS = ["anthropic"] as const;
+
+type RuntimeModelStartupEnvironment = Readonly<
+  Record<string, string | undefined>
+>;
+
+/**
+ * Fail startup before the first model invocation when the enabled production
+ * Anthropic path cannot authenticate to the Vercel Sandbox control plane.
+ */
+export function assertRuntimeModelSandboxStartupConfiguration(
+  env: RuntimeModelStartupEnvironment = process.env,
+): void {
+  if (env.NODE_ENV !== "production" || env.RUNTIME_DRAFTING_ENABLED !== "true") {
+    return;
+  }
+
+  const provider = (env.RUNTIME_DRAFT_PROVIDER ?? "anthropic").trim();
+  if (provider === "anthropic") {
+    assertVercelSandboxAuthentication(env);
+  }
+}
+
+assertRuntimeModelSandboxStartupConfiguration();
 
 /**
  * Deterministically resolve the configured provider to exactly one adapter.
