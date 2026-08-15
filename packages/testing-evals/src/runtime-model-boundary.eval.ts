@@ -235,7 +235,7 @@ describe("P4 provider-neutral runtime-model boundary", () => {
     const originalBaseUrl = process.env.ANTHROPIC_BASE_URL;
     const originalAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
     const originalCustomHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
-    let capturedInput: RequestInfo | URL | undefined;
+    let capturedInput: Parameters<typeof fetch>[0] | undefined;
     let capturedInit: RequestInit | undefined;
 
     process.env.ANTHROPIC_BASE_URL = "https://example.invalid";
