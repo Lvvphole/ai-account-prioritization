@@ -66,6 +66,27 @@ The following capabilities remain explicitly deferred from the current productio
 
 These deferred capabilities remain approved under the target architecture. A later implementation requires a new explicit ruling and the applicable ADR-002 admission evidence. No authority-document update can be interpreted as authorization to expand P4 beyond this scope.
 
+#### Current production sandbox requirement
+
+Every enabled production model invocation uses the admitted sandbox execution
+profile. The current Anthropic profile is
+`vercel-sandbox-anthropic-egress-v1`.
+
+The Vercel Sandbox isolates the local provider request and response relay and the
+provider egress surface. Anthropic hosts the remote inference process. The product
+does not claim that hosted Anthropic inference runs inside the local microVM.
+
+The current sandbox is ephemeral, receives no host environment, exposes no
+ports, and permits only the exact Anthropic Messages API egress. The real
+provider credential stays outside the VM and is injected only at the trusted
+network-policy boundary. There is no direct-host provider fallback. Sandbox
+failure uses only the deterministic template fallback or hold.
+
+The durable model-invocation start evidence records the non-secret execution
+profile identity for the built-in production model client. This requirement does
+not authorize model-selected actions, general tool use, subagents, routing,
+voting, or another deferred Position B capability.
+
 ## Problem
 
 B2B sales representatives have more accounts and opportunities than they can actively work. CRM exports contain useful signals, but representatives spend time searching records and deciding what deserves attention.

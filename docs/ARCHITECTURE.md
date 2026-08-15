@@ -87,6 +87,40 @@ Explicitly deferred from the current production spine:
 
 These capabilities remain approved under the target architecture. A later implementation requires a new explicit ruling and the applicable ADR-002 admission evidence.
 
+### Current production sandbox execution boundary
+
+Every enabled production model call uses an admitted sandbox execution profile.
+The current Anthropic profile is `vercel-sandbox-anthropic-egress-v1`.
+
+```text
+trusted deterministic harness
+  -> RuntimeModelClient
+  -> sandboxed Anthropic adapter
+  -> official Anthropic SDK
+  -> sandbox-backed provider relay
+  -> ephemeral Vercel Sandbox
+  -> exact Anthropic Messages API egress
+  -> Anthropic-hosted inference
+  -> untrusted response
+  -> existing deterministic verification and publication gates
+```
+
+The Vercel microVM isolates the local request and response relay and provider
+egress surface. Anthropic hosts the remote inference process. The architecture
+does not claim that Anthropic inference runs inside the local microVM.
+
+The sandbox receives no host environment, exposes no ports, and is non-persistent.
+Its network policy permits only `POST /v1/messages` to `api.anthropic.com`. The
+real provider credential stays outside the VM and is injected at the trusted
+network-policy boundary. There is no direct-host provider fallback. Sandbox
+failure therefore enters the existing deterministic template fallback or hold
+path.
+
+The durable pre-invocation audit evidence records the non-secret execution
+profile identity for the built-in production model client. This isolation
+boundary does not implement tools, subagents, routing, candidate-action selection,
+or another deferred Position B capability.
+
 ### P4 production acceptance profiles
 
 **Acceptance A — deterministic baseline:** AI is disabled. The production-shaped daily spine must pass end to end with deterministic behavior and approved fallback semantics.
