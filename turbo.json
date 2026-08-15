@@ -55,7 +55,13 @@
     "test:acceptance:b": {
       "dependsOn": ["^build"],
       "cache": false,
-      "outputs": []
+      "outputs": [],
+      "passThroughEnv": [
+        "VERCEL_OIDC_TOKEN",
+        "VERCEL_TEAM_ID",
+        "VERCEL_PROJECT_ID",
+        "VERCEL_TOKEN"
+      ]
     },
     "test:trajectory": {
       "dependsOn": ["^build"],

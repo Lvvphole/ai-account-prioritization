@@ -601,6 +601,7 @@ describe("runtime drafting Codex review regressions", () => {
           entry.evidence.recommendationId === start.evidence.recommendationId,
       );
       expect(outcomeIndex).toBeGreaterThan(startIndex);
+      expect(start.evidence.executionProfileId).toBeNull();
     }
   });
 

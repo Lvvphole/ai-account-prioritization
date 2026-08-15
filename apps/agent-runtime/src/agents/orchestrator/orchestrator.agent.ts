@@ -35,6 +35,7 @@ import {
   type RuntimeRepository,
 } from "../../shared-tools/runtime-repository";
 import type { RlsContext } from "../../shared-tools/supabase/rls-context";
+import { runtimeModelExecutionProfileForProvider } from "../../inference/runtime-model-registry";
 
 export interface RunOptions {
   /** Injected clock for deterministic runs/evals. Defaults to now. */
@@ -149,6 +150,7 @@ async function applyApproval(
 
 async function auditDraftInvocationStart(
   invocation: HybridDraftInvocationStart,
+  executionProfileId: string | null,
   runId: string,
   now: string,
   repo: RuntimeRepository,
@@ -166,6 +168,7 @@ async function auditDraftInvocationStart(
         selectedSourceSignalIds: invocation.selectedSourceSignalIds,
         provider: invocation.provider,
         model: invocation.model,
+        executionProfileId,
         promptVersion: invocation.promptVersion,
         promptHash: invocation.promptHash,
         schemaVersion: invocation.schemaVersion,
@@ -282,7 +285,16 @@ export async function runDailyPrioritizationForOwner(
       if (!opts.drafting?.modelClient && repo === inMemoryRepository) {
         throw new Error("Runtime drafting requires a durable audit repository.");
       }
-      await auditDraftInvocationStart(invocation, runId, now, repo);
+      const executionProfileId = opts.drafting?.modelClient
+        ? null
+        : runtimeModelExecutionProfileForProvider(invocation.provider);
+      await auditDraftInvocationStart(
+        invocation,
+        executionProfileId,
+        runId,
+        now,
+        repo,
+      );
       if (callerBeforeModelInvoke) {
         await callerBeforeModelInvoke(invocation);
       }

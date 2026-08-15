@@ -87,6 +87,22 @@ The following approved target capabilities remain deferred from current P4:
 A deferred capability requires a new explicit ruling and the applicable ADR-002
 admission evidence before implementation.
 
+### Current model execution isolation
+
+When the current production model path is enabled, the built-in Anthropic client
+uses the admitted `vercel-sandbox-anthropic-egress-v1` execution profile. The
+Vercel Sandbox contains only the local provider relay. Anthropic still hosts the
+remote inference process.
+
+The VM is ephemeral, receives no host environment, exposes no ports, and can
+reach only the exact admitted Anthropic Messages endpoint. The real provider
+credential stays outside the VM and is injected at the trusted egress boundary.
+There is no unsandboxed production fallback. A sandbox failure therefore uses the
+existing deterministic template fallback or hold.
+
+Durable pre-invocation evidence records the sandbox execution profile for the
+built-in client. Injected test clients record no sandbox profile.
+
 ## Sprint history and next delivery path
 
 | Sprint | Scope | Exit gate |

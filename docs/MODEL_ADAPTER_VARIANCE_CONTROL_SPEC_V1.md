@@ -138,6 +138,29 @@ CandidateResult
 
 These structures describe the target architecture. Current P4 does not implement model-selected WHAT, a capability resolver, tools, workflows, or workers.
 
+### 2.2 Current production execution isolation
+
+The provider-neutral `RuntimeModelClient` remains the application model boundary.
+The current production registry resolves Anthropic only through the admitted
+`vercel-sandbox-anthropic-egress-v1` execution profile. The official Anthropic
+SDK remains the provider protocol adapter. Its HTTP transport runs through the
+sandbox relay rather than through a direct host fetch.
+
+The current Vercel Sandbox profile is non-persistent, has no exposed ports,
+receives no host environment, and permits only `POST /v1/messages` to
+`api.anthropic.com`. The provider credential is replaced with a placeholder before
+the request enters the VM. The trusted Vercel network-policy boundary injects
+the real credential only for the exact admitted egress.
+
+This profile isolates the local request and response relay and provider egress.
+Anthropic hosts the inference process, so this specification does not describe
+remote Anthropic inference as executing inside the Vercel microVM.
+
+The sandbox path does not add provider routing or model authority. Sandbox failure
+fails closed into the existing deterministic fallback or hold path. Durable
+pre-invocation evidence records the execution profile identity for the built-in
+production client.
+
 ## 3. Authority matrix
 
 | Decision or state | Target owner | Current production P4 | Rule |

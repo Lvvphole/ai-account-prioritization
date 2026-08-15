@@ -330,6 +330,38 @@ Do not hard-code `temperature: 0` into Claude-5-compatible requests merely to
 claim determinism. Provider controls must follow the qualified provider contract.
 Generated prose is not assumed to be bit-identical.
 
+### 4.3 Current production sandbox boundary
+
+Every enabled production runtime-model invocation must use the admitted sandbox
+execution profile. The current Anthropic profile is
+`vercel-sandbox-anthropic-egress-v1`.
+
+For the hosted Anthropic API, the Vercel Sandbox isolates the local provider
+request and response relay and the provider egress surface. Anthropic inference
+remains hosted by Anthropic. Do not claim that remote provider inference runs
+inside the local Vercel microVM.
+
+The current sandbox contract is fail-closed:
+
+- the sandbox is ephemeral and non-persistent;
+- it receives no host environment and exposes no ports;
+- provider egress is limited to `POST https://api.anthropic.com/v1/messages`;
+- the real Anthropic credential is not written into the sandbox file system or
+  command environment;
+- the sandbox receives a placeholder credential and the trusted Vercel network
+  policy injects the real credential only at the egress boundary;
+- the production provider registry has no direct-host Anthropic fallback;
+- sandbox creation, command execution, response transfer, and cleanup remain
+  inside the externally enforced runtime deadline; and
+- sandbox failure uses only the existing deterministic template fallback or hold.
+
+Durable pre-invocation evidence records the non-secret `executionProfileId` for
+the built-in production model client. An injected test or custom model client must
+not be falsely recorded as sandboxed.
+
+This boundary does not authorize general model tool use, model-selected actions,
+subagents, routing, voting, or any other deferred Position B capability.
+
 ## 5. Environment boundaries
 
 Development and test conveniences must be technically separated from production.

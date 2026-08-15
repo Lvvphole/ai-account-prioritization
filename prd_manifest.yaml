@@ -94,6 +94,23 @@ current_production_spine:
   deterministic_fallback_or_hold_required: true
   full_position_b_implemented: false
   target_architecture_does_not_expand_current_scope: true
+  probabilistic_execution:
+    sandbox_required_when_model_enabled: true
+    execution_profile_id: vercel-sandbox-anthropic-egress-v1
+    local_isolation_scope:
+      - provider_request_relay
+      - provider_response_relay
+      - provider_egress
+    hosted_provider_inference_runs_inside_local_sandbox: false
+    persistent: false
+    exposed_ports: []
+    host_environment_exposed: false
+    real_provider_credential_inside_vm: false
+    egress_domain: api.anthropic.com
+    egress_method: POST
+    egress_path: /v1/messages
+    direct_host_provider_fallback: false
+    failure_path: deterministic_template_fallback_or_hold
 
 p4:
   name: Provider-Neutral Model Boundary, Variance Control, and Qualification
@@ -231,6 +248,7 @@ model_policy:
   invocation_evidence_required:
     - model_identity
     - provider_identity
+    - execution_profile_id
     - effective_model_configuration
     - prompt_identity_and_hash
     - schema_version
@@ -470,6 +488,7 @@ implementation_state:
   deterministic_prioritization_core: shipped
   deterministic_next_best_action_selection: shipped
   bounded_single_call_runtime_drafting: shipped
+  sandboxed_probabilistic_execution_boundary: shipped
   production_ingestion_commit_spine: shipped
   durable_runtime_to_web_bridge: shipped
   live_dashboard_without_mock_recommendations: shipped

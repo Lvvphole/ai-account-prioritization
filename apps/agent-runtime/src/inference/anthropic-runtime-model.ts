@@ -1,4 +1,5 @@
 import Anthropic, {
+  APIConnectionError,
   APIConnectionTimeoutError,
   APIError,
 } from "@anthropic-ai/sdk";
@@ -166,8 +167,16 @@ export function buildAnthropicOutputConfig(
   return outputConfig;
 }
 
+const sanitizedConnectionMessage = (error: APIConnectionError): string => {
+  const cause = error.cause;
+  if (cause instanceof Error && cause.name === "SandboxRuntimeError") {
+    return cause.message;
+  }
+  return error.message;
+};
+
 export function createAnthropicRuntimeModelClient(
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch,
 ): RuntimeModelClient {
   return {
     async generate(request, config) {
@@ -251,7 +260,11 @@ export function createAnthropicRuntimeModelClient(
         }
         throw new RuntimeModelError(
           "DRAFT_MODEL_HTTP_ERROR",
-          error instanceof Error ? error.message : "Unknown runtime model error.",
+          error instanceof APIConnectionError
+            ? sanitizedConnectionMessage(error)
+            : error instanceof Error
+              ? error.message
+              : "Unknown runtime model error.",
           failureTelemetry(),
         );
       } finally {
@@ -260,5 +273,3 @@ export function createAnthropicRuntimeModelClient(
     },
   };
 }
-
-export const anthropicRuntimeModelClient = createAnthropicRuntimeModelClient();

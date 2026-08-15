@@ -9,11 +9,13 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:evals": "vitest run src/agents/orchestrator/orchestrator.sandbox-audit.test.ts src/inference/runtime-model-registry.startup.test.ts",
     "dev": "tsx src/index.ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
+    "@repo/sandbox-runtime": "workspace:*",
     "@repo/security": "workspace:*",
     "@repo/shared-schemas": "workspace:*",
     "@repo/supabase-client": "workspace:*",

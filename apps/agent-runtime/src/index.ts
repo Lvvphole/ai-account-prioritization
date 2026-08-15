@@ -83,14 +83,20 @@ export {
   type RuntimeReasoningEffort,
 } from "./inference/runtime-model";
 export {
-  anthropicRuntimeModelClient,
   buildAnthropicOutputConfig,
   createAnthropicRuntimeModelClient,
   sanitizeAnthropicJsonSchema,
 } from "./inference/anthropic-runtime-model";
 export {
+  createSandboxedAnthropicRuntimeModelClient,
+  sandboxedAnthropicRuntimeModelClient,
+  type SandboxedAnthropicRuntimeModelClientOptions,
+} from "./inference/sandboxed-anthropic-runtime-model";
+export {
   IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
+  assertRuntimeModelSandboxStartupConfiguration,
   runtimeModelClientForProvider,
+  runtimeModelExecutionProfileForProvider,
 } from "./inference/runtime-model-registry";
 
 // Supabase wiring (Sprint 4). The runtime stays on the in-memory store unless a
