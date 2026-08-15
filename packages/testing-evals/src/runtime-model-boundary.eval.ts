@@ -69,6 +69,16 @@ type CapturedAnthropicBody = {
   };
 };
 
+const headersFromInit = (init?: RequestInit): Headers => new Headers(init?.headers);
+
+const restoreEnv = (name: string, value: string | undefined): void => {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+};
+
 describe("P4 provider-neutral runtime-model boundary", () => {
   it("normalizes provider-neutral policy without leaking credentials into audit evidence", () => {
     const normalized = normalizeRuntimeDraftingPolicy(
@@ -218,7 +228,124 @@ describe("P4 provider-neutral runtime-model boundary", () => {
     expect(body.output_config?.format?.schema?.additionalProperties).toBe(false);
     expect(body.output_config?.format?.schema?.properties?.value?.minLength).toBeUndefined();
     expect(body.output_config?.format?.schema?.properties?.value?.maxLength).toBeUndefined();
-    expect((capturedInit?.headers as Record<string, string>)["x-api-key"]).toBe("test-secret");
+    expect(headersFromInit(capturedInit).get("x-api-key")).toBe("test-secret");
+  });
+
+  it("pins the Anthropic endpoint and suppresses ambient SDK credentials and custom headers", async () => {
+    const originalBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    const originalAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
+    const originalCustomHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
+    let capturedInput: RequestInfo | URL | undefined;
+    let capturedInit: RequestInit | undefined;
+
+    process.env.ANTHROPIC_BASE_URL = "https://example.invalid";
+    process.env.ANTHROPIC_AUTH_TOKEN = "ambient-auth-token";
+    process.env.ANTHROPIC_CUSTOM_HEADERS = [
+      "authorization: Bearer ambient-custom-token",
+      "x-api-key: ambient-api-key",
+      "x-ambient-secret: ambient-secret",
+    ].join("\n");
+
+    try {
+      const fakeFetch: typeof fetch = async (input, init) => {
+        capturedInput = input;
+        capturedInit = init;
+        return new Response(
+          JSON.stringify({
+            content: [{ type: "text", text: JSON.stringify({ value: "ok" }) }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      };
+
+      await createAnthropicRuntimeModelClient(fakeFetch).generate(request, {
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        credential: "configured-api-key",
+        timeoutMs: 1000,
+        maxOutputTokens: 100,
+        reasoningEffort: "provider_default",
+      });
+    } finally {
+      restoreEnv("ANTHROPIC_BASE_URL", originalBaseUrl);
+      restoreEnv("ANTHROPIC_AUTH_TOKEN", originalAuthToken);
+      restoreEnv("ANTHROPIC_CUSTOM_HEADERS", originalCustomHeaders);
+    }
+
+    const requestUrl = capturedInput instanceof Request ? capturedInput.url : String(capturedInput);
+    const headers = headersFromInit(capturedInit);
+    expect(requestUrl).toBe("https://api.anthropic.com/v1/messages");
+    expect(headers.get("x-api-key")).toBe("configured-api-key");
+    expect(headers.get("authorization")).toBeNull();
+    expect(headers.get("x-ambient-secret")).toBeNull();
+  });
+
+  it("does not amplify one runtime attempt with SDK retries", async () => {
+    let networkCalls = 0;
+    const fakeFetch: typeof fetch = async () => {
+      networkCalls += 1;
+      return new Response(
+        JSON.stringify({
+          type: "error",
+          error: { type: "rate_limit_error", message: "provider-body-marker" },
+        }),
+        { status: 429, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    let caught: unknown;
+    try {
+      await createAnthropicRuntimeModelClient(fakeFetch).generate(request, {
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        credential: "test-secret",
+        timeoutMs: 1000,
+        maxOutputTokens: 100,
+        reasoningEffort: "provider_default",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(RuntimeModelError);
+    expect((caught as RuntimeModelError).code).toBe("DRAFT_MODEL_HTTP_ERROR");
+    expect((caught as RuntimeModelError).message).toBe("Runtime model returned HTTP 429.");
+    expect((caught as RuntimeModelError).message).not.toContain("provider-body-marker");
+    expect(networkCalls).toBe(1);
+  });
+
+  it("maps the SDK request timeout to the existing runtime timeout error", async () => {
+    const fakeFetch: typeof fetch = async (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        const rejectAsAbort = () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        };
+        if (init?.signal?.aborted) {
+          rejectAsAbort();
+          return;
+        }
+        init?.signal?.addEventListener("abort", rejectAsAbort, { once: true });
+      });
+
+    let caught: unknown;
+    try {
+      await createAnthropicRuntimeModelClient(fakeFetch).generate(request, {
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        credential: "test-secret",
+        timeoutMs: 20,
+        maxOutputTokens: 100,
+        reasoningEffort: "provider_default",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(RuntimeModelError);
+    expect((caught as RuntimeModelError).code).toBe("DRAFT_MODEL_TIMEOUT");
+    expect((caught as RuntimeModelError).message).toBe("Runtime model exceeded 20ms timeout.");
   });
 
   it("omits provider effort when the normalized intent is provider_default", async () => {
