@@ -14,13 +14,13 @@ import {
 
 const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
 
-interface AnthropicOutputConfig {
+type AnthropicOutputConfig = {
   format: {
     type: "json_schema";
     schema: RuntimeJsonSchema;
   };
   effort?: Exclude<RuntimeReasoningEffort, "provider_default">;
-}
+};
 
 const ANTHROPIC_UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
   "$schema",
