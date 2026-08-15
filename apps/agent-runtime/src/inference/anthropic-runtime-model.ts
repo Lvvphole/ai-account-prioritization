@@ -194,15 +194,20 @@ export function createAnthropicRuntimeModelClient(
         maxRetries: 0,
         timeout: config.timeoutMs,
       });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
       try {
-        const body = await client.messages.create({
-          model: config.model,
-          max_tokens: config.maxOutputTokens,
-          system: request.system,
-          messages: [{ role: "user", content: request.user }],
-          output_config: outputConfig,
-        });
+        const body = await client.messages.create(
+          {
+            model: config.model,
+            max_tokens: config.maxOutputTokens,
+            system: request.system,
+            messages: [{ role: "user", content: request.user }],
+            output_config: outputConfig,
+          },
+          { signal: controller.signal },
+        );
 
         const text = body.content.find((item) => item.type === "text")?.text;
         if (!text) {
@@ -230,7 +235,7 @@ export function createAnthropicRuntimeModelClient(
         };
       } catch (error) {
         if (error instanceof RuntimeModelError) throw error;
-        if (error instanceof APIConnectionTimeoutError) {
+        if (controller.signal.aborted || error instanceof APIConnectionTimeoutError) {
           throw new RuntimeModelError(
             "DRAFT_MODEL_TIMEOUT",
             `Runtime model exceeded ${config.timeoutMs}ms timeout.`,
@@ -249,6 +254,8 @@ export function createAnthropicRuntimeModelClient(
           error instanceof Error ? error.message : "Unknown runtime model error.",
           failureTelemetry(),
         );
+      } finally {
+        clearTimeout(timeout);
       }
     },
   };
