@@ -163,7 +163,7 @@ describe("PR2 sandbox isolation mutation matrix", () => {
         return {
           output: {
             schemaVersion: "1.0",
-            actionType: "email",
+            actionType: "send_email",
             sentences: [
               {
                 text: "Open pipeline of $50,000.",
