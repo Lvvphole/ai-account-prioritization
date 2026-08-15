@@ -1,3 +1,4 @@
+import { VERCEL_SANDBOX_RUNTIME_PROFILE } from "@repo/sandbox-runtime";
 import { buildAnthropicOutputConfig } from "./anthropic-runtime-model";
 import { sandboxedAnthropicRuntimeModelClient } from "./sandboxed-anthropic-runtime-model";
 import {
@@ -28,6 +29,23 @@ export function runtimeModelClientForProvider(
         "DRAFT_MODEL_CONFIG_ERROR",
         `Runtime model provider ${provider} has no admitted production adapter yet.`,
       );
+  }
+}
+
+/**
+ * Return the fixed non-secret execution profile for an admitted production
+ * provider. Injected test clients do not use this resolver and must record null.
+ */
+export function runtimeModelExecutionProfileForProvider(
+  provider: RuntimeModelProvider,
+): string | null {
+  switch (provider) {
+    case "anthropic":
+      return VERCEL_SANDBOX_RUNTIME_PROFILE.id;
+    case "openai":
+    case "xai":
+    case "google":
+      return null;
   }
 }
 
