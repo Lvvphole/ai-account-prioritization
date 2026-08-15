@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   attachHybridActionDraft,
@@ -82,17 +82,21 @@ const policy: RuntimeDraftingPolicy = {
 };
 
 const resultFrom = async (client: RuntimeModelClient) =>
-  attachHybridActionDraft(recommendation, {
-    account,
-    contacts: [],
-    opportunities: [],
-    activities: [],
-  }, {
-    policy,
-    modelClient: client,
-    now: ISO,
-    beforeModelInvoke: async () => {},
-  });
+  attachHybridActionDraft(
+    recommendation,
+    {
+      account,
+      contacts: [],
+      opportunities: [],
+      activities: [],
+    },
+    {
+      policy,
+      modelClient: client,
+      now: ISO,
+      beforeModelInvoke: async () => {},
+    },
+  );
 
 describe("PR2 sandbox isolation mutation matrix", () => {
   it("kills bypass-sandbox and direct-Claude-fallback registry mutations", () => {
@@ -102,7 +106,7 @@ describe("PR2 sandbox isolation mutation matrix", () => {
   });
 
   it("kills removal of Vercel auth pass-through from the Acceptance B Turbo boundary", () => {
-    const turboPath = fileURLToPath(new URL("../../../turbo.json", import.meta.url));
+    const turboPath = resolve(__dirname, "../../../turbo.json");
     const parsed = JSON.parse(readFileSync(turboPath, "utf8")) as unknown;
     expect(parsed).toBeTypeOf("object");
     expect(parsed).not.toBeNull();
