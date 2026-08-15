@@ -54,6 +54,16 @@ interface SandboxCommandResult {
   exitCode: number;
 }
 
+interface SandboxSession {
+  runCommand(params: {
+    cmd: string;
+    args?: string[];
+    env?: Record<string, string>;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<SandboxCommandResult>;
+}
+
 interface SandboxFileSystem {
   writeFile(
     path: string,
@@ -68,13 +78,7 @@ interface SandboxFileSystem {
 
 export interface SandboxInstance {
   fs: SandboxFileSystem;
-  runCommand(params: {
-    cmd: string;
-    args?: string[];
-    env?: Record<string, string>;
-    signal?: AbortSignal;
-    timeoutMs?: number;
-  }): Promise<SandboxCommandResult>;
+  currentSession(): SandboxSession;
   stop(options?: { signal?: AbortSignal }): Promise<unknown>;
 }
 
@@ -283,7 +287,14 @@ const networkPolicyFor = (credential: string): NetworkPolicy => ({
   },
 });
 
-const singleAttemptControlPlaneFetch = (fetchImpl: typeof fetch): typeof fetch => {
+/**
+ * Vercel Sandbox wraps control-plane fetches in retry logic. A repeated mutating
+ * request can duplicate model execution. Block reuse of the same mutation
+ * request object. Vercel Sandbox 2.9.2 reuses that object for fetch retries.
+ */
+export const singleAttemptControlPlaneFetch = (
+  fetchImpl: typeof fetch,
+): typeof fetch => {
   const startedMutations = new WeakSet<object>();
 
   return async (input, init) => {
@@ -370,7 +381,9 @@ export function createVercelSandboxFetch(
         { signal },
       );
 
-      const command = await sandbox.runCommand({
+      // Do not use Sandbox.runCommand(). It can resume a stopped sandbox and
+      // invoke the command again. The current Session path is single-attempt.
+      const command = await sandbox.currentSession().runCommand({
         cmd: "node",
         args: ["--input-type=module", "--eval", RELAY_SOURCE],
         env: {
