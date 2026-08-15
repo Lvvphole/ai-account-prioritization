@@ -184,6 +184,19 @@ describe("Vercel sandbox runtime transport", () => {
     const contract = state.createContracts[0];
     if (!contract) throw new Error("Sandbox create contract was not captured.");
 
+    expect(Object.keys(contract).sort()).toEqual(
+      [
+        "accessToken",
+        "env",
+        "fetch",
+        "networkPolicy",
+        "persistent",
+        "ports",
+        "runtime",
+        "signal",
+        "timeout",
+      ].sort(),
+    );
     expect(contract.runtime).toBe("node22");
     expect(contract.persistent).toBe(false);
     expect(contract.ports).toEqual([]);
@@ -228,6 +241,10 @@ describe("Vercel sandbox runtime transport", () => {
     expect(state.command?.timeoutMs).toBeGreaterThan(0);
     expect(state.command?.timeoutMs).toBeLessThan(1_500);
     expect(state.command?.signal).toBe(contract.signal);
+    expect(Object.keys(state.command?.env ?? {}).sort()).toEqual([
+      "SANDBOX_REQUEST_PATH",
+      "SANDBOX_RESPONSE_PATH",
+    ]);
     expect(JSON.stringify(state.command?.env)).not.toContain(credential);
     expect(JSON.stringify(state.command?.env)).not.toContain(accessToken.token);
     expect(state.writeSignals).toEqual([contract.signal]);
