@@ -1,5 +1,6 @@
+import { performance } from "node:perf_hooks";
 import { Sandbox } from "@vercel/sandbox";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   assertVercelSandboxAuthentication,
   createVercelSandboxFetch,
@@ -24,6 +25,7 @@ interface FakeSandboxState {
   readSignals: (AbortSignal | undefined)[];
   command?: CommandCapture;
   stopSignals: (AbortSignal | undefined)[];
+  cleanupAbortElapsedMs?: number;
 }
 
 const relayEnvelope = (body: string): string =>
@@ -38,6 +40,7 @@ function fakeSandboxFactory(options?: {
   responseEnvelope?: string;
   exitCode?: number;
   stopFails?: boolean;
+  stopWaitsForAbort?: boolean;
   onRunCommand?: () => void;
 }): { state: FakeSandboxState; factory: SandboxFactory } {
   const state: FakeSandboxState = {
@@ -83,8 +86,24 @@ function fakeSandboxFactory(options?: {
         };
       },
       async stop(stopOptions) {
-        state.stopSignals.push(stopOptions?.signal);
+        const signal = stopOptions?.signal;
+        state.stopSignals.push(signal);
         if (options?.stopFails) throw new Error("FAKE_STOP_FAILED");
+        if (options?.stopWaitsForAbort) {
+          if (!signal) throw new Error("FAKE_STOP_SIGNAL_REQUIRED");
+          const startedAt = performance.now();
+          await new Promise<void>((_resolve, reject) => {
+            const rejectOnAbort = () => {
+              state.cleanupAbortElapsedMs = performance.now() - startedAt;
+              reject(new Error("FAKE_STOP_ABORTED"));
+            };
+            if (signal.aborted) {
+              rejectOnAbort();
+              return;
+            }
+            signal.addEventListener("abort", rejectOnAbort, { once: true });
+          });
+        }
         return {};
       },
     };
@@ -268,6 +287,95 @@ describe("Vercel sandbox runtime transport", () => {
     expect(controlPlaneCalls).toBe(1);
   });
 
+  it("passes the restrictive isolation contract into Sandbox.create", async () => {
+    const credential = "anthropic-production-secret";
+    const accessToken = {
+      teamId: "team_test",
+      projectId: "project_test",
+      token: "vercel-control-plane-secret",
+    };
+    let createOptions: Parameters<typeof Sandbox.create>[0] | undefined;
+    const createSpy = vi.spyOn(Sandbox, "create").mockImplementation(async (options) => {
+      createOptions = options;
+      throw new Error("STOP_AFTER_SANDBOX_CREATE_CAPTURE");
+    });
+
+    try {
+      const sandboxFetch = createVercelSandboxFetch({
+        credential,
+        timeoutMs: 1_000,
+        accessToken,
+      });
+
+      await expect(
+        sandboxFetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": credential },
+          body: "{}",
+        }),
+      ).rejects.toThrow("Sandbox runtime model transport failed.");
+
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      const actual = createOptions;
+      if (!actual) throw new Error("Sandbox.create options were not captured.");
+
+      expect(Object.keys(actual).sort()).toEqual(
+        [
+          "env",
+          "fetch",
+          "networkPolicy",
+          "persistent",
+          "ports",
+          "projectId",
+          "runtime",
+          "signal",
+          "teamId",
+          "timeout",
+          "token",
+        ].sort(),
+      );
+      expect(actual.runtime).toBe("node22");
+      expect(actual.persistent).toBe(false);
+      expect(actual.ports).toEqual([]);
+      expect(actual.timeout).toBe(1_000);
+      expect(actual.env).toEqual({});
+      expect(actual.teamId).toBe(accessToken.teamId);
+      expect(actual.projectId).toBe(accessToken.projectId);
+      expect(actual.token).toBe(accessToken.token);
+      expect(actual.signal).toBeDefined();
+      expect(actual.fetch).toBeTypeOf("function");
+
+      const policy = actual.networkPolicy;
+      if (!policy || typeof policy === "string") {
+        throw new Error("Sandbox.create must receive a restrictive network policy.");
+      }
+      const allow = policy.allow;
+      if (!allow || Array.isArray(allow)) {
+        throw new Error("Sandbox.create must receive a rule-based allowlist.");
+      }
+      expect(Object.keys(allow)).toEqual(["api.anthropic.com"]);
+      const rules = allow["api.anthropic.com"];
+      if (!rules || rules.length !== 1) {
+        throw new Error("Sandbox.create must receive one Anthropic egress rule.");
+      }
+      const rule = rules[0];
+      if (!rule) throw new Error("Sandbox.create Anthropic egress rule is missing.");
+      expect(rule.match?.method).toEqual(["POST"]);
+      expect(rule.match?.path).toEqual({ exact: "/v1/messages" });
+      expect(rule.match?.headers).toEqual([
+        {
+          key: { exact: "x-api-key" },
+          value: { exact: "sandbox-brokered-anthropic-key" },
+        },
+      ]);
+      expect(rule.transform).toEqual([
+        { headers: { "x-api-key": credential } },
+      ]);
+    } finally {
+      createSpy.mockRestore();
+    }
+  });
+
   it("blocks the second mutating fetch attempt made by Vercel Sandbox 2.9.2 retry logic", async () => {
     let rawFetchCalls = 0;
     const guardedFetch = singleAttemptControlPlaneFetch(async () => {
@@ -363,6 +471,32 @@ describe("Vercel sandbox runtime transport", () => {
     expect(cleanupSignal).not.toBe(operationSignal);
     expect(cleanupSignal).not.toBe(controller.signal);
     expect(cleanupSignal.aborted).toBe(false);
+  });
+
+  it("aborts stalled cleanup inside the reserved deadline", async () => {
+    const timeoutMs = 2_000;
+    const { state, factory } = fakeSandboxFactory({ stopWaitsForAbort: true });
+    const sandboxFetch = createVercelSandboxFetch({
+      credential: "expected-key",
+      timeoutMs,
+      createSandbox: factory,
+    });
+    const startedAt = performance.now();
+
+    await expect(
+      sandboxFetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": "expected-key" },
+        body: "{}",
+      }),
+    ).rejects.toThrow("Sandbox runtime cleanup failed.");
+
+    const elapsedMs = performance.now() - startedAt;
+    expect(state.stopSignals).toHaveLength(1);
+    expect(state.stopSignals[0]?.aborted).toBe(true);
+    expect(state.cleanupAbortElapsedMs).toBeDefined();
+    expect(state.cleanupAbortElapsedMs ?? timeoutMs).toBeLessThan(timeoutMs / 2);
+    expect(elapsedMs).toBeLessThan(timeoutMs);
   });
 
   it("fails closed when the sandbox command fails and still requests cleanup", async () => {
