@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:evals": "vitest run src/agents/orchestrator/orchestrator.sandbox-audit.test.ts",
     "dev": "tsx src/index.ts",
     "clean": "rm -rf dist"
   },
