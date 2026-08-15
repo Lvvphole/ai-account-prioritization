@@ -20,7 +20,7 @@ interface AnthropicUsage {
   output_tokens?: number;
 }
 
-interface AnthropicOutputConfig {
+interface AnthropicOutputConfig extends Record<string, unknown> {
   format: {
     type: "json_schema";
     schema: RuntimeJsonSchema;
