@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createSandboxedAnthropicRuntimeModelClient,
   runtimeModelClientForProvider,
+  runtimeModelExecutionProfileForProvider,
   sandboxedAnthropicRuntimeModelClient,
   type RuntimeModelInvocationConfig,
   type RuntimeModelRequest,
@@ -31,10 +32,14 @@ const config: RuntimeModelInvocationConfig = {
 };
 
 describe("sandboxed production runtime model boundary", () => {
-  it("resolves the production Anthropic registry entry to the sandboxed client", () => {
+  it("resolves the production Anthropic registry entry and execution profile to the sandbox path", () => {
     expect(runtimeModelClientForProvider("anthropic")).toBe(
       sandboxedAnthropicRuntimeModelClient,
     );
+    expect(runtimeModelExecutionProfileForProvider("anthropic")).toBe(
+      "vercel-sandbox-anthropic-egress-v1",
+    );
+    expect(runtimeModelExecutionProfileForProvider("openai")).toBeNull();
   });
 
   it("executes the Anthropic SDK request through the sandbox transport without host fallback", async () => {
@@ -65,39 +70,47 @@ describe("sandboxed production runtime model boundary", () => {
               return value;
             },
           },
-          async runCommand(params) {
-            commandTimeoutMs = params.timeoutMs;
-            const requestPath = params.env?.SANDBOX_REQUEST_PATH;
-            const responsePath = params.env?.SANDBOX_RESPONSE_PATH;
-            if (!requestPath || !responsePath) {
-              throw new Error("Sandbox relay paths were not supplied.");
-            }
-            const requestEnvelope = files.get(requestPath);
-            if (!requestEnvelope) {
-              throw new Error("Sandbox relay request was not written.");
-            }
-            providerRequest = requestEnvelope;
+          currentSession() {
+            return {
+              async runCommand(params) {
+                commandTimeoutMs = params.timeoutMs;
+                const requestPath = params.env?.SANDBOX_REQUEST_PATH;
+                const responsePath = params.env?.SANDBOX_RESPONSE_PATH;
+                if (!requestPath || !responsePath) {
+                  throw new Error("Sandbox relay paths were not supplied.");
+                }
+                const requestEnvelope = files.get(requestPath);
+                if (!requestEnvelope) {
+                  throw new Error("Sandbox relay request was not written.");
+                }
+                providerRequest = requestEnvelope;
 
-            const anthropicBody = JSON.stringify({
-              id: "msg_test",
-              type: "message",
-              role: "assistant",
-              model: config.model,
-              content: [{ type: "text", text: JSON.stringify({ draft: "hello" }) }],
-              stop_reason: "end_turn",
-              stop_sequence: null,
-              usage: { input_tokens: 17, output_tokens: 9 },
-            });
-            files.set(
-              responsePath,
-              JSON.stringify({
-                status: 200,
-                statusText: "OK",
-                headers: [["content-type", "application/json"]],
-                bodyBase64: Buffer.from(anthropicBody, "utf8").toString("base64"),
-              }),
-            );
-            return { exitCode: 0 };
+                const anthropicBody = JSON.stringify({
+                  id: "msg_test",
+                  type: "message",
+                  role: "assistant",
+                  model: config.model,
+                  content: [
+                    { type: "text", text: JSON.stringify({ draft: "hello" }) },
+                  ],
+                  stop_reason: "end_turn",
+                  stop_sequence: null,
+                  usage: { input_tokens: 17, output_tokens: 9 },
+                });
+                files.set(
+                  responsePath,
+                  JSON.stringify({
+                    status: 200,
+                    statusText: "OK",
+                    headers: [["content-type", "application/json"]],
+                    bodyBase64: Buffer.from(anthropicBody, "utf8").toString(
+                      "base64",
+                    ),
+                  }),
+                );
+                return { exitCode: 0 };
+              },
+            };
           },
           async stop() {
             stopCalls += 1;
