@@ -1,6 +1,8 @@
+import { Sandbox } from "@vercel/sandbox";
 import { describe, expect, it } from "vitest";
 import {
   createVercelSandboxFetch,
+  singleAttemptControlPlaneFetch,
   type SandboxCreateContract,
   type SandboxFactory,
 } from "./vercel-sandbox-fetch";
@@ -60,15 +62,21 @@ function fakeSandboxFactory(options?: {
           return value;
         },
       },
-      async runCommand(params) {
-        state.command = params;
-        const responsePath = params.env?.SANDBOX_RESPONSE_PATH;
-        if (!responsePath) throw new Error("Fake sandbox response path missing.");
-        state.writes.set(
-          responsePath,
-          options?.responseEnvelope ?? relayEnvelope("provider-response"),
-        );
-        return { exitCode: options?.exitCode ?? 0 };
+      currentSession() {
+        return {
+          async runCommand(params) {
+            state.command = params;
+            const responsePath = params.env?.SANDBOX_RESPONSE_PATH;
+            if (!responsePath) {
+              throw new Error("Fake sandbox response path missing.");
+            }
+            state.writes.set(
+              responsePath,
+              options?.responseEnvelope ?? relayEnvelope("provider-response"),
+            );
+            return { exitCode: options?.exitCode ?? 0 };
+          },
+        };
       },
       async stop(stopOptions) {
         state.stopSignals.push(stopOptions?.signal);
@@ -179,6 +187,31 @@ describe("Vercel sandbox runtime transport", () => {
       contract.fetch("https://vercel.com/api/v2/sandboxes", mutationInit),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(controlPlaneCalls).toBe(1);
+  });
+
+  it("blocks the second mutating fetch attempt made by Vercel Sandbox 2.9.2 retry logic", async () => {
+    let rawFetchCalls = 0;
+    const guardedFetch = singleAttemptControlPlaneFetch(async () => {
+      rawFetchCalls += 1;
+      return new Response("transient failure", { status: 500 });
+    });
+
+    await expect(
+      Sandbox.create({
+        token: "test-token",
+        teamId: "team_test",
+        projectId: "project_test",
+        runtime: "node22",
+        persistent: false,
+        ports: [],
+        timeout: 1_000,
+        env: {},
+        networkPolicy: "deny-all",
+        fetch: guardedFetch,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(rawFetchCalls).toBe(1);
   });
 
   it.each([
