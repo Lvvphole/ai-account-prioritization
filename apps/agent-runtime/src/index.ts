@@ -95,6 +95,7 @@ export {
 export {
   IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
   runtimeModelClientForProvider,
+  runtimeModelExecutionProfileForProvider,
 } from "./inference/runtime-model-registry";
 
 // Supabase wiring (Sprint 4). The runtime stays on the in-memory store unless a
