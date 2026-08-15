@@ -36,6 +36,13 @@ require_env RUNTIME_DRAFT_MAX_CONCURRENT
 require_env RUNTIME_DRAFT_MAX_RUN_TOKENS
 require_env RUNTIME_DRAFT_FALLBACK
 
+if [ "$RUNTIME_DRAFT_PROVIDER" = "anthropic" ] \
+  && [ -z "${VERCEL_OIDC_TOKEN:-}" ]; then
+  require_env VERCEL_TEAM_ID
+  require_env VERCEL_PROJECT_ID
+  require_env VERCEL_TOKEN
+fi
+
 [ -f "$P4_PRODUCTION_MODEL_ADMISSION" ] \
   || fail "P4_PRODUCTION_MODEL_ADMISSION does not point to a readable admission artifact"
 # Turbo runs the package task from its workspace directory. Pin the admission to

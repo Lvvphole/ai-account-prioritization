@@ -7,6 +7,7 @@ const SANDBOX_REQUEST_PATH = "/tmp/runtime-model-request.json";
 const SANDBOX_RESPONSE_PATH = "/tmp/runtime-model-response.json";
 const SANDBOX_API_KEY_PLACEHOLDER = "sandbox-brokered-anthropic-key";
 const SANDBOX_RUNTIME = "node22";
+const MAX_SANDBOX_CLEANUP_RESERVE_MS = 250;
 
 const RELAY_SOURCE = `
 import { readFile, writeFile } from "node:fs/promises";
@@ -82,6 +83,12 @@ export interface SandboxInstance {
   stop(options?: { signal?: AbortSignal }): Promise<unknown>;
 }
 
+export interface VercelSandboxAccessToken {
+  teamId: string;
+  projectId: string;
+  token: string;
+}
+
 export interface SandboxCreateContract {
   runtime: typeof SANDBOX_RUNTIME;
   persistent: false;
@@ -91,6 +98,7 @@ export interface SandboxCreateContract {
   networkPolicy: NetworkPolicy;
   signal?: AbortSignal;
   fetch: typeof fetch;
+  accessToken?: VercelSandboxAccessToken;
 }
 
 export type SandboxFactory = (
@@ -100,6 +108,7 @@ export type SandboxFactory = (
 export interface VercelSandboxFetchOptions {
   credential: string;
   timeoutMs: number;
+  accessToken?: VercelSandboxAccessToken;
   createSandbox?: SandboxFactory;
   controlPlaneFetch?: typeof fetch;
 }
@@ -117,6 +126,8 @@ interface RelayResponse {
   headers: [string, string][];
   bodyBase64: string;
 }
+
+type SandboxAuthEnvironment = Readonly<Record<string, string | undefined>>;
 
 export const VERCEL_SANDBOX_RUNTIME_PROFILE = Object.freeze({
   id: "vercel-sandbox-anthropic-egress-v1",
@@ -138,6 +149,44 @@ const abortError = (message: string): Error => {
   error.name = "AbortError";
   return error;
 };
+
+const envValue = (
+  env: SandboxAuthEnvironment,
+  name: string,
+): string => env[name]?.trim() ?? "";
+
+/**
+ * Return explicit Vercel Sandbox access-token fields when they are configured.
+ * When VERCEL_OIDC_TOKEN is present, the Vercel SDK reads it directly.
+ */
+export function vercelSandboxAccessTokenFromEnv(
+  env: SandboxAuthEnvironment = process.env,
+): VercelSandboxAccessToken | undefined {
+  if (envValue(env, "VERCEL_OIDC_TOKEN")) return undefined;
+
+  const teamId = envValue(env, "VERCEL_TEAM_ID");
+  const projectId = envValue(env, "VERCEL_PROJECT_ID");
+  const token = envValue(env, "VERCEL_TOKEN");
+  const explicitValues = [teamId, projectId, token].filter(Boolean).length;
+
+  if (explicitValues === 0) return undefined;
+  if (explicitValues !== 3) {
+    throw fixedError(
+      "Vercel Sandbox control-plane authentication is incomplete.",
+    );
+  }
+
+  return { teamId, projectId, token };
+}
+
+/** Require either Vercel OIDC or one complete explicit access-token tuple. */
+export function assertVercelSandboxAuthentication(
+  env: SandboxAuthEnvironment = process.env,
+): void {
+  if (envValue(env, "VERCEL_OIDC_TOKEN")) return;
+  if (vercelSandboxAccessTokenFromEnv(env)) return;
+  throw fixedError("Vercel Sandbox control-plane authentication is required.");
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -323,16 +372,27 @@ const defaultSandboxFactory: SandboxFactory = async (contract) =>
     networkPolicy: contract.networkPolicy,
     signal: contract.signal,
     fetch: contract.fetch,
+    ...(contract.accessToken ?? {}),
   });
 
 const operationSignalFor = (
   input: Parameters<typeof fetch>[0],
   init: Parameters<typeof fetch>[1] | undefined,
   timeoutMs: number,
-): AbortSignal =>
-  init?.signal ??
-  (input instanceof Request ? input.signal : undefined) ??
-  AbortSignal.timeout(timeoutMs);
+): AbortSignal => {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const callerSignal =
+    init?.signal ?? (input instanceof Request ? input.signal : undefined);
+  return callerSignal
+    ? AbortSignal.any([callerSignal, timeoutSignal])
+    : timeoutSignal;
+};
+
+const cleanupReserveMsFor = (timeoutMs: number): number =>
+  Math.min(
+    MAX_SANDBOX_CLEANUP_RESERVE_MS,
+    Math.max(1, Math.floor(timeoutMs / 2)),
+  );
 
 /**
  * Create the only production fetch transport admitted for the current Anthropic
@@ -345,8 +405,8 @@ export function createVercelSandboxFetch(
 ): typeof fetch {
   if (
     !options.credential.trim() ||
-    !Number.isFinite(options.timeoutMs) ||
-    options.timeoutMs <= 0
+    !Number.isSafeInteger(options.timeoutMs) ||
+    options.timeoutMs < 2
   ) {
     throw fixedError("Sandbox runtime configuration is invalid.");
   }
@@ -355,10 +415,12 @@ export function createVercelSandboxFetch(
   const controlPlaneFetch = singleAttemptControlPlaneFetch(
     options.controlPlaneFetch ?? fetch,
   );
+  const cleanupTimeoutMs = cleanupReserveMsFor(options.timeoutMs);
+  const operationTimeoutMs = options.timeoutMs - cleanupTimeoutMs;
 
   return async (input, init) => {
     const request = await buildRelayRequest(input, init, options.credential);
-    const signal = operationSignalFor(input, init, options.timeoutMs);
+    const signal = operationSignalFor(input, init, operationTimeoutMs);
     let sandbox: SandboxInstance | undefined;
     let response: Response | undefined;
     let failure: Error | undefined;
@@ -373,6 +435,7 @@ export function createVercelSandboxFetch(
         networkPolicy: networkPolicyFor(options.credential),
         signal,
         fetch: controlPlaneFetch,
+        accessToken: options.accessToken,
       });
 
       await sandbox.fs.writeFile(
@@ -391,7 +454,7 @@ export function createVercelSandboxFetch(
           SANDBOX_RESPONSE_PATH,
         },
         signal,
-        timeoutMs: options.timeoutMs,
+        timeoutMs: operationTimeoutMs,
       });
 
       if (command.exitCode !== 0) {
@@ -417,13 +480,12 @@ export function createVercelSandboxFetch(
     }
 
     if (sandbox) {
+      const cleanupSignal = AbortSignal.timeout(cleanupTimeoutMs);
       try {
-        await sandbox.stop({ signal });
+        await sandbox.stop({ signal: cleanupSignal });
       } catch {
         if (!failure) {
-          failure = signal.aborted
-            ? fixedError("Sandbox runtime model transport was aborted.")
-            : fixedError("Sandbox runtime cleanup failed.");
+          failure = fixedError("Sandbox runtime cleanup failed.");
         }
       }
     }

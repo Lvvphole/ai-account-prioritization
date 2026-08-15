@@ -31,6 +31,12 @@ const config: RuntimeModelInvocationConfig = {
   reasoningEffort: "provider_default",
 };
 
+const sandboxAccessToken = {
+  teamId: "team_test",
+  projectId: "project_test",
+  token: "vercel-test-token",
+};
+
 describe("sandboxed production runtime model boundary", () => {
   it("resolves the production Anthropic registry entry and execution profile to the sandbox path", () => {
     expect(runtimeModelClientForProvider("anthropic")).toBe(
@@ -50,12 +56,14 @@ describe("sandboxed production runtime model boundary", () => {
     const files = new Map<string, string>();
 
     const client = createSandboxedAnthropicRuntimeModelClient({
+      accessToken: sandboxAccessToken,
       createSandbox: async (contract) => {
         createCalls += 1;
         expect(contract.persistent).toBe(false);
         expect(contract.ports).toEqual([]);
         expect(contract.env).toEqual({});
         expect(contract.timeout).toBe(config.timeoutMs);
+        expect(contract.accessToken).toEqual(sandboxAccessToken);
 
         return {
           fs: {
@@ -124,7 +132,8 @@ describe("sandboxed production runtime model boundary", () => {
 
     expect(createCalls).toBe(1);
     expect(stopCalls).toBe(1);
-    expect(commandTimeoutMs).toBe(config.timeoutMs);
+    expect(commandTimeoutMs).toBeGreaterThan(0);
+    expect(commandTimeoutMs).toBeLessThan(config.timeoutMs);
     expect(result.output).toEqual({ draft: "hello" });
     expect(result.telemetry).toMatchObject({
       provider: "anthropic",
@@ -134,11 +143,13 @@ describe("sandboxed production runtime model boundary", () => {
     });
     expect(providerRequest).toContain("sandbox-brokered-anthropic-key");
     expect(providerRequest).not.toContain(config.credential);
+    expect(providerRequest).not.toContain(sandboxAccessToken.token);
   });
 
   it("maps sandbox failure into the existing runtime error path without direct provider retry", async () => {
     let createCalls = 0;
     const client = createSandboxedAnthropicRuntimeModelClient({
+      accessToken: sandboxAccessToken,
       createSandbox: async () => {
         createCalls += 1;
         throw new Error("SIMULATED_SANDBOX_CREATE_FAILURE");

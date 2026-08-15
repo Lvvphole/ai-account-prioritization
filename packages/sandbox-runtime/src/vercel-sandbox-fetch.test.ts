@@ -1,8 +1,10 @@
 import { Sandbox } from "@vercel/sandbox";
 import { describe, expect, it } from "vitest";
 import {
+  assertVercelSandboxAuthentication,
   createVercelSandboxFetch,
   singleAttemptControlPlaneFetch,
+  vercelSandboxAccessTokenFromEnv,
   type SandboxCreateContract,
   type SandboxFactory,
 } from "./vercel-sandbox-fetch";
@@ -36,6 +38,7 @@ function fakeSandboxFactory(options?: {
   responseEnvelope?: string;
   exitCode?: number;
   stopFails?: boolean;
+  onRunCommand?: () => void;
 }): { state: FakeSandboxState; factory: SandboxFactory } {
   const state: FakeSandboxState = {
     createContracts: [],
@@ -66,6 +69,7 @@ function fakeSandboxFactory(options?: {
         return {
           async runCommand(params) {
             state.command = params;
+            options?.onRunCommand?.();
             const responsePath = params.env?.SANDBOX_RESPONSE_PATH;
             if (!responsePath) {
               throw new Error("Fake sandbox response path missing.");
@@ -100,9 +104,55 @@ function networkAllowMap(contract: SandboxCreateContract) {
   return allow;
 }
 
+describe("Vercel sandbox control-plane authentication", () => {
+  it("uses Vercel OIDC without constructing an explicit access token", () => {
+    expect(
+      vercelSandboxAccessTokenFromEnv({ VERCEL_OIDC_TOKEN: "oidc-token" }),
+    ).toBeUndefined();
+    expect(() =>
+      assertVercelSandboxAuthentication({ VERCEL_OIDC_TOKEN: "oidc-token" }),
+    ).not.toThrow();
+  });
+
+  it("maps one complete explicit Vercel access-token tuple", () => {
+    const env = {
+      VERCEL_TEAM_ID: "team_test",
+      VERCEL_PROJECT_ID: "project_test",
+      VERCEL_TOKEN: "vercel-token",
+    };
+
+    expect(vercelSandboxAccessTokenFromEnv(env)).toEqual({
+      teamId: "team_test",
+      projectId: "project_test",
+      token: "vercel-token",
+    });
+    expect(() => assertVercelSandboxAuthentication(env)).not.toThrow();
+  });
+
+  it("rejects partial explicit Vercel authentication", () => {
+    expect(() =>
+      vercelSandboxAccessTokenFromEnv({
+        VERCEL_TEAM_ID: "team_test",
+        VERCEL_TOKEN: "vercel-token",
+      }),
+    ).toThrow("control-plane authentication is incomplete");
+  });
+
+  it("rejects missing Vercel authentication", () => {
+    expect(() => assertVercelSandboxAuthentication({})).toThrow(
+      "control-plane authentication is required",
+    );
+  });
+});
+
 describe("Vercel sandbox runtime transport", () => {
   it("uses one ephemeral sandbox with exact Anthropic egress and no provider credential in the VM", async () => {
     const credential = "anthropic-production-secret";
+    const accessToken = {
+      teamId: "team_test",
+      projectId: "project_test",
+      token: "vercel-control-plane-secret",
+    };
     const controller = new AbortController();
     let controlPlaneCalls = 0;
     const controlPlaneFetch: typeof fetch = async () => {
@@ -113,6 +163,7 @@ describe("Vercel sandbox runtime transport", () => {
     const sandboxFetch = createVercelSandboxFetch({
       credential,
       timeoutMs: 1_500,
+      accessToken,
       createSandbox: factory,
       controlPlaneFetch,
     });
@@ -138,7 +189,10 @@ describe("Vercel sandbox runtime transport", () => {
     expect(contract.ports).toEqual([]);
     expect(contract.timeout).toBe(1_500);
     expect(contract.env).toEqual({});
-    expect(contract.signal).toBe(controller.signal);
+    expect(contract.accessToken).toEqual(accessToken);
+    expect(contract.signal).toBeDefined();
+    expect(contract.signal).not.toBe(controller.signal);
+    expect(contract.signal?.aborted).toBe(false);
 
     const allow = networkAllowMap(contract);
     expect(Object.keys(allow)).toEqual(["api.anthropic.com"]);
@@ -162,6 +216,7 @@ describe("Vercel sandbox runtime transport", () => {
 
     const writtenContent = [...state.writes.values()].join("\n");
     expect(writtenContent).not.toContain(credential);
+    expect(writtenContent).not.toContain(accessToken.token);
     expect(writtenContent).not.toContain("ambient-token");
     expect(writtenContent).toContain("sandbox-brokered-anthropic-key");
 
@@ -170,12 +225,19 @@ describe("Vercel sandbox runtime transport", () => {
       "--input-type=module",
       "--eval",
     ]);
-    expect(state.command?.timeoutMs).toBe(1_500);
-    expect(state.command?.signal).toBe(controller.signal);
+    expect(state.command?.timeoutMs).toBeGreaterThan(0);
+    expect(state.command?.timeoutMs).toBeLessThan(1_500);
+    expect(state.command?.signal).toBe(contract.signal);
     expect(JSON.stringify(state.command?.env)).not.toContain(credential);
-    expect(state.writeSignals).toEqual([controller.signal]);
-    expect(state.readSignals).toEqual([controller.signal]);
-    expect(state.stopSignals).toEqual([controller.signal]);
+    expect(JSON.stringify(state.command?.env)).not.toContain(accessToken.token);
+    expect(state.writeSignals).toEqual([contract.signal]);
+    expect(state.readSignals).toEqual([contract.signal]);
+    expect(state.stopSignals).toHaveLength(1);
+    const cleanupSignal = state.stopSignals[0];
+    if (!cleanupSignal) throw new Error("Sandbox cleanup signal was not captured.");
+    expect(cleanupSignal).not.toBe(contract.signal);
+    expect(cleanupSignal).not.toBe(controller.signal);
+    expect(cleanupSignal.aborted).toBe(false);
 
     const mutationInit: RequestInit = { method: "POST", body: "{}" };
     const firstControlPlaneResponse = await contract.fetch(
@@ -252,6 +314,38 @@ describe("Vercel sandbox runtime transport", () => {
       }),
     ).rejects.toThrow("unexpected provider credential");
     expect(state.createContracts).toHaveLength(0);
+  });
+
+  it("uses a fresh bounded cleanup signal after caller cancellation", async () => {
+    const controller = new AbortController();
+    const { state, factory } = fakeSandboxFactory({
+      onRunCommand: () => controller.abort(),
+    });
+    const sandboxFetch = createVercelSandboxFetch({
+      credential: "expected-key",
+      timeoutMs: 1_000,
+      createSandbox: factory,
+    });
+
+    await expect(
+      sandboxFetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": "expected-key" },
+        body: "{}",
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("Sandbox runtime model transport was aborted.");
+
+    expect(state.stopSignals).toHaveLength(1);
+    const cleanupSignal = state.stopSignals[0];
+    const operationSignal = state.createContracts[0]?.signal;
+    if (!cleanupSignal || !operationSignal) {
+      throw new Error("Sandbox operation and cleanup signals were not captured.");
+    }
+    expect(operationSignal.aborted).toBe(true);
+    expect(cleanupSignal).not.toBe(operationSignal);
+    expect(cleanupSignal).not.toBe(controller.signal);
+    expect(cleanupSignal.aborted).toBe(false);
   });
 
   it("fails closed when the sandbox command fails and still requests cleanup", async () => {
