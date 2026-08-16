@@ -70,17 +70,18 @@ Authorized P4 v1 work is limited to:
 2. Remove provider-specific types from the common policy.
 3. Support provider-native constrained output, including Structured Outputs or `output_config.format` when supported.
 4. Normalize reasoning or effort configuration without claiming that providers expose identical controls.
-5. Do not add unsupported provider controls merely to claim determinism.
-6. Preserve full prompt, schema, policy, provider, and model identity in audit evidence.
-7. Build offline cross-model k-run qualification.
-8. Permit more than one production-capable provider adapter and independently qualified provider/model configuration.
-9. Activate exactly one admitted production model configuration for each running deployment.
-10. Keep deterministic template fallback or hold as the fail-safe.
-11. Prove both production acceptance profiles defined below.
+5. Remove hard-coded `temperature: 0` from Claude-5-compatible requests.
+6. Do not add unsupported provider controls merely to claim determinism.
+7. Preserve full prompt, schema, policy, provider, and model identity in audit evidence.
+8. Build offline cross-model k-run qualification.
+9. Permit more than one production-capable provider adapter and independently qualified provider/model configuration.
+10. Activate exactly one admitted production model configuration for each running deployment.
+11. Keep deterministic template fallback or hold as the fail-safe.
+12. Prove both production acceptance profiles defined below.
 
 Multiple implemented or qualified providers do not create runtime routing. The running deployment resolves only the provider in its loaded production admission artifact.
 
-The OpenAI Agents SDK is authorized as an implementation dependency for the OpenAI provider path when it remains behind the existing authority boundaries. Current P4 limits its use to the existing bounded drafting and synthesis contract.
+The OpenAI Agents SDK is authorized as an implementation dependency for the OpenAI provider path when it remains behind the existing authority boundaries. Current P4 limits its use to the existing bounded drafting and synthesis contract. The SDK must use the exact provider, model, and effective configuration selected by the loaded production admission. SDK execution remains inside the existing externally enforced call, token, time, retry, and attempt budgets. SDK guardrails or completion signals do not replace repository-owned deterministic validation. A separate data-boundary decision is required before an SDK integration creates another external telemetry path.
 
 Explicitly deferred from the current production spine:
 
