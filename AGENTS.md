@@ -277,16 +277,17 @@ Authorized current-spine P4 work is limited to:
    `output_config.format` when supported.
 4. Normalize reasoning or effort configuration without claiming that providers
    expose identical controls.
-5. Do not add unsupported provider controls merely to claim determinism.
-6. Preserve full prompt, schema, policy, provider, and model identity in audit
+5. Remove hard-coded `temperature: 0` from Claude-5-compatible requests.
+6. Do not add unsupported provider controls merely to claim determinism.
+7. Preserve full prompt, schema, policy, provider, and model identity in audit
    evidence.
-7. Build offline cross-model k-run qualification.
-8. Permit more than one production-capable provider adapter and independently
+8. Build offline cross-model k-run qualification.
+9. Permit more than one production-capable provider adapter and independently
    qualified provider/model configuration.
-9. Activate exactly one admitted production model configuration for each running
-   deployment.
-10. Keep deterministic template fallback or hold as the fail-safe.
-11. Prove both production acceptance profiles below.
+10. Activate exactly one admitted production model configuration for each running
+    deployment.
+11. Keep deterministic template fallback or hold as the fail-safe.
+12. Prove both production acceptance profiles below.
 
 Multiple implemented or qualified providers do not authorize runtime routing.
 The runtime resolves only the provider in the production admission artifact that
@@ -298,6 +299,12 @@ OpenAI provider path when it remains behind the existing runtime authority
 boundaries. In current P4, SDK use is limited to the existing bounded drafting
 and synthesis contract. SDK availability does not authorize tools, handoffs,
 subagents, provider routing, protected side effects, publication, or completion.
+The SDK must use the exact provider, model, and effective configuration selected
+by the loaded production admission. SDK execution must remain inside the existing
+externally enforced call, token, time, retry, and attempt budgets. SDK guardrails
+or completion signals cannot replace repository-owned deterministic validation.
+An SDK integration must not create a second external telemetry path unless a
+separate data-boundary decision authorizes it.
 
 Explicitly deferred from the current production spine:
 
@@ -348,8 +355,9 @@ For the current production-spine P4 path:
 - Failure produces an explicit held state or deterministic template fallback; it
   never grants publication authority.
 
-Provider controls must follow the qualified provider contract. Generated prose is
-not assumed to be bit-identical.
+Do not hard-code `temperature: 0` into Claude-5-compatible requests merely to
+claim determinism. Provider controls must follow the qualified provider contract.
+Generated prose is not assumed to be bit-identical.
 
 ### 4.3 Current production sandbox boundary
 
