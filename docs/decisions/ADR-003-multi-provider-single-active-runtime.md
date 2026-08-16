@@ -32,9 +32,12 @@ qualify configurations from more than one provider. Qualification does not grant
 runtime authority.
 
 A running production deployment uses exactly one production model configuration.
-The active provider, model, reasoning profile, budgets, fallback policy, output
-configuration, and sandbox execution profile must match the immutable production
-admission artifact loaded by that deployment.
+The active provider, model, reasoning profile, budgets, and fallback policy must
+match the immutable production admission artifact loaded by that deployment.
+Provider-specific output configuration and sandbox execution profile are resolved
+deterministically from the active provider through the production registry. They
+must be recorded in runtime audit evidence and must not be selected by model
+output or customer-controlled data.
 
 Multiple immutable qualification reports and staged admission artifacts can exist
 as audit history or successor candidates. They do not create active-active
@@ -114,6 +117,18 @@ For current P4, SDK use is limited to bounded drafting and synthesis that
 implements the existing runtime model contract. Introducing the SDK does not
 transfer provider selection, task authority, verification, publication, or
 completion authority to the SDK.
+
+The SDK must use the exact provider, model, and effective configuration selected
+by the loaded production admission and provider registry. SDK defaults cannot
+silently change that identity. SDK execution must remain inside the existing
+externally enforced call, token, time, retry, and attempt budgets. An SDK agent
+loop must not create unbounded or unrecorded model calls. SDK guardrails,
+termination, or completion signals do not replace the repository's deterministic
+schema, grounding, permission, approval, publication, or completion gates.
+
+The repository's PII-safe observability path remains canonical. SDK tracing or
+another external telemetry path requires a separate data-boundary decision before
+production enablement.
 
 This decision does not authorize these deferred capabilities in current P4:
 
@@ -198,14 +213,15 @@ properties with repository verification:
 
 1. More than one implemented provider does not create runtime routing.
 2. A running deployment loads exactly one production admission artifact.
-3. Runtime configuration exactly matches the active admission artifact.
-4. Provider failure cannot invoke a different provider automatically.
-5. Each production provider uses only its admitted fixed sandbox profile.
-6. Direct-host provider fallback remains unavailable in production.
-7. Provider or SDK output cannot change protected deterministic authority fields.
-8. Acceptance A remains valid with model drafting disabled.
-9. Acceptance B passes for the active qualified production configuration.
-10. All applicable repository completion gates pass.
+3. Admission-owned runtime fields exactly match the active admission artifact.
+4. Provider-specific output configuration and sandbox profile resolve only from the active provider through the trusted registry.
+5. Provider failure cannot invoke a different provider automatically.
+6. Each production provider uses only its admitted fixed sandbox profile.
+7. Direct-host provider fallback remains unavailable in production.
+8. Provider or SDK output cannot change protected deterministic authority fields.
+9. Acceptance A remains valid with model drafting disabled.
+10. Acceptance B passes for the active qualified production configuration.
+11. All applicable repository completion gates pass.
 
 This ADR authorizes the architecture and the bounded OpenAI provider integration.
 It does not itself prove implementation completion or production admission.
