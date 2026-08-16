@@ -321,7 +321,7 @@ Prices are product-owner-supplied standard text API prices per 1 million tokens.
 ### 7.1 GPT role posture
 
 | Model | WHAT | HOW | Worker | Qualification posture |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 | Sol | High-complexity | High-complexity | Usually excessive | Admit only if measured quality gain pays for cost. |
 | Terra | Strong candidate | Strong candidate | Strong | Balanced candidate. |
 | Luna | Must prove WHAT accuracy | Strong bounded HOW | Strong | Economic candidate. |
@@ -375,7 +375,7 @@ Prices are product-owner-supplied standard prices per 1 million tokens.
 ### 8.1 Claude role posture
 
 | Model | WHAT | HOW | Worker | Qualification posture |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 | Fable 5 | Highest-end candidate | Highest-end | Economically excessive | Admit only if measured lift justifies cost. |
 | Mythos 5 | Similar capability | Similar | Excessive | Limited availability. Do not use as the default baseline. |
 | Opus 5 | Strong | Strong | Usually excessive | High-capability challenger. |
@@ -423,7 +423,7 @@ The supplied candidate data identifies these fixed IDs:
 ### 9.1 Grok role posture
 
 | Model | WHAT | HOW | Worker | Qualification posture |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 | Grok 4.5 | Strong candidate | Strong | Strong but possibly excessive | Frontier Grok challenger. |
 | Grok 4.3 | Must qualify | Strong | Strong | Economic candidate. |
 | Grok 4.20 Reasoning | Strong candidate | Strong | Strong | Fixed-ID qualification candidate. |
@@ -468,7 +468,7 @@ Prices are product-owner-supplied standard API prices per 1 million tokens.
 ### 10.1 Gemini role posture
 
 | Model | WHAT | HOW | Worker | Qualification posture |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 | 3.6 Flash | Strong candidate | Strong | Strong | Main Gemini candidate. |
 | 3.5 Flash | Strong candidate | Strong | Strong | Comparison candidate. |
 | 3.5 Flash-Lite | Must prove WHAT | Strong bounded HOW | Excellent | Very strong economic worker. |
@@ -664,13 +664,13 @@ The implementation has these properties:
 Run the canonical qualification and admission process from the repository root:
 
 ```bash
-ANTHROPIC_API_KEY=<provider-credential> \
-P4_ADMISSION_DECISION_OWNER=<decision-owner> \
-P4_ADMISSION_DECISION_REF=<durable-decision-reference> \
+ANTHROPIC_API_KEY="replace-with-provider-credential" \
+P4_ADMISSION_DECISION_OWNER="repository-maintainer" \
+P4_ADMISSION_DECISION_REF="durable-decision-reference" \
 pnpm qualify:models
 ```
 
-The current canonical policy uses `ANTHROPIC_API_KEY` as the credential environment variable for its configured candidates. Do not commit live provider credentials.
+The current canonical policy uses `ANTHROPIC_API_KEY` as the credential environment variable for its configured candidates. Do not commit live provider credentials. A future canonical policy with candidates that use additional `credentialEnv` values requires those environment variables to be exported before the command runs.
 
 Optional output controls are:
 
