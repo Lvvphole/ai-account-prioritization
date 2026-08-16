@@ -68,11 +68,17 @@ remains limited to bounded drafting and synthesis with deterministic fallback or
 hold.
 
 Current P4 is limited to the provider-neutral model boundary, provider-native
-constrained output, normalized reasoning or effort configuration, full model and
-prompt identity evidence, offline cross-model k-run qualification, one qualified
-production configuration at a time, deterministic fallback or hold, and the two
-production acceptance profiles defined in `docs/PRD.md` and
-`docs/ARCHITECTURE.md`.
+constrained output, normalized reasoning or effort configuration, full provider,
+model, and prompt identity evidence, offline cross-model k-run qualification,
+multiple implemented and independently qualified provider configurations, one
+active admitted production configuration for each running deployment,
+deterministic fallback or hold, and the two production acceptance profiles
+defined in `docs/PRD.md` and `docs/ARCHITECTURE.md`.
+
+Qualification and production admissibility are separate. Canonical candidate
+order determines priority. Production selects the first candidate that is both
+`QUALIFIED` and production-admittable. A qualified non-admittable candidate
+remains qualification evidence and does not stop evaluation of later candidates.
 
 The following approved target capabilities remain deferred from current P4:
 
@@ -80,7 +86,8 @@ The following approved target capabilities remain deferred from current P4:
 - a capability resolver driven by model-selected What;
 - general tool orchestration, workflows, or side-effecting model tools;
 - supervisor-worker fan-out or subagent delegation;
-- multi-model routing or majority voting;
+- runtime provider routing, automatic cross-provider failover, or majority
+  voting;
 - a second action ontology beyond the current deterministic set; and
 - production caching infrastructure.
 
@@ -89,16 +96,22 @@ admission evidence before implementation.
 
 ### Current model execution isolation
 
-When the current production model path is enabled, the built-in Anthropic client
-uses the admitted `vercel-sandbox-anthropic-egress-v1` execution profile. The
-Vercel Sandbox contains only the local provider relay. Anthropic still hosts the
-remote inference process.
+Every enabled production provider path requires a fixed admitted provider-specific
+sandbox execution profile. The current implemented production provider is
+Anthropic and uses `vercel-sandbox-anthropic-egress-v1`. The Vercel Sandbox
+contains only the local provider relay. Anthropic still hosts the remote inference
+process.
 
-The VM is ephemeral, receives no host environment, exposes no ports, and can
-reach only the exact admitted Anthropic Messages endpoint. The real provider
-credential stays outside the VM and is injected at the trusted egress boundary.
-There is no unsandboxed production fallback. A sandbox failure therefore uses the
-existing deterministic template fallback or hold.
+The current Anthropic VM is ephemeral, receives no host environment, exposes no
+ports, and can reach only the exact admitted Anthropic Messages endpoint. The real
+provider credential stays outside the VM and is injected at the trusted egress
+boundary. There is no unsandboxed production fallback. A sandbox failure therefore
+uses the existing deterministic template fallback or hold.
+
+A future production-capable provider requires its own fixed sandbox profile and
+security verification before it becomes production-admittable. Runtime failure,
+latency, cost, health, or availability does not trigger another provider
+automatically. Provider switching is a controlled deployment operation.
 
 Durable pre-invocation evidence records the sandbox execution profile for the
 built-in client. Injected test clients record no sandbox profile.
@@ -135,11 +148,16 @@ built-in client. Injected test clients record no sandbox profile.
    required by the P4 change.
 8. Preserve measured latency, token, cost, fallback, prompt, schema, policy, and
    model identity evidence when telemetry is available.
-9. Enable only one qualified production model configuration at a time.
-10. Prove the deterministic-baseline and qualified-model production acceptance
+9. Permit multiple providers to be implemented and independently qualified.
+10. Select the first candidate that is both `QUALIFIED` and production-admittable
+    in canonical policy order.
+11. Activate exactly one admitted production model configuration for each running
+    deployment.
+12. Keep runtime provider routing and automatic cross-provider failover disabled.
+13. Prove the deterministic-baseline and qualified-model production acceptance
     profiles.
-11. Promote only after all applicable gates pass.
-12. Do not implement deferred Position B capabilities without a new explicit
+14. Promote only after all applicable gates pass.
+15. Do not implement deferred Position B capabilities without a new explicit
     ruling and ADR-002 admission.
 
 ## Definition of Done
@@ -167,7 +185,9 @@ Runtime-generation changes additionally require evidence that:
 - prompt injection cannot alter authority or control flow;
 - timeout, token, attempt, and fallback policies are enforced;
 - human approval and deterministic publication authority remain intact;
-- the async judge is not coupled into the live runtime; and
+- the async judge is not coupled into the live runtime;
+- multiple implemented or qualified providers do not create runtime routing;
+- provider failure cannot trigger automatic cross-provider failover; and
 - current P4 changes do not introduce any deferred Position B capability.
 
 No unstaged or unrelated changes, no schema-generation drift, no failed gates,

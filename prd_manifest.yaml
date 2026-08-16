@@ -96,6 +96,7 @@ current_production_spine:
   target_architecture_does_not_expand_current_scope: true
   probabilistic_execution:
     sandbox_required_when_model_enabled: true
+    current_implemented_provider: anthropic
     execution_profile_id: vercel-sandbox-anthropic-egress-v1
     local_isolation_scope:
       - provider_request_relay
@@ -114,19 +115,44 @@ current_production_spine:
 
 p4:
   name: Provider-Neutral Model Boundary, Variance Control, and Qualification
+  provider_lifecycle_authority: docs/decisions/ADR-003-multi-provider-single-active-runtime.md
   optional_branch: true
   deterministic_baseline_must_complete_without_model: true
   authorized_current_spine_work:
     - refactor_RuntimeModelClient_to_provider_neutral_boundary
-    - remove_Anthropic_specific_types_from_common_policy
+    - remove_provider_specific_types_from_common_policy
     - support_provider_native_constrained_output
     - normalize_reasoning_or_effort_without_false_cross_provider_equivalence
     - remove_hard_coded_temperature_zero_from_Claude_5_compatible_requests
-    - preserve_prompt_schema_policy_and_model_identity_in_audit_evidence
+    - reject_unsupported_provider_controls_used_only_to_claim_determinism
+    - preserve_prompt_schema_policy_provider_and_model_identity_in_audit_evidence
     - build_offline_cross_model_k_run_qualification
-    - admit_one_qualified_production_configuration_at_a_time
+    - permit_multiple_production_capable_provider_adapters_and_independent_qualification
+    - activate_exactly_one_admitted_production_configuration_per_running_deployment
     - preserve_deterministic_template_fallback_or_hold
     - prove_acceptance_A_and_acceptance_B
+  provider_capability:
+    multiple_implemented_providers_allowed: true
+    multiple_independently_qualified_configurations_allowed: true
+    active_production_configurations_per_running_deployment: 1
+    runtime_provider_routing: false
+    automatic_cross_provider_failover: false
+    provider_switch_control_plane_only: true
+    provider_failure_path: deterministic_template_fallback_or_hold
+    fixed_provider_specific_sandbox_profile_required: true
+  openai_agents_sdk_current_p4:
+    implementation_dependency_authorized: true
+    must_remain_behind_RuntimeModelClient: true
+    bounded_drafting_and_synthesis_only: true
+    sdk_tools_authorized: false
+    sdk_handoffs_authorized: false
+    sdk_subagents_authorized: false
+    runtime_provider_routing_authorized: false
+    protected_side_effect_authority: false
+    publication_authority: false
+    completion_authority: false
+    external_call_token_time_retry_and_attempt_budgets_remain_repository_owned: true
+    alternate_external_telemetry_requires_separate_data_boundary_decision: true
   deferred_from_current_spine:
     - model_controlled_candidate_action_selection
     - capability_resolver_driven_by_model_selected_what
@@ -135,7 +161,8 @@ p4:
     - side_effecting_model_tools
     - supervisor_worker_fanout
     - subagent_delegation
-    - multi_model_routing
+    - runtime_provider_routing
+    - automatic_cross_provider_failover
     - majority_voting
     - second_action_ontology
     - production_caching_infrastructure
@@ -149,7 +176,7 @@ p4:
       ai_enabled: false
       requirement: production_shaped_daily_spine_passes_end_to_end
     B:
-      name: single_qualified_model
+      name: single_active_qualified_model
       ai_enabled: true
       active_production_configurations: 1
       immutable_authority_fields:
@@ -237,9 +264,13 @@ runtime_authority:
     - declare_success
 
 model_policy:
-  active_production_configurations: 1
+  implemented_providers_may_be_multiple: true
+  independently_qualified_configurations_may_be_multiple: true
+  active_production_configurations_per_running_deployment: 1
   identity: qualified_and_pinned_before_enablement
   provider_boundary: provider_neutral_target_for_p4
+  provider_switching: controlled_deployment_operation
+  runtime_cross_provider_failover: forbidden
   supervisor_worker_same_model_when_later_admitted: true
   model_routing_current_spine: forbidden
   automatic_model_escalation_current_spine: forbidden
@@ -396,6 +427,8 @@ workflow:
     current_spine_next_best_action_selection: deterministic
     current_spine_general_tool_orchestration: false
     current_spine_subagents: false
+    current_spine_runtime_provider_routing: false
+    current_spine_automatic_cross_provider_failover: false
     completion: deterministic_verifier_returns_PASS_FAIL_or_BLOCKED_for_each_item
 
   - id: phase_5_review_and_take_action
@@ -474,7 +507,7 @@ completion_contract:
       - outcome_or_feedback_is_durably_recorded
     required_profiles:
       - deterministic_baseline
-      - single_qualified_model
+      - single_active_qualified_model
     completion_state_until_path_passes: NOT_DONE
 
 summary_statement_of_completion: >-
@@ -489,6 +522,12 @@ implementation_state:
   deterministic_next_best_action_selection: shipped
   bounded_single_call_runtime_drafting: shipped
   sandboxed_probabilistic_execution_boundary: shipped
+  current_production_provider: anthropic
+  anthropic_production_adapter: shipped
+  anthropic_sandbox_profile: shipped
+  openai_agents_sdk_integration: not_implemented
+  openai_production_adapter: not_implemented
+  openai_sandbox_profile: not_implemented
   production_ingestion_commit_spine: shipped
   durable_runtime_to_web_bridge: shipped
   live_dashboard_without_mock_recommendations: shipped
@@ -496,7 +535,9 @@ implementation_state:
   model_controlled_candidate_action_selection: deferred
   general_tool_orchestration: deferred
   bounded_supervisor_worker_delegation: deferred
-  multi_model_routing_or_voting: deferred
+  runtime_provider_routing: deferred
+  automatic_cross_provider_failover: deferred
+  multi_model_voting: deferred
   second_action_ontology: deferred
   production_caching_infrastructure: deferred
   production_shaped_daily_spine_acceptance_path: incomplete
@@ -533,7 +574,8 @@ non_goals_current_production_spine:
   - general_tool_orchestration
   - side_effecting_model_tools
   - supervisor_worker_fanout
-  - multi_model_routing
+  - runtime_provider_routing
+  - automatic_cross_provider_failover
   - automatic_model_escalation
   - majority_voting
   - second_action_ontology

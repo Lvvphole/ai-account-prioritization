@@ -14,7 +14,7 @@ The authority model is:
 - the LLM may own bounded **What and How** inside an explicit task contract; and
 - only deterministic software can return `PASS`, `FAIL`, or `BLOCKED`.
 
-The LLM may select and sequence only allowlisted tools. It may decompose a task and delegate bounded work to subagents. Supervisor and worker roles use the same qualified, pinned production model. Role differences come from the task contract, schema, context, and tool grant.
+The LLM may select and sequence only allowlisted tools. It may decompose a task and delegate bounded work to subagents. Supervisor and worker roles use the same active qualified, pinned production model. Role differences come from the task contract, schema, context, and tool grant.
 
 The LLM cannot expand its own scope, rewrite the supplied goal, create tools or permissions, increase budgets, bypass required validation, authorize protected side effects, publish, or declare success.
 
@@ -37,6 +37,8 @@ The current production spine remains narrower. Account eligibility, score, rank,
 
 ### P4 — Provider-Neutral Model Boundary, Variance Control, and Qualification
 
+`docs/decisions/ADR-003-multi-provider-single-active-runtime.md` defines the approved provider lifecycle and production activation model for current P4.
+
 #### Implementation scope for the current production spine
 
 P4 is optional. The application must be able to complete the daily path with the deterministic fallback when the model is disabled, unavailable, or fails verification.
@@ -44,15 +46,21 @@ P4 is optional. The application must be able to complete the daily path with the
 Authorized current-spine P4 work is limited to:
 
 1. Refactor `RuntimeModelClient` into a provider-neutral boundary.
-2. Remove Anthropic-specific types from the common policy.
+2. Remove provider-specific types from the common policy.
 3. Support provider-native constrained output, including Structured Outputs or `output_config.format` when supported.
 4. Normalize reasoning or effort configuration without claiming that providers expose identical controls.
 5. Remove hard-coded `temperature: 0` from Claude-5-compatible requests.
-6. Preserve full prompt, schema, policy, and model identity in audit evidence.
-7. Build offline cross-model k-run qualification.
-8. Admit only one qualified production configuration at a time.
-9. Keep deterministic template fallback or hold as the fail-safe.
-10. Prove both production acceptance profiles defined below.
+6. Do not add unsupported provider controls merely to claim determinism.
+7. Preserve full prompt, schema, policy, provider, and model identity in audit evidence.
+8. Build offline cross-model k-run qualification.
+9. Permit more than one production-capable provider adapter and independently qualified provider/model configuration.
+10. Activate exactly one admitted production model configuration for each running deployment.
+11. Keep deterministic template fallback or hold as the fail-safe.
+12. Prove both production acceptance profiles defined below.
+
+Multiple implemented or qualified providers do not authorize request-time provider routing. The running deployment resolves only the provider in its loaded production admission artifact. Provider failure must use deterministic fallback or hold and must not invoke another provider automatically.
+
+The OpenAI Agents SDK is authorized as an implementation dependency for the OpenAI provider path when it remains behind `RuntimeModelClient` and the existing deterministic authority boundaries. In current P4, SDK use is limited to the existing bounded drafting and synthesis contract. SDK availability does not authorize tools, handoffs, subagents, provider routing, protected side effects, publication, or completion. SDK execution must remain inside the existing externally enforced call, token, time, retry, and attempt budgets. A separate data-boundary decision is required before an SDK integration creates another external telemetry path.
 
 The following capabilities remain explicitly deferred from the current production spine:
 
@@ -60,32 +68,23 @@ The following capabilities remain explicitly deferred from the current productio
 - a capability resolver driven by model-selected What;
 - general tool orchestration, workflows, or side-effecting model tools;
 - supervisor-worker fan-out or subagent delegation;
-- multi-model routing or majority voting;
+- runtime provider routing, automatic cross-provider failover, or majority voting;
 - a second action ontology beyond the current deterministic set; and
 - production caching infrastructure.
 
-These deferred capabilities remain approved under the target architecture. A later implementation requires a new explicit ruling and the applicable ADR-002 admission evidence. No authority-document update can be interpreted as authorization to expand P4 beyond this scope.
+These deferred capabilities remain approved under the target architecture. A later implementation requires a new explicit ruling and the applicable ADR-002 admission evidence. No authority-document update can be interpreted as authorization to expand P4 beyond this scope without a new explicit implementation ruling.
 
 #### Current production sandbox requirement
 
-Every enabled production model invocation uses the admitted sandbox execution
-profile. The current Anthropic profile is
-`vercel-sandbox-anthropic-egress-v1`.
+Every enabled production model invocation uses the fixed admitted sandbox execution profile for the active provider. Each production-capable provider requires a provider-specific profile that fixes the allowed host, path, method, and credential transformation.
 
-The Vercel Sandbox isolates the local provider request and response relay and the
-provider egress surface. Anthropic hosts the remote inference process. The product
-does not claim that hosted Anthropic inference runs inside the local microVM.
+The current implemented profile is `vercel-sandbox-anthropic-egress-v1`. This product contract does not claim that an OpenAI production sandbox profile exists before its implementation and security verification are complete.
 
-The current sandbox is ephemeral, receives no host environment, exposes no
-ports, and permits only the exact Anthropic Messages API egress. The real
-provider credential stays outside the VM and is injected only at the trusted
-network-policy boundary. There is no direct-host provider fallback. Sandbox
-failure uses only the deterministic template fallback or hold.
+The Vercel Sandbox isolates the local provider request and response relay and the provider egress surface. The selected provider hosts the remote inference process. The product does not claim that hosted provider inference runs inside the local microVM.
 
-The durable model-invocation start evidence records the non-secret execution
-profile identity for the built-in production model client. This requirement does
-not authorize model-selected actions, general tool use, subagents, routing,
-voting, or another deferred Position B capability.
+Each provider sandbox is ephemeral, receives no host environment, exposes no ports, and permits only its fixed admitted provider API egress. The real provider credential stays outside the VM and is injected only at the trusted network-policy boundary. There is no direct-host provider fallback. Sandbox failure uses only the deterministic template fallback or hold.
+
+The durable model-invocation start evidence records the non-secret execution profile identity for the built-in production model client. This requirement does not authorize model-selected actions, general tool use, subagents, runtime provider routing, automatic cross-provider failover, voting, or another deferred Position B capability.
 
 ## Problem
 
@@ -190,13 +189,15 @@ One recommendation may return `FAIL` or `BLOCKED` without discarding the rest of
 
 Usable recommendations remain available to the representative.
 
-### One pinned production configuration
+### Multi-provider capability with one active production configuration
 
-Only one qualified production model configuration is active at a time.
+The repository may contain multiple implemented provider adapters and independently qualified provider/model configurations.
 
-The approved target can use the same qualified, pinned model for supervisor and worker roles when supervisor-worker execution is later admitted. The current P4 implementation does not add supervisor-worker fan-out.
+Each running production deployment activates exactly one qualified, pinned production model configuration. Provider, model identity, reasoning profile, production budgets, and fallback policy must match the loaded immutable admission artifact. The production registry deterministically resolves the provider-specific output configuration and sandbox execution profile from the admitted provider.
 
-The system does not route tasks across production models in this version. Model identity and effective configuration must be qualified before production enablement and recorded in audit evidence.
+The approved target can use the same active qualified, pinned model for supervisor and worker roles when supervisor-worker execution is later admitted. The current P4 implementation does not add supervisor-worker fan-out.
+
+The system does not route requests across production providers in this version. Provider failure does not trigger another provider automatically. A provider switch is a controlled deployment operation.
 
 ### Evidence is durable
 
@@ -331,7 +332,7 @@ In the approved target architecture, software supplies, for each task:
 
 The target architecture may permit the pinned production model to act as a supervisor, solve the task directly, or delegate bounded work to subagents that use the same pinned model. A worker receives only the context and tools needed for its sub-task. The supervisor may synthesize worker outputs, but it cannot certify them.
 
-**Current production-spine rule:** P4 v1 is limited to the ten authorized provider-neutral boundary, constrained-output, qualification, audit, fallback, and acceptance-profile items stated above. Candidate-action selection, general tool orchestration, and supervisor-worker fan-out are not part of the current spine.
+**Current production-spine rule:** P4 v1 is limited to the authorized provider-neutral boundary, constrained-output, multi-provider implementation and qualification, single-active admission, audit, fallback, sandbox, and acceptance-profile items stated above. Candidate-action selection, general tool orchestration, supervisor-worker fan-out, runtime provider routing, and automatic cross-provider failover are not part of the current spine.
 
 Phase 4 is complete for an item only when deterministic software validates all required postconditions and returns `PASS`, `FAIL`, or `BLOCKED`.
 
@@ -435,7 +436,7 @@ Until this path exists and passes, the web application is **NOT DONE**, regardle
 
 **Acceptance A — deterministic baseline:** AI is disabled. The full production-shaped daily path must pass end to end using the deterministic baseline and approved fallback behavior.
 
-**Acceptance B — qualified model:** the same spine runs with the single qualified production model configuration. Model success or safe fallback must never alter tenant, owner, account, eligibility, score, rank, confidence, reason codes, source evidence, next-best-action type, permissions, approval state, publication authority, side-effect authority, or completion authority.
+**Acceptance B — single active qualified model:** the same spine runs with the one active qualified production model configuration. Model success or safe fallback must never alter tenant, owner, account, eligibility, score, rank, confidence, reason codes, source evidence, next-best-action type, permissions, approval state, publication authority, side-effect authority, or completion authority.
 
 The model can be disabled, unavailable, or rejected by verification without breaking the correctness of the daily spine.
 
@@ -455,13 +456,13 @@ A failed or blocked recommendation must not erase usable recommendations from th
 
 ## Model policy
 
-Only one qualified, pinned production configuration is active at a time.
+The repository may contain multiple implemented provider adapters and independently qualified provider/model configurations. Each running production deployment activates exactly one qualified, pinned production configuration.
 
-The system must record effective model identity and configuration for every invocation.
+The system must record effective provider and model identity and configuration for every invocation.
 
-Do not add model routing, automatic model escalation, majority voting, or a second active production model configuration in the current spine.
+Do not add runtime provider routing, automatic cross-provider failover, automatic model escalation, majority voting, or a second active production model configuration in the current spine.
 
-The approved target may later use the same qualified model for supervisor and worker roles after that capability receives explicit implementation authorization and ADR-002 admission.
+The approved target may later use the same active qualified model for supervisor and worker roles after that capability receives explicit implementation authorization and ADR-002 admission.
 
 ## Success metrics
 
@@ -482,15 +483,17 @@ The repository contains substantial parts of the daily runtime and web experienc
 
 Implemented current-runtime properties include deterministic prioritization and deterministic next-best-action selection followed by bounded single-call drafting or deterministic fallback.
 
+The current production provider implementation is Anthropic-only. The multi-provider architecture and bounded OpenAI Agents SDK integration are authorized, but the OpenAI production adapter and OpenAI sandbox remain separate implementation work.
+
 Known completion gaps include:
 
 - the production ingestion commit path is not fully wired end to end;
 - the web application still has mock-backed recommendation surfaces;
 - the durable runtime-to-web recommendation bridge is not complete;
-- the P4 provider-neutral boundary and cross-model qualification work is not complete; and
+- the authorized multi-provider P4 implementation and qualification work is not complete; and
 - the production-shaped daily acceptance path is not complete.
 
-Approved target capabilities that are not shipped in the current production spine include model-controlled candidate-action selection, general tool orchestration, and supervisor-worker delegation.
+Approved target capabilities that are not shipped in the current production spine include model-controlled candidate-action selection, general tool orchestration, supervisor-worker delegation, runtime provider routing, automatic cross-provider failover, and multi-model voting.
 
 The current state is therefore **NOT DONE** under the whole web-application completion contract.
 
@@ -498,7 +501,7 @@ The current state is therefore **NOT DONE** under the whole web-application comp
 
 - Real-time or event-driven CRM ingestion is not required.
 - A general-purpose autonomous agent platform is not required.
-- Model routing or majority voting is not required.
+- Runtime provider routing, automatic cross-provider failover, or majority voting is not required.
 - Model-controlled candidate-action selection is not part of current P4.
 - General tool orchestration and side-effecting model tools are not part of current P4.
 - Supervisor-worker fan-out is not part of current P4.

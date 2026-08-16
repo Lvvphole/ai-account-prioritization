@@ -105,6 +105,12 @@ boundaries, removal economics, or repair economics, stop and correct the conflic
 before proceeding. This narrow delegation does not change precedence for other
 requirements and never weakens the non-negotiable invariants above.
 
+The canonical P4 provider-lifecycle decision is
+`docs/decisions/ADR-003-multi-provider-single-active-runtime.md`. It authorizes
+multiple implemented and independently qualified providers while requiring one
+active production configuration for each running deployment. It does not
+authorize runtime provider routing or automatic cross-provider failover.
+
 Position B capabilities defined by ADR-001 are approved target capabilities.
 ADR-002 does not prohibit their existence. It governs when a current task or
 production increment should pay the cost to implement or invoke a more complex
@@ -266,17 +272,39 @@ verification.
 Authorized current-spine P4 work is limited to:
 
 1. Refactor `RuntimeModelClient` into a provider-neutral boundary.
-2. Remove Anthropic-specific types from the common policy.
+2. Remove provider-specific types from the common policy.
 3. Support provider-native constrained output, including Structured Outputs or
    `output_config.format` when supported.
 4. Normalize reasoning or effort configuration without claiming that providers
    expose identical controls.
 5. Remove hard-coded `temperature: 0` from Claude-5-compatible requests.
-6. Preserve full prompt, schema, policy, and model identity in audit evidence.
-7. Build offline cross-model k-run qualification.
-8. Admit only one qualified production configuration at a time.
-9. Keep deterministic template fallback or hold as the fail-safe.
-10. Prove both production acceptance profiles below.
+6. Do not add unsupported provider controls merely to claim determinism.
+7. Preserve full prompt, schema, policy, provider, and model identity in audit
+   evidence.
+8. Build offline cross-model k-run qualification.
+9. Permit more than one production-capable provider adapter and independently
+   qualified provider/model configuration.
+10. Activate exactly one admitted production model configuration for each running
+    deployment.
+11. Keep deterministic template fallback or hold as the fail-safe.
+12. Prove both production acceptance profiles below.
+
+Multiple implemented or qualified providers do not authorize runtime routing.
+The runtime resolves only the provider in the production admission artifact that
+the running deployment loaded. A provider failure must not trigger another
+provider automatically.
+
+The OpenAI Agents SDK is authorized as an implementation dependency for the
+OpenAI provider path when it remains behind the existing runtime authority
+boundaries. In current P4, SDK use is limited to the existing bounded drafting
+and synthesis contract. SDK availability does not authorize tools, handoffs,
+subagents, provider routing, protected side effects, publication, or completion.
+The SDK must use the exact provider, model, and effective configuration selected
+by the loaded production admission. SDK execution must remain inside the existing
+externally enforced call, token, time, retry, and attempt budgets. SDK guardrails
+or completion signals cannot replace repository-owned deterministic validation.
+An SDK integration must not create a second external telemetry path unless a
+separate data-boundary decision authorizes it.
 
 Explicitly deferred from the current production spine:
 
@@ -284,7 +312,8 @@ Explicitly deferred from the current production spine:
 - a capability resolver driven by model-selected What;
 - general tool orchestration, workflows, or side-effecting model tools;
 - supervisor-worker fan-out or subagent delegation;
-- multi-model routing or majority voting;
+- runtime provider routing, automatic cross-provider failover, or majority
+  voting;
 - a second action ontology beyond the current deterministic set; and
 - production caching infrastructure.
 
@@ -295,9 +324,9 @@ explicit user ruling and the applicable ADR-002 admission evidence.
 **Acceptance A — deterministic baseline:** AI is disabled. The production-shaped
 daily spine must pass end to end.
 
-**Acceptance B — single qualified model:** the same spine runs with the one
-qualified production model configuration. Model success or safe fallback must
-never alter tenant, owner, account, eligibility, score, rank, confidence,
+**Acceptance B — single active qualified model:** the same spine runs with the one
+active qualified production model configuration. Model success or safe fallback
+must never alter tenant, owner, account, eligibility, score, rank, confidence,
 reason codes, source evidence, next-best-action type, permissions, approval
 state, publication authority, side-effect authority, or completion authority.
 
@@ -332,25 +361,33 @@ Generated prose is not assumed to be bit-identical.
 
 ### 4.3 Current production sandbox boundary
 
-Every enabled production runtime-model invocation must use the admitted sandbox
-execution profile. The current Anthropic profile is
-`vercel-sandbox-anthropic-egress-v1`.
+Every enabled production runtime-model invocation must use the fixed admitted
+sandbox execution profile for the active provider. Provider profile selection is
+deterministic and derives from the active production admission. Model output and
+customer-controlled data cannot select a provider profile or provider endpoint.
 
-For the hosted Anthropic API, the Vercel Sandbox isolates the local provider
-request and response relay and the provider egress surface. Anthropic inference
-remains hosted by Anthropic. Do not claim that remote provider inference runs
-inside the local Vercel microVM.
+Each production-capable provider must have a provider-specific sandbox profile
+that fixes its allowed host, path, method, and credential transformation. The
+current implemented profile is `vercel-sandbox-anthropic-egress-v1`. This
+contract does not claim that an OpenAI production sandbox profile is implemented
+before its code and security verification exist.
 
-The current sandbox contract is fail-closed:
+For hosted provider APIs, the Vercel Sandbox isolates the local provider request
+and response relay and the provider egress surface. Remote inference remains
+hosted by the selected provider. Do not claim that provider inference runs inside
+the local Vercel microVM.
+
+The provider sandbox contract is fail-closed:
 
 - the sandbox is ephemeral and non-persistent;
 - it receives no host environment and exposes no ports;
-- provider egress is limited to `POST https://api.anthropic.com/v1/messages`;
-- the real Anthropic credential is not written into the sandbox file system or
+- provider egress is limited to the fixed admitted endpoint and method;
+- the real provider credential is not written into the sandbox file system or
   command environment;
-- the sandbox receives a placeholder credential and the trusted Vercel network
-  policy injects the real credential only at the egress boundary;
-- the production provider registry has no direct-host Anthropic fallback;
+- the sandbox receives only the provider-specific placeholder credential;
+- the trusted Vercel network policy injects the real credential only at the
+  egress boundary;
+- the production provider registry has no direct-host provider fallback;
 - sandbox creation, command execution, response transfer, and cleanup remain
   inside the externally enforced runtime deadline; and
 - sandbox failure uses only the existing deterministic template fallback or hold.
@@ -360,7 +397,8 @@ the built-in production model client. An injected test or custom model client mu
 not be falsely recorded as sandboxed.
 
 This boundary does not authorize general model tool use, model-selected actions,
-subagents, routing, voting, or any other deferred Position B capability.
+subagents, runtime provider routing, automatic cross-provider failover, voting,
+or any other deferred Position B capability.
 
 ## 5. Environment boundaries
 
@@ -378,10 +416,13 @@ When `NODE_ENV=production`:
   mock implementation.
 - If runtime model work is enabled, provider credentials, model identity,
   effective model configuration, prompt version, output schema, timeout, token
-  cap, and fallback policy must be explicit and valid at startup.
+  cap, fallback policy, and execution profile must be explicit and valid at
+  startup.
 - A provider failure may use only the configured deterministic template fallback
-  or hold the recommendation. It may not switch providers or models silently.
-- Only one qualified production model configuration is active at a time.
+  or hold the recommendation. It must not switch providers or models
+  automatically.
+- More than one provider can be implemented or qualified. Exactly one admitted
+  production model configuration is active for each running deployment.
 - Synthetic approval must never be recorded or described as human approval.
 - Side-effecting controls and kill switches must use shared durable state, not a
   browser cookie or process-local flag.
@@ -538,6 +579,7 @@ Before completion:
 | System architecture | `docs/ARCHITECTURE.md` |
 | Position B authority decision | `docs/decisions/ADR-001-hybrid-runtime-drafting.md` |
 | Harness economics | `docs/decisions/ADR-002-harness-economics-and-minimum-sufficient-control.md` |
+| Provider lifecycle and activation | `docs/decisions/ADR-003-multi-provider-single-active-runtime.md` |
 | Engineering workflow | `docs/CONTEXT.md`, `AGENTS.md` |
 | Schema source of truth | `packages/shared-schemas/src` |
 | JSON Schema generation | `packages/shared-schemas/scripts/generate-json-schemas.ts` |
@@ -671,7 +713,7 @@ legitimately produce different deterministic gate results.
 
 ### 9.4 Probabilistic generation and qualification envelope
 
-Generated wording and reasoning are not required to be byte-identical across
+Generated wording and reasoning are not required to be bit-identical across
 provider calls.
 
 Do not assume that `temperature: 0`, a seed, or similarly named provider controls
@@ -693,8 +735,10 @@ satisfy these behavioral invariants:
 - any failure produces an explicit fallback or held state; and
 - final publication remains a deterministic verifier decision.
 
-P4 qualification may compare multiple provider/model configurations offline by
-repeated k-runs. Production admits only one qualified configuration at a time.
+P4 qualification may compare and independently qualify multiple provider/model
+configurations offline by repeated k-runs. Each running production deployment
+activates exactly one qualified and admitted configuration. Qualification does not
+authorize runtime routing or automatic cross-provider failover.
 
 Never invent token counts, cost, determinism drift, or provider equivalence when
 telemetry or authoritative provider behavior is unavailable.
@@ -822,13 +866,15 @@ Current P4 runtime-generation changes must first run targeted tests for:
 - approval and publication separation;
 - provider-neutral policy/configuration behavior;
 - provider-native constrained-output handling where supported;
+- single-active provider enforcement and no automatic cross-provider failover;
 - effective prompt/schema/policy/model identity evidence; and
 - deterministic-baseline and single-qualified-model acceptance profiles where
   the change reaches those boundaries.
 
 A change that introduces candidate-action selection, general tool orchestration,
-or supervisor-worker fan-out is out of scope for current P4 unless the user has
-issued a new explicit implementation ruling and ADR-002 admission is satisfied.
+supervisor-worker fan-out, runtime provider routing, or automatic cross-provider
+failover is out of scope for current P4 unless the user has issued a new explicit
+implementation ruling and ADR-002 admission is satisfied.
 
 ### Tier 2 — change-set verification
 
@@ -891,6 +937,7 @@ Completion additionally requires:
 - no runtime-generation/judge coupling;
 - no model ability to widen the applicable deterministic authority envelope or
   set the deterministic gate result;
+- no automatic cross-provider failover or runtime provider routing in current P4;
 - no current-P4 implementation of a deferred Position B capability without new
   explicit authorization;
 - no weakened approval, RLS, audit, provenance, grounding, or PII controls;
