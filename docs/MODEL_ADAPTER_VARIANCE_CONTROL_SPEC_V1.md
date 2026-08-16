@@ -321,7 +321,7 @@ Prices are product-owner-supplied standard text API prices per 1 million tokens.
 ### 7.1 GPT role posture
 
 | Model | WHAT | HOW | Worker | Qualification posture |
-| --- | --- | --- | --- | --- |
+| --- | --- | --- | --- |
 | Sol | High-complexity | High-complexity | Usually excessive | Admit only if measured quality gain pays for cost. |
 | Terra | Strong candidate | Strong candidate | Strong | Balanced candidate. |
 | Luna | Must prove WHAT accuracy | Strong bounded HOW | Strong | Economic candidate. |
@@ -375,7 +375,7 @@ Prices are product-owner-supplied standard prices per 1 million tokens.
 ### 8.1 Claude role posture
 
 | Model | WHAT | HOW | Worker | Qualification posture |
-| --- | --- | --- | --- | --- |
+| --- | --- | --- | --- |
 | Fable 5 | Highest-end candidate | Highest-end | Economically excessive | Admit only if measured lift justifies cost. |
 | Mythos 5 | Similar capability | Similar | Excessive | Limited availability. Do not use as the default baseline. |
 | Opus 5 | Strong | Strong | Usually excessive | High-capability challenger. |
@@ -423,7 +423,7 @@ The supplied candidate data identifies these fixed IDs:
 ### 9.1 Grok role posture
 
 | Model | WHAT | HOW | Worker | Qualification posture |
-| --- | --- | --- | --- | --- |
+| --- | --- | --- | --- |
 | Grok 4.5 | Strong candidate | Strong | Strong but possibly excessive | Frontier Grok challenger. |
 | Grok 4.3 | Must qualify | Strong | Strong | Economic candidate. |
 | Grok 4.20 Reasoning | Strong candidate | Strong | Strong | Fixed-ID qualification candidate. |
@@ -468,7 +468,7 @@ Prices are product-owner-supplied standard API prices per 1 million tokens.
 ### 10.1 Gemini role posture
 
 | Model | WHAT | HOW | Worker | Qualification posture |
-| --- | --- | --- | --- | --- |
+| --- | --- | --- | --- |
 | 3.6 Flash | Strong candidate | Strong | Strong | Main Gemini candidate. |
 | 3.5 Flash | Strong candidate | Strong | Strong | Comparison candidate. |
 | 3.5 Flash-Lite | Must prove WHAT | Strong bounded HOW | Excellent | Very strong economic worker. |
@@ -629,9 +629,11 @@ The qualification harness does not invent numerical effectiveness, fallback, lat
 
 The false-accept threshold is zero because an incorrect accepted result violates the deterministic acceptance boundary.
 
-The qualification harness does not rank models. Candidate array order in `config/p4-qualification-policy.json` is the deterministic admission priority. In the same trusted process that evaluates the epoch, the first candidate with a `QUALIFIED` verdict is selected. Decision-owner metadata records the authorized decision context but cannot override configured candidate priority. If no candidate qualifies, the result is `BLOCKED` and no admission artifact is created.
+The qualification harness does not rank models. Candidate array order in `config/p4-qualification-policy.json` is the deterministic admission priority. In the same trusted process that evaluates the epoch, the first candidate that is both `QUALIFIED` and production-admittable is selected. A qualified candidate that is not production-admittable remains in the audit report and does not stop evaluation of later candidates. Decision-owner metadata records the authorized decision context but cannot override configured candidate priority. If no candidate is both qualified and production-admittable, the result is `BLOCKED` and no admission artifact is created.
 
-Production does not route among the qualification candidates.
+Multiple providers may be implemented and independently qualified. Production
+does not route among qualification candidates or automatically fail over between
+providers.
 
 ## 13. Current P4 executable qualification and admission
 
@@ -649,9 +651,10 @@ The implementation has these properties:
 - It records the actual non-secret provider output configuration used by the qualification adapter.
 - It does not copy credentials into reports or admission artifacts.
 - It returns `QUALIFIED`, `DISQUALIFIED`, or `BLOCKED` for each candidate.
-- It evaluates and selects the first `QUALIFIED` candidate in canonical policy order in the same trusted process.
+- It evaluates and selects the first candidate that is both `QUALIFIED` and production-admittable in canonical policy order in the same trusted process.
+- It continues evaluation after a qualified but non-admittable candidate and records that candidate in the audit report.
 - It writes the full qualification report as audit evidence only.
-- It creates a minimal immutable production admission artifact only when a candidate qualifies.
+- It creates a minimal immutable production admission artifact only when a candidate is both qualified and production-admittable.
 - It requires a new unused admission-output path before provider spend and uses exclusive-create semantics for the final artifact write.
 - It never overwrites, deletes, revokes, or hot-replaces an admission artifact that may already be loaded by running workers.
 - It has no separate persisted-report replay or `admit:model` step.
@@ -706,7 +709,7 @@ canonical ordered candidate set
         ↓
 qualification verdicts
         ↓
-first QUALIFIED candidate in configured order
+first QUALIFIED + production-admittable candidate in configured order
         ↓
 immutable admission artifact at a new unused path
         ↓
@@ -714,14 +717,14 @@ controlled deployment drains/stops existing workers
         ↓
 runtime restarts with P4_PRODUCTION_MODEL_ADMISSION set to that artifact
         ↓
-ONE active provider + ONE active model + ONE active qualified configuration
+ONE active provider + ONE active model + ONE active admitted configuration
         ↓
 Acceptance B
 ```
 
 The decision owner and decision reference are required audit metadata. They do not select the candidate and cannot override canonical policy order.
 
-Current P4 does not implement live replacement or revocation of an active model admission. Qualifying a successor at a different unused path does not change the model already loaded by running workers. Activating a successor requires a controlled deployment that drains or stops the existing runtime before restart. A future hot-replacement or shared-revocation mechanism requires separate implementation authorization and ADR-002 evidence.
+Current P4 does not implement live replacement or revocation of an active model admission. Qualifying a successor at a different unused path does not change the model already loaded by running workers. Activating a successor, including one from another production-admittable provider, requires a controlled deployment that drains or stops the existing runtime before restart. A future hot-replacement or shared-revocation mechanism requires separate implementation authorization and ADR-002 evidence.
 
 A production failure can use the configured deterministic template fallback or hold. A production failure cannot silently switch to another provider or model.
 
