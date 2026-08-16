@@ -79,20 +79,30 @@ Provide every provider credential required by the canonical policy through the e
 
 For each candidate, use the environment variable named by that candidate's `credentialEnv` field. A policy that contains candidates from more than one provider can therefore require more than one provider credential for one complete epoch.
 
+For a candidate-specific credential name, use a shell assignment that keeps the environment-variable name as data. Repeat these commands for each required `credentialEnv` value:
+
+```bash
+credential_env="ANTHROPIC_API_KEY"
+credential_value="replace-with-provider-credential"
+export "$credential_env=$credential_value"
+```
+
+Replace `ANTHROPIC_API_KEY` with the exact `credentialEnv` value from the canonical policy when the candidate uses another provider.
+
 Provide durable audit metadata:
 
 - `P4_ADMISSION_DECISION_OWNER`
 - `P4_ADMISSION_DECISION_REF`
 
-Export each credential environment variable required by the canonical policy before running the command below.
-
 Run:
 
 ```bash
-P4_ADMISSION_DECISION_OWNER=<decision-owner> \
-P4_ADMISSION_DECISION_REF=<durable-decision-reference> \
+P4_ADMISSION_DECISION_OWNER="repository-maintainer" \
+P4_ADMISSION_DECISION_REF="durable-decision-reference" \
 pnpm qualify:models
 ```
+
+Replace the example metadata values with the approved durable values for the qualification epoch.
 
 `pnpm qualify:models` always reads `config/p4-qualification-policy.json`. It does not accept an alternate qualification-policy path.
 
