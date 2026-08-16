@@ -22,7 +22,7 @@ The integrated admission step selects the first candidate in configured order th
 
 The policy can contain candidates from more than one provider. Each candidate identifies its own credential environment variable. Adding a provider candidate does not make that provider production-admittable and does not authorize runtime routing.
 
-The current policy file remains an implementation artifact. Change it through the repository gates before a live qualification epoch. Do not represent a provider as production-admittable until its production adapter, sandbox profile, and required verification exist.
+A policy change is a change to `config/p4-qualification-policy.json`. Review and verify that change through the repository gates before a live qualification epoch. Do not represent a provider as production-admittable until its production adapter, sandbox profile, and required verification exist.
 
 ## 3. Authority model
 
@@ -84,11 +84,11 @@ Provide durable audit metadata:
 - `P4_ADMISSION_DECISION_OWNER`
 - `P4_ADMISSION_DECISION_REF`
 
+Export each credential environment variable required by the canonical policy before running the command below.
+
 Run:
 
 ```bash
-export <credential-env-from-policy>=<provider-credential>
-# Export each additional credential environment variable required by the policy.
 P4_ADMISSION_DECISION_OWNER=<decision-owner> \
 P4_ADMISSION_DECISION_REF=<durable-decision-reference> \
 pnpm qualify:models
@@ -138,7 +138,9 @@ The artifact selects one provider, one model, and one exact production configura
 
 Set `P4_PRODUCTION_MODEL_ADMISSION` to the one admission artifact for the running deployment.
 
-Set the runtime provider, model, reasoning profile, fallback, budgets, and execution profile to the exact values required by the admission artifact and provider registry. Provide the provider credential separately in `RUNTIME_DRAFT_API_KEY`.
+Set the runtime provider, model, reasoning profile, fallback, and budgets to the exact values in the admission artifact. Provide the provider credential separately in `RUNTIME_DRAFT_API_KEY`.
+
+The provider registry must resolve the fixed sandbox execution profile and provider-specific output configuration for the admitted provider. Those derived values must remain consistent with the verified production adapter and must be recorded where the runtime audit contract requires them.
 
 When `NODE_ENV=production` and runtime drafting is enabled, startup fails if the admission artifact is absent or if the runtime configuration differs from the admitted configuration.
 
