@@ -337,7 +337,7 @@ When delegation is implemented, a child subagent contract must be equal to or na
 
 The repository can contain multiple implemented provider adapters and independently qualified provider/model configurations.
 
-Each running production deployment uses exactly one active qualified and pinned model configuration. The exact provider, model identity, effective provider configuration, budgets, fallback policy, and execution profile are production configuration values. They must match the loaded immutable admission artifact and be recorded with every invocation.
+Each running production deployment uses exactly one active qualified and pinned model configuration. The provider, model identity, reasoning profile, production budgets, and fallback policy must match the loaded immutable admission artifact and be recorded with every invocation. The production registry deterministically resolves the provider-specific output configuration and sandbox execution profile from that admitted provider. Runtime audit evidence records those derived values where the implemented audit contract requires them.
 
 The current P4 qualification process can evaluate multiple provider/model configurations offline. Qualification does not authorize runtime provider routing or simultaneous production voting.
 
@@ -803,7 +803,7 @@ Given the same task contract, candidate output, tool results, approvals, postcon
 
 ### Generation reliability
 
-Generated wording and reasoning are not claimed to be bit-identical.
+Generated wording and reasoning are not claimed to be byte-identical.
 
 The active production configuration is pinned and qualified to reduce drift. Correctness is enforced through authority boundaries and external postconditions, not through a claim of deterministic generation.
 
