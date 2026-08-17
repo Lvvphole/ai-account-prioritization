@@ -525,8 +525,8 @@ implementation_state:
   current_production_provider: anthropic
   anthropic_production_adapter: shipped
   anthropic_sandbox_profile: shipped
-  openai_agents_sdk_integration: not_implemented
-  openai_production_adapter: not_implemented
+  openai_agents_sdk_integration: shipped
+  openai_production_adapter: shipped
   openai_sandbox_profile: shipped
   production_ingestion_commit_spine: shipped
   durable_runtime_to_web_bridge: shipped
