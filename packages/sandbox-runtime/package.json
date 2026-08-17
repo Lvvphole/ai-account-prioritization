@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:evals": "vitest run src/vercel-sandbox-security-oracles.test.ts",
+    "test:evals": "vitest run src/vercel-sandbox-security-oracles.test.ts src/vercel-sandbox-openai-security-oracles.test.ts src/openai-vercel-sandbox-fetch.test.ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {
