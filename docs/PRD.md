@@ -78,7 +78,7 @@ These deferred capabilities remain approved under the target architecture. A lat
 
 Every enabled production model invocation uses the fixed admitted sandbox execution profile for the active provider. Each production-capable provider requires a provider-specific profile that fixes the allowed host, path, method, and credential transformation.
 
-The implemented profiles are `vercel-sandbox-anthropic-egress-v1` and `vercel-sandbox-openai-egress-v1`. The OpenAI profile is implemented and security-verified as a dormant boundary. It is not qualified, production-admitted, active, or selectable by the current production registry.
+The implemented profiles are `vercel-sandbox-anthropic-egress-v1` and `vercel-sandbox-openai-egress-v1`. Both profiles are implemented and security-verified. OpenAI is production-capable and selectable by the production registry only through its sandbox profile. It is not qualified, production-admitted, or active.
 
 The Vercel Sandbox isolates the local provider request and response relay and the provider egress surface. The selected provider hosts the remote inference process. The product does not claim that hosted provider inference runs inside the local microVM.
 
@@ -483,14 +483,14 @@ The repository contains substantial parts of the daily runtime and web experienc
 
 Implemented current-runtime properties include deterministic prioritization and deterministic next-best-action selection followed by bounded single-call drafting or deterministic fallback.
 
-The current production-admittable provider implementation remains Anthropic-only. The bounded OpenAI Agents SDK adapter and `vercel-sandbox-openai-egress-v1` transport are implemented but dormant. OpenAI qualification, production admission, and activation remain separate work.
+Anthropic and OpenAI now have production-capable provider implementations. OpenAI production registry selection is sandbox-only through `vercel-sandbox-openai-egress-v1`. Anthropic remains the current production provider. OpenAI qualification, production admission, and activation remain separate work.
 
 Known completion gaps include:
 
 - the production ingestion commit path is not fully wired end to end;
 - the web application still has mock-backed recommendation surfaces;
 - the durable runtime-to-web recommendation bridge is not complete;
-- the authorized multi-provider P4 implementation and qualification work is not complete; and
+- the authorized multi-provider P4 qualification and admission work is not complete; and
 - the production-shaped daily acceptance path is not complete.
 
 Approved target capabilities that are not shipped in the current production spine include model-controlled candidate-action selection, general tool orchestration, supervisor-worker delegation, runtime provider routing, automatic cross-provider failover, and multi-model voting.
