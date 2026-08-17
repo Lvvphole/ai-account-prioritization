@@ -78,7 +78,7 @@ These deferred capabilities remain approved under the target architecture. A lat
 
 Every enabled production model invocation uses the fixed admitted sandbox execution profile for the active provider. Each production-capable provider requires a provider-specific profile that fixes the allowed host, path, method, and credential transformation.
 
-The current implemented profile is `vercel-sandbox-anthropic-egress-v1`. This product contract does not claim that an OpenAI production sandbox profile exists before its implementation and security verification are complete.
+The implemented profiles are `vercel-sandbox-anthropic-egress-v1` and `vercel-sandbox-openai-egress-v1`. The OpenAI profile is implemented and security-verified as a dormant boundary. It is not qualified, production-admitted, active, or selectable by the current production registry.
 
 The Vercel Sandbox isolates the local provider request and response relay and the provider egress surface. The selected provider hosts the remote inference process. The product does not claim that hosted provider inference runs inside the local microVM.
 
@@ -483,7 +483,7 @@ The repository contains substantial parts of the daily runtime and web experienc
 
 Implemented current-runtime properties include deterministic prioritization and deterministic next-best-action selection followed by bounded single-call drafting or deterministic fallback.
 
-The current production provider implementation is Anthropic-only. The multi-provider architecture and bounded OpenAI Agents SDK integration are authorized, but the OpenAI production adapter and OpenAI sandbox remain separate implementation work.
+The current production-admittable provider implementation remains Anthropic-only. The bounded OpenAI Agents SDK adapter and `vercel-sandbox-openai-egress-v1` transport are implemented but dormant. OpenAI qualification, production admission, and activation remain separate work.
 
 Known completion gaps include:
 

@@ -62,6 +62,19 @@ const cachedInputTokens = (
   return observed ? total : undefined;
 };
 
+const errorCauseHasName = (error: unknown, expectedName: string): boolean => {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+
+  while (typeof current === "object" && current !== null && !seen.has(current)) {
+    seen.add(current);
+    if ("name" in current && current.name === expectedName) return true;
+    current = "cause" in current ? current.cause : undefined;
+  }
+
+  return false;
+};
+
 export async function runOpenAIAgentsBridge(
   request: OpenAIAgentsBridgeRequest,
   fetchImpl: typeof fetch,
@@ -126,7 +139,9 @@ export async function runOpenAIAgentsBridge(
     if (error instanceof OpenAIAgentsBridgeError) throw error;
     if (
       request.signal.aborted ||
-      error instanceof OpenAI.APIConnectionTimeoutError
+      error instanceof OpenAI.APIConnectionTimeoutError ||
+      (error instanceof OpenAI.APIConnectionError &&
+        errorCauseHasName(error, "SandboxRuntimeTimeoutError"))
     ) {
       throw new OpenAIAgentsBridgeError(
         "timeout",

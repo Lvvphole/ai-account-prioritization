@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   agentConfig: undefined as Record<string, unknown> | undefined,
   clientInstance: undefined as object | undefined,
   clientOptions: undefined as Record<string, unknown> | undefined,
+  connectionErrorForCause: (cause: unknown): Error => new Error(String(cause)),
   providerOptions: undefined as Record<string, unknown> | undefined,
   runnerConfig: undefined as Record<string, unknown> | undefined,
   runArgs: undefined as unknown[] | undefined,
@@ -11,7 +12,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("openai", () => {
-  class APIConnectionError extends Error {}
+  class APIConnectionError extends Error {
+    constructor(cause?: unknown) {
+      super("OpenAI connection failed.", { cause });
+      this.name = "APIConnectionError";
+    }
+  }
   class APIConnectionTimeoutError extends APIConnectionError {}
   class APIError extends Error {
     status?: number;
@@ -26,6 +32,7 @@ vi.mock("openai", () => {
       mocks.clientInstance = this;
     }
   }
+  mocks.connectionErrorForCause = (cause) => new APIConnectionError(cause);
   return { default: MockOpenAI };
 });
 
@@ -168,6 +175,34 @@ describe("OpenAI Agents bridge", () => {
         maxTokens: 100,
         reasoning: undefined,
       },
+    });
+  });
+
+  it("preserves a sandbox timeout wrapped as a connection error", async () => {
+    const sandboxTimeout = new Error("Sandbox command reached its deadline.");
+    sandboxTimeout.name = "SandboxRuntimeTimeoutError";
+    mocks.runResult = Promise.reject(
+      mocks.connectionErrorForCause(sandboxTimeout),
+    );
+    const fetchImpl: typeof fetch = async () => new Response();
+
+    await expect(
+      runOpenAIAgentsBridge(
+        {
+          credential: "test-secret",
+          model: "gpt-test",
+          system: "system",
+          user: "user",
+          outputSchema: { type: "object", additionalProperties: false },
+          maxOutputTokens: 100,
+          timeoutMs: 1_000,
+          signal: new AbortController().signal,
+        },
+        fetchImpl,
+      ),
+    ).rejects.toMatchObject({
+      name: "OpenAIAgentsBridgeError",
+      kind: "timeout",
     });
   });
 });
