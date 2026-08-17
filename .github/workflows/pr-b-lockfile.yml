@@ -12,7 +12,7 @@ on:
       - .github/workflows/pr-b-lockfile.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate:
@@ -34,6 +34,25 @@ jobs:
 
       - name: Generate lockfile without lifecycle scripts
         run: pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
+
+      - name: Write only the generated lockfile to this PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF_NAME" = "feat/openai-agents-dormant-adapter"
+          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/pnpm-lock.yaml?ref=${GITHUB_REF_NAME}" --jq '.sha')"
+          content="$(base64 -w0 pnpm-lock.yaml)"
+          jq -n \
+            --arg message "chore: regenerate pnpm lockfile for OpenAI Agents SDK" \
+            --arg content "$content" \
+            --arg sha "$current_sha" \
+            --arg branch "$GITHUB_REF_NAME" \
+            '{message: $message, content: $content, sha: $sha, branch: $branch}' \
+            > /tmp/lockfile-update.json
+          gh api --method PUT \
+            "repos/${GITHUB_REPOSITORY}/contents/pnpm-lock.yaml" \
+            --input /tmp/lockfile-update.json \
+            >/dev/null
 
       - name: Upload generated lockfile
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
