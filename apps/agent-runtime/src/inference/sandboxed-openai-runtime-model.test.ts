@@ -44,7 +44,7 @@ const relayEnvelope = (body: string): string =>
     bodyBase64: Buffer.from(body, "utf8").toString("base64"),
   });
 
-describe("dormant sandboxed OpenAI runtime model", () => {
+describe("production sandboxed OpenAI runtime model", () => {
   it("routes one Agents SDK Responses request through the fixed sandbox boundary", async () => {
     let createCalls = 0;
     let commandCalls = 0;
