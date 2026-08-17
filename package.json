@@ -5,7 +5,7 @@
   "description": "AI Account Prioritization Agent for B2B Sales Teams — deterministic, eval-gated, human-in-the-loop monorepo.",
   "packageManager": "pnpm@10.33.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "turbo run build",
