@@ -28,7 +28,6 @@
       "structuredOutputProfile": "json_schema",
       "toolSchemaProfile": "not_applicable_current_spine",
       "samplingProfile": "provider_default",
-      "admissionMode": "eligible",
       "credentialEnv": "ANTHROPIC_API_KEY",
       "pricing": {
         "inputUsdPerMillionTokens": 1,
@@ -45,7 +44,6 @@
       "structuredOutputProfile": "json_schema",
       "toolSchemaProfile": "not_applicable_current_spine",
       "samplingProfile": "provider_default",
-      "admissionMode": "eligible",
       "credentialEnv": "ANTHROPIC_API_KEY",
       "pricing": {
         "inputUsdPerMillionTokens": 3,
@@ -53,7 +51,9 @@
         "effectiveDate": "2026-08-09",
         "source": "Anthropic Claude Platform pricing verified 2026-08-09"
       }
-    },
+    }
+  ],
+  "qualificationOnlyCandidates": [
     {
       "id": "openai-gpt-5-4-nano-2026-03-17-default",
       "provider": "openai",
@@ -62,7 +62,6 @@
       "structuredOutputProfile": "json_schema",
       "toolSchemaProfile": "not_applicable_current_spine",
       "samplingProfile": "provider_default",
-      "admissionMode": "qualification_only",
       "credentialEnv": "OPENAI_API_KEY",
       "pricing": {
         "inputUsdPerMillionTokens": 0.2,

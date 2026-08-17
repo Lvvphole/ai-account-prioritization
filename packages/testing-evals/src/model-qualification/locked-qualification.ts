@@ -36,11 +36,6 @@ export interface LockedP4QualificationEpochResult {
   admission: ProductionModelAdmission | null;
 }
 
-export interface P4ProductionAdmissionSelection {
-  selectedCandidateId: string | null;
-  nonAdmittableQualifiedCandidateIds: string[];
-}
-
 const nonEmpty = (value: string, path: string): string => {
   if (!value.trim()) throw new Error(`${path} must be a non-empty string.`);
   return value;
@@ -49,29 +44,34 @@ const nonEmpty = (value: string, path: string): string => {
 const productionAdmissionEligible = (
   candidate: ModelQualificationConfig["candidates"][number],
 ): boolean =>
-  candidate.admissionMode === "eligible" &&
   IMPLEMENTED_RUNTIME_MODEL_PROVIDERS.includes(
     candidate.provider as (typeof IMPLEMENTED_RUNTIME_MODEL_PROVIDERS)[number],
   );
 
-export function selectP4ProductionAdmissionCandidate(
+const selectAdmissionCandidate = (
   config: ModelQualificationConfig,
-  qualifiedCandidateIds: ReadonlySet<string>,
-): P4ProductionAdmissionSelection {
+  report: ModelQualificationReport,
+): {
+  selectedCandidateId: string | null;
+  nonAdmittableQualifiedCandidateIds: string[];
+} => {
   let selectedCandidateId: string | null = null;
   const nonAdmittableQualifiedCandidateIds: string[] = [];
 
-  for (const candidate of config.candidates) {
-    if (!qualifiedCandidateIds.has(candidate.id)) continue;
-    if (!productionAdmissionEligible(candidate)) {
-      nonAdmittableQualifiedCandidateIds.push(candidate.id);
+  for (const configuredCandidate of config.candidates) {
+    const evaluated = report.candidates.find(
+      (item) => item.candidate.id === configuredCandidate.id,
+    );
+    if (evaluated?.verdict !== "QUALIFIED") continue;
+    if (!productionAdmissionEligible(configuredCandidate)) {
+      nonAdmittableQualifiedCandidateIds.push(configuredCandidate.id);
       continue;
     }
-    if (selectedCandidateId === null) selectedCandidateId = candidate.id;
+    if (selectedCandidateId === null) selectedCandidateId = configuredCandidate.id;
   }
 
   return { selectedCandidateId, nonAdmittableQualifiedCandidateIds };
-}
+};
 
 const buildAdmissionFromAuthoritativeEpoch = (
   config: ModelQualificationConfig,
@@ -88,7 +88,9 @@ const buildAdmissionFromAuthoritativeEpoch = (
     throw new Error(`QUALIFIED candidate ${candidateId} must not contain failure reasons.`);
   }
   if (!productionAdmissionEligible(candidate)) {
-    throw new Error(`Qualified candidate ${candidateId} is not eligible for production admission.`);
+    throw new Error(
+      `Qualified candidate ${candidateId} uses ${candidate.provider}, but that provider has no admitted production adapter.`,
+    );
   }
 
   return parseProductionModelAdmission({
@@ -132,10 +134,10 @@ const buildAdmissionFromAuthoritativeEpoch = (
  *
  * The caller supplies the parsed executable policy. This module does not copy or
  * redefine policy values. Candidate array order is the deterministic admission
- * priority among QUALIFIED candidates that are explicitly admission-eligible and
- * have an implemented production adapter. Qualification evidence for all other
- * candidates remains in the report but cannot become production authority. The
- * full report is audit evidence and is not consumed by a later admission authority.
+ * priority among QUALIFIED candidates that have an implemented production
+ * adapter. Qualification evidence for other providers remains in the report but
+ * cannot become production authority. The full report is audit evidence and is
+ * not consumed by a later admission authority.
  */
 export async function runLockedP4QualificationEpoch(
   config: ModelQualificationConfig,
@@ -147,12 +149,7 @@ export async function runLockedP4QualificationEpoch(
   const decisionRef = nonEmpty(decision.decisionRef, "decision.decisionRef");
 
   const rawReport = await runCurrentSpineModelQualification(config, resolveClient, now);
-  const qualifiedCandidateIds = new Set(
-    rawReport.candidates
-      .filter((candidate) => candidate.verdict === "QUALIFIED")
-      .map((candidate) => candidate.candidate.id),
-  );
-  const selection = selectP4ProductionAdmissionCandidate(config, qualifiedCandidateIds);
+  const selection = selectAdmissionCandidate(config, rawReport);
   const verdict: LockedP4QualificationEpochResult["verdict"] = selection.selectedCandidateId
     ? "PASS"
     : "BLOCKED";

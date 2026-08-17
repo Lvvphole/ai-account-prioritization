@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseModelQualificationConfig } from "./qualification-contract";
+import { parseQualificationOnlyModelConfig } from "./qualification-contract";
 import { createNetworkQualificationResolver } from "./qualification-provider-clients";
 import { runQualificationReportOnly } from "./qualification-report";
 
@@ -12,7 +12,7 @@ async function main(): Promise<void> {
     process.env.P4_QUALIFICATION_REPORT ??
       `packages/testing-evals/src/eval-results/model-qualification-${Date.now()}.json`,
   );
-  const config = parseModelQualificationConfig(
+  const config = parseQualificationOnlyModelConfig(
     JSON.parse(readFileSync(configPath, "utf8")) as unknown,
   );
   const report = await runQualificationReportOnly(
