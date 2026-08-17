@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseQualificationOnlyModelConfig } from "./qualification-contract";
+import {
+  hashQualificationMaterial,
+  parseQualificationOnlyModelConfig,
+} from "./qualification-contract";
 import { createNetworkQualificationResolver } from "./qualification-provider-clients";
 import { runQualificationReportOnly } from "./qualification-report";
 
@@ -12,13 +15,13 @@ async function main(): Promise<void> {
     process.env.P4_QUALIFICATION_REPORT ??
       `packages/testing-evals/src/eval-results/model-qualification-${Date.now()}.json`,
   );
-  const config = parseQualificationOnlyModelConfig(
-    JSON.parse(readFileSync(configPath, "utf8")) as unknown,
-  );
+  const policyMaterial = JSON.parse(readFileSync(configPath, "utf8")) as unknown;
+  const config = parseQualificationOnlyModelConfig(policyMaterial);
   const report = await runQualificationReportOnly(
     config,
     createNetworkQualificationResolver(process.env),
     reportPath,
+    hashQualificationMaterial(policyMaterial),
   );
 
   // eslint-disable-next-line no-console

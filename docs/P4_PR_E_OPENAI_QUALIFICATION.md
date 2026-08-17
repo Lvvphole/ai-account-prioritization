@@ -24,7 +24,9 @@ Use:
 pnpm qualify:models:report
 ```
 
-This command reads the canonical policy, selects only `qualificationOnlyCandidates`, runs the existing P4 qualification evaluator, and writes only an immutable qualification report.
+This command reads the canonical policy, selects only `qualificationOnlyCandidates`, runs the existing P4 qualification evaluator, and writes only the immutable qualification report.
+
+The report records `mode=qualification_only`, the selected candidate set, and a SHA-256 hash of the complete canonical policy file. The existing `qualificationPolicyHash` continues to identify the projected execution configuration.
 
 The command does not require `P4_ADMISSION_DECISION_OWNER` or `P4_ADMISSION_DECISION_REF`. It does not read `P4_PRODUCTION_MODEL_ADMISSION_OUTPUT`. It cannot create a production admission artifact.
 

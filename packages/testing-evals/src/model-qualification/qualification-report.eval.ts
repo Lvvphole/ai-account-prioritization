@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
   P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
+  hashQualificationMaterial,
   parseModelQualificationConfig,
   type ModelQualificationConfig,
   type QualificationClientResolver,
@@ -48,11 +49,15 @@ const config = (): ModelQualificationConfig =>
         structuredOutputProfile: "json_schema",
         toolSchemaProfile: "not_applicable_current_spine",
         samplingProfile: "provider_default",
-        admissionMode: "qualification_only",
         credentialEnv: "P4_TEST_KEY",
       },
     ],
   });
+
+const CANONICAL_POLICY_HASH = hashQualificationMaterial({
+  candidates: [{ id: "integrated-test-candidate" }],
+  qualificationOnlyCandidates: [{ id: "openai-report-only-test" }],
+});
 
 const resolver = (onCall: () => void): QualificationClientResolver => (candidate) => ({
   credential: "test-secret",
@@ -80,7 +85,7 @@ const resolver = (onCall: () => void): QualificationClientResolver => (candidate
 });
 
 describe("P4 qualification-only report boundary", () => {
-  it("persists only qualification evidence and creates no admission artifact", async () => {
+  it("persists source identity with qualification evidence and creates no admission artifact", async () => {
     const directory = mkdtempSync(join(tmpdir(), "p4-qualification-report-"));
     const reportPath = join(directory, "report.json");
     let providerCalls = 0;
@@ -92,11 +97,17 @@ describe("P4 qualification-only report boundary", () => {
           providerCalls += 1;
         }),
         reportPath,
+        CANONICAL_POLICY_HASH,
         () => "2026-08-17T12:00:00.000Z",
       );
 
       expect(providerCalls).toBeGreaterThan(0);
       expect(report.generatedAt).toBe("2026-08-17T12:00:00.000Z");
+      expect(report.qualificationSource).toEqual({
+        mode: "qualification_only",
+        candidateSet: "qualificationOnlyCandidates",
+        canonicalPolicyHash: CANONICAL_POLICY_HASH,
+      });
       expect(JSON.parse(readFileSync(reportPath, "utf8"))).toEqual(report);
       expect(readdirSync(directory)).toEqual(["report.json"]);
     } finally {
@@ -118,6 +129,7 @@ describe("P4 qualification-only report boundary", () => {
             providerCalls += 1;
           }),
           reportPath,
+          CANONICAL_POLICY_HASH,
         ),
       ).rejects.toThrow("Qualification report output already exists");
       expect(providerCalls).toBe(0);
