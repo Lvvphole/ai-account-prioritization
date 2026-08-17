@@ -15,6 +15,7 @@ export const CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION =
 
 export type QualificationCandidateVerdict = "QUALIFIED" | "DISQUALIFIED" | "BLOCKED";
 export type QualificationOverallVerdict = "PASS" | "FAIL" | "BLOCKED";
+export type QualificationAdmissionMode = "eligible" | "qualification_only";
 
 export interface QualificationPricing {
   inputUsdPerMillionTokens: number;
@@ -33,6 +34,7 @@ export interface QualificationCandidate {
   structuredOutputProfile: "json_schema";
   toolSchemaProfile: "not_applicable_current_spine";
   samplingProfile: "provider_default";
+  admissionMode: QualificationAdmissionMode;
   credentialEnv: string;
   pricing?: QualificationPricing;
 }
@@ -162,6 +164,13 @@ const reasoningProfile = (value: unknown, path: string): RuntimeReasoningEffort 
   return value as RuntimeReasoningEffort;
 };
 
+const admissionMode = (value: unknown, path: string): QualificationAdmissionMode => {
+  if (value !== "eligible" && value !== "qualification_only") {
+    throw new Error(`${path} must be eligible or qualification_only.`);
+  }
+  return value;
+};
+
 const exactString = <T extends string>(value: unknown, expected: T, path: string): T => {
   if (value !== expected) throw new Error(`${path} must equal ${expected}.`);
   return expected;
@@ -223,6 +232,7 @@ const parseCandidate = (value: unknown, index: number): QualificationCandidate =
       "provider_default",
       `${path}.samplingProfile`,
     ),
+    admissionMode: admissionMode(raw.admissionMode, `${path}.admissionMode`),
     credentialEnv,
     pricing: parsePricing(raw.pricing, `${path}.pricing`),
   };

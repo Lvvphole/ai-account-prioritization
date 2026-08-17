@@ -42,6 +42,7 @@ const permissiveConfig = (
         structuredOutputProfile: "json_schema",
         toolSchemaProfile: "not_applicable_current_spine",
         samplingProfile: "provider_default",
+        admissionMode: "qualification_only",
         credentialEnv: "P4_TEST_KEY",
       },
     ],

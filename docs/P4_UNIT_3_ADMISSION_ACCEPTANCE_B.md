@@ -16,13 +16,15 @@ This unit permits qualification across more than one provider. It does not autho
 
 Do not duplicate candidate identities, candidate priority, pricing, qualification limits, production budgets, or qualification thresholds in another executable definition.
 
-The order of `candidates` in the policy file is the deterministic admission priority. Qualification and production admission are separate properties. A candidate can be `QUALIFIED` by the offline evaluator but still be non-admittable when the current runtime has no implemented production adapter for its provider.
+Each candidate has an explicit `admissionMode`. `eligible` permits the integrated admission step to consider the candidate after qualification. `qualification_only` makes the candidate non-admittable even when its provider has an implemented production adapter.
 
-The integrated admission step selects the first candidate in configured order that is both `QUALIFIED` and production-admittable. A qualified non-admittable candidate remains in the audit report and does not abort evaluation of later candidates. If no qualified production-admittable candidate exists, the result is `BLOCKED` and no new admission artifact is created.
+The order of `candidates` in the policy file is the deterministic admission priority among candidates with `admissionMode=eligible`. Qualification and production admission are separate properties. A candidate can be `QUALIFIED` by the offline evaluator and remain non-admittable because its policy mode is `qualification_only` or because the current runtime has no implemented production adapter for its provider.
+
+The integrated admission step selects the first candidate in configured order that is `QUALIFIED`, has `admissionMode=eligible`, and has an implemented production adapter. A qualified non-admittable candidate remains in the audit report and does not abort evaluation of later candidates. If no qualified production-admittable candidate exists, the result is `BLOCKED` and no new admission artifact is created.
 
 The policy can contain candidates from more than one provider. Each candidate identifies its own credential environment variable. Adding a provider candidate does not make that provider production-admittable and does not authorize runtime routing.
 
-A policy change is a change to `config/p4-qualification-policy.json`. Review and verify that change through the repository gates before a live qualification epoch. Do not represent a provider as production-admittable until its production adapter, sandbox profile, and required verification exist.
+A policy change is a change to `config/p4-qualification-policy.json`. Review and verify that change through the repository gates before a live qualification epoch. Do not change a candidate from `qualification_only` to `eligible` without separate production-admission authorization and the required production evidence.
 
 ## 3. Authority model
 
@@ -34,7 +36,7 @@ canonical qualification policy
   -> evaluate run evidence in memory
   -> QUALIFIED | DISQUALIFIED | BLOCKED for each candidate
   -> preserve qualification evidence for every candidate
-  -> first QUALIFIED + production-admittable candidate in configured order
+  -> first QUALIFIED + admissionMode=eligible + production-admittable candidate in configured order
   -> minimal immutable production admission artifact at a new path
   -> write full report as immutable audit evidence
   -> controlled runtime activation outside the qualification CLI
@@ -82,6 +84,8 @@ This command reads `config/p4-qualification-policy.json`, runs the same canonica
 Set `P4_QUALIFICATION_REPORT` to a new unused path when a specific report path is required. The command reserves that report path before provider spend and removes only its sidecar reservation after the epoch.
 
 A candidate that passes this command is `QUALIFIED` only. Qualification-only evidence does not create a staged admission and does not make a provider `ACTIVE`.
+
+A candidate with `admissionMode=qualification_only` remains non-admittable if a user runs the integrated `pnpm qualify:models` command. A later control-plane change must explicitly set that candidate to `eligible` before the integrated admission step can select it.
 
 Do not use `pnpm qualify:models` when the authorized goal excludes production admission. That command is the integrated qualification-and-admission path described in section 6.
 
@@ -140,7 +144,7 @@ Activate a successor only through a controlled deployment that drains or stops a
 
 A successor can use a different provider when that provider is production-admittable and the successor artifact contains its exact qualified configuration. This remains a controlled deployment operation, not automatic failover.
 
-The command writes the audit report after a completed epoch. It writes the production admission artifact only when the canonical selection rule finds a candidate that is both `QUALIFIED` and production-admittable.
+The command writes the audit report after a completed epoch. It writes the production admission artifact only when the canonical selection rule finds a candidate that is `QUALIFIED`, has `admissionMode=eligible`, and has an implemented production adapter.
 
 There is no separate `admit:model` replay step.
 

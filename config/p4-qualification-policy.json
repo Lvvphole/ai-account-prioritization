@@ -28,6 +28,7 @@
       "structuredOutputProfile": "json_schema",
       "toolSchemaProfile": "not_applicable_current_spine",
       "samplingProfile": "provider_default",
+      "admissionMode": "eligible",
       "credentialEnv": "ANTHROPIC_API_KEY",
       "pricing": {
         "inputUsdPerMillionTokens": 1,
@@ -44,6 +45,7 @@
       "structuredOutputProfile": "json_schema",
       "toolSchemaProfile": "not_applicable_current_spine",
       "samplingProfile": "provider_default",
+      "admissionMode": "eligible",
       "credentialEnv": "ANTHROPIC_API_KEY",
       "pricing": {
         "inputUsdPerMillionTokens": 3,
@@ -60,6 +62,7 @@
       "structuredOutputProfile": "json_schema",
       "toolSchemaProfile": "not_applicable_current_spine",
       "samplingProfile": "provider_default",
+      "admissionMode": "qualification_only",
       "credentialEnv": "OPENAI_API_KEY",
       "pricing": {
         "inputUsdPerMillionTokens": 0.2,
