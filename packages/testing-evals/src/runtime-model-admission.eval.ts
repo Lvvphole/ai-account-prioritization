@@ -236,10 +236,10 @@ describe("P4 locked one-process qualification and admission", () => {
     const admittable = config.candidates[0]!;
     const qualificationOnly = {
       ...admittable,
-      id: "qualification-only-openai",
-      provider: "openai" as const,
-      modelId: "gpt-qualification-test",
-      credentialEnv: "OPENAI_API_KEY",
+      id: "qualification-only-xai",
+      provider: "xai" as const,
+      modelId: "grok-qualification-test",
+      credentialEnv: "XAI_API_KEY",
     };
     const mixedConfig: ModelQualificationConfig = {
       ...config,
