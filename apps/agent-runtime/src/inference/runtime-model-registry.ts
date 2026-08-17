@@ -1,9 +1,12 @@
+import { buildOpenAIAgentsOutputConfiguration } from "@repo/openai-agents-bridge";
 import {
+  VERCEL_SANDBOX_OPENAI_RUNTIME_PROFILE,
   VERCEL_SANDBOX_RUNTIME_PROFILE,
   assertVercelSandboxAuthentication,
 } from "@repo/sandbox-runtime";
 import { buildAnthropicOutputConfig } from "./anthropic-runtime-model";
 import { sandboxedAnthropicRuntimeModelClient } from "./sandboxed-anthropic-runtime-model";
+import { sandboxedOpenAIRuntimeModelClient } from "./sandboxed-openai-runtime-model";
 import {
   RuntimeModelError,
   type RuntimeModelClient,
@@ -12,15 +15,18 @@ import {
   type RuntimeReasoningEffort,
 } from "./runtime-model";
 
-export const IMPLEMENTED_RUNTIME_MODEL_PROVIDERS = ["anthropic"] as const;
+export const IMPLEMENTED_RUNTIME_MODEL_PROVIDERS = [
+  "anthropic",
+  "openai",
+] as const;
 
 type RuntimeModelStartupEnvironment = Readonly<
   Record<string, string | undefined>
 >;
 
 /**
- * Fail startup before the first model invocation when the enabled production
- * Anthropic path cannot authenticate to the Vercel Sandbox control plane.
+ * Fail startup before the first model invocation when an enabled production
+ * provider cannot authenticate to the Vercel Sandbox control plane.
  */
 export function assertRuntimeModelSandboxStartupConfiguration(
   env: RuntimeModelStartupEnvironment = process.env,
@@ -30,7 +36,7 @@ export function assertRuntimeModelSandboxStartupConfiguration(
   }
 
   const provider = (env.RUNTIME_DRAFT_PROVIDER ?? "anthropic").trim();
-  if (provider === "anthropic") {
+  if (provider === "anthropic" || provider === "openai") {
     assertVercelSandboxAuthentication(env);
   }
 }
@@ -38,9 +44,8 @@ export function assertRuntimeModelSandboxStartupConfiguration(
 assertRuntimeModelSandboxStartupConfiguration();
 
 /**
- * Deterministically resolve the configured provider to exactly one adapter.
- * There is no routing, fallback provider, or automatic escalation. The current
- * production Anthropic adapter always uses the admitted sandbox transport.
+ * Deterministically resolve the configured provider to exactly one sandboxed
+ * adapter. There is no routing, fallback provider, or automatic escalation.
  */
 export function runtimeModelClientForProvider(
   provider: RuntimeModelProvider,
@@ -49,19 +54,17 @@ export function runtimeModelClientForProvider(
     case "anthropic":
       return sandboxedAnthropicRuntimeModelClient;
     case "openai":
+      return sandboxedOpenAIRuntimeModelClient;
     case "xai":
     case "google":
       throw new RuntimeModelError(
         "DRAFT_MODEL_CONFIG_ERROR",
-        `Runtime model provider ${provider} has no admitted production adapter yet.`,
+        `Runtime model provider ${provider} has no implemented production adapter yet.`,
       );
   }
 }
 
-/**
- * Return the fixed non-secret execution profile for an admitted production
- * provider. Injected test clients do not use this resolver and must record null.
- */
+/** Return the fixed non-secret execution profile for an implemented provider. */
 export function runtimeModelExecutionProfileForProvider(
   provider: RuntimeModelProvider,
 ): string | null {
@@ -69,6 +72,7 @@ export function runtimeModelExecutionProfileForProvider(
     case "anthropic":
       return VERCEL_SANDBOX_RUNTIME_PROFILE.id;
     case "openai":
+      return VERCEL_SANDBOX_OPENAI_RUNTIME_PROFILE.id;
     case "xai":
     case "google":
       return null;
@@ -76,9 +80,8 @@ export function runtimeModelExecutionProfileForProvider(
 }
 
 /**
- * Return the exact non-secret provider output configuration for admitted
- * adapters. Unimplemented providers return null; enabled production policy for
- * those providers already fails closed during startup.
+ * Return the exact non-secret provider output configuration for implemented
+ * adapters. Unimplemented providers return null and cannot be selected.
  */
 export function runtimeModelOutputConfigurationForProvider(
   provider: RuntimeModelProvider,
@@ -89,6 +92,10 @@ export function runtimeModelOutputConfigurationForProvider(
     case "anthropic":
       return buildAnthropicOutputConfig(outputFormat, reasoningEffort);
     case "openai":
+      return buildOpenAIAgentsOutputConfiguration(
+        outputFormat.schema,
+        reasoningEffort === "provider_default" ? undefined : reasoningEffort,
+      );
     case "xai":
     case "google":
       return null;
