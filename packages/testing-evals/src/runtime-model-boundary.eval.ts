@@ -96,7 +96,15 @@ describe("P4 provider-neutral runtime-model boundary", () => {
     expect(snapshot.reasoningEffort).toBe("medium");
     expect(snapshot.outputFormat).toBe("json_schema");
     expect(snapshot.canonicalOutputFormat.type).toBe("json_schema");
-    expect(snapshot.effectiveProviderOutputConfiguration).toBeNull();
+    expect(snapshot.effectiveProviderOutputConfiguration).toEqual({
+      outputType: {
+        type: "json_schema",
+        name: "generated_draft",
+        strict: true,
+        schema: snapshot.canonicalOutputFormat.schema,
+      },
+      reasoning: { effort: "medium" },
+    });
     expect(snapshot).not.toHaveProperty("apiKey");
     expect(JSON.stringify(snapshot)).not.toContain("test-secret");
 
@@ -142,9 +150,9 @@ describe("P4 provider-neutral runtime-model boundary", () => {
     expect(() =>
       runtimeDraftingPolicyFromEnv({
         RUNTIME_DRAFTING_ENABLED: "true",
-        RUNTIME_DRAFT_PROVIDER: "openai",
+        RUNTIME_DRAFT_PROVIDER: "xai",
         RUNTIME_DRAFT_API_KEY: "test-secret",
-        RUNTIME_DRAFT_MODEL: "pinned-openai-model",
+        RUNTIME_DRAFT_MODEL: "pinned-xai-model",
       } as NodeJS.ProcessEnv),
     ).toThrow("has no admitted production adapter");
 
@@ -157,7 +165,7 @@ describe("P4 provider-neutral runtime-model boundary", () => {
   });
 
   it("fails closed instead of silently routing an unimplemented provider", () => {
-    expect(() => runtimeModelClientForProvider("openai")).toThrow(
+    expect(() => runtimeModelClientForProvider("xai")).toThrow(
       "has no admitted production adapter yet",
     );
     expect(() => runtimeModelClientForProvider("google")).toThrow(

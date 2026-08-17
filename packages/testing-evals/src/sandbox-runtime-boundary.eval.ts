@@ -39,14 +39,16 @@ const sandboxAccessToken = {
 };
 
 describe("sandboxed production runtime model boundary", () => {
-  it("resolves the production Anthropic registry entry and execution profile to the sandbox path", () => {
+  it("resolves implemented provider execution profiles to fixed sandbox paths", () => {
     expect(runtimeModelClientForProvider("anthropic")).toBe(
       sandboxedAnthropicRuntimeModelClient,
     );
     expect(runtimeModelExecutionProfileForProvider("anthropic")).toBe(
       "vercel-sandbox-anthropic-egress-v1",
     );
-    expect(runtimeModelExecutionProfileForProvider("openai")).toBeNull();
+    expect(runtimeModelExecutionProfileForProvider("openai")).toBe(
+      "vercel-sandbox-openai-egress-v1",
+    );
   });
 
   it("fails production startup when enabled Anthropic sandbox authentication is absent or partial", () => {

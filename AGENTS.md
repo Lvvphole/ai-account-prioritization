@@ -369,9 +369,10 @@ customer-controlled data cannot select a provider profile or provider endpoint.
 Each production-capable provider must have a provider-specific sandbox profile
 that fixes its allowed host, path, method, and credential transformation. The
 implemented profiles are `vercel-sandbox-anthropic-egress-v1` and
-`vercel-sandbox-openai-egress-v1`. The OpenAI profile is implemented and
-security-verified as a dormant boundary. It is not qualified, production-admitted,
-active, or selectable by the current production registry.
+`vercel-sandbox-openai-egress-v1`. Both profiles are implemented and
+security-verified. OpenAI is production-capable and selectable by the production
+registry only through its sandbox profile. It is not qualified, production-admitted,
+or active.
 
 For hosted provider APIs, the Vercel Sandbox isolates the local provider request
 and response relay and the provider egress surface. Remote inference remains
