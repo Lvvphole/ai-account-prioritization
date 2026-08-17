@@ -165,6 +165,7 @@ const reasoningProfile = (value: unknown, path: string): RuntimeReasoningEffort 
 };
 
 const admissionMode = (value: unknown, path: string): QualificationAdmissionMode => {
+  if (value === undefined) return "qualification_only";
   if (value !== "eligible" && value !== "qualification_only") {
     throw new Error(`${path} must be eligible or qualification_only.`);
   }
