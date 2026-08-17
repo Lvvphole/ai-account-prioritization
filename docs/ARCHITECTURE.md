@@ -117,7 +117,7 @@ Every enabled production model call uses the fixed admitted sandbox execution pr
 
 Each production-capable provider has a provider-specific profile. The profile fixes the allowed host, path, method, and credential transformation. Model output and customer-controlled data cannot select an arbitrary provider endpoint or credential target.
 
-The current implemented profile is `vercel-sandbox-anthropic-egress-v1`. The OpenAI production sandbox profile is not represented as implemented until its code and security verification exist.
+The implemented profiles are `vercel-sandbox-anthropic-egress-v1` and `vercel-sandbox-openai-egress-v1`. The OpenAI profile is implemented and security-verified as a dormant boundary. `IMPLEMENTED_RUNTIME_MODEL_PROVIDERS` remains `["anthropic"]`, so the current production registry cannot select OpenAI.
 
 ```text
 trusted deterministic harness
@@ -751,7 +751,7 @@ The repository does not yet satisfy the whole web-application completion contrac
 
 The current product has substantial deterministic prioritization, deterministic next-best-action selection, bounded runtime drafting, verification, security, observability, and web UI capability.
 
-The current production provider implementation is Anthropic-only. The architecture now authorizes multiple production-capable provider adapters, but OpenAI production adapter and OpenAI sandbox implementation are separate implementation work.
+The current production-admittable provider implementation remains Anthropic-only. The OpenAI runtime adapter and `vercel-sandbox-openai-egress-v1` boundary are implemented but dormant. OpenAI qualification, production admission, and activation remain separate work.
 
 The remaining production-spine gaps include:
 
