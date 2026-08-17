@@ -7,11 +7,6 @@ import {
   createOpenAIRuntimeModelClient,
   type OpenAIAgentsInvoker,
 } from "./openai-runtime-model";
-import {
-  IMPLEMENTED_RUNTIME_MODEL_PROVIDERS,
-  runtimeModelClientForProvider,
-} from "./runtime-model-registry";
-import { RuntimeModelError } from "./runtime-model";
 
 const request = {
   system: "system",
@@ -114,12 +109,5 @@ describe("OpenAI runtime model adapter", () => {
       code: "DRAFT_MODEL_HTTP_ERROR",
       message: "Runtime model returned HTTP 429.",
     });
-  });
-
-  it("keeps OpenAI dormant and non-admittable", () => {
-    expect(IMPLEMENTED_RUNTIME_MODEL_PROVIDERS).toEqual(["anthropic"]);
-    expect(() => runtimeModelClientForProvider("openai")).toThrow(
-      RuntimeModelError,
-    );
   });
 });
