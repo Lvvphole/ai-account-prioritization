@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:evals": "vitest run src/agents/orchestrator/orchestrator.sandbox-audit.test.ts src/inference/runtime-model-registry.startup.test.ts src/inference/openai-runtime-model.test.ts src/inference/sandboxed-openai-runtime-model.test.ts",
+    "test:evals": "vitest run src/agents/orchestrator/orchestrator.sandbox-audit.test.ts src/agents/sales-execution/execution.policy.provider-admission.test.ts src/inference/runtime-model-registry.startup.test.ts src/inference/openai-runtime-model.test.ts src/inference/sandboxed-openai-runtime-model.test.ts",
     "dev": "tsx src/index.ts",
     "clean": "rm -rf dist"
   },
