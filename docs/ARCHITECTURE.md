@@ -117,7 +117,7 @@ Every enabled production model call uses the fixed admitted sandbox execution pr
 
 Each production-capable provider has a provider-specific profile. The profile fixes the allowed host, path, method, and credential transformation. Model output and customer-controlled data cannot select an arbitrary provider endpoint or credential target.
 
-The implemented profiles are `vercel-sandbox-anthropic-egress-v1` and `vercel-sandbox-openai-egress-v1`. The OpenAI profile is implemented and security-verified as a dormant boundary. `IMPLEMENTED_RUNTIME_MODEL_PROVIDERS` remains `["anthropic"]`, so the current production registry cannot select OpenAI.
+The implemented profiles are `vercel-sandbox-anthropic-egress-v1` and `vercel-sandbox-openai-egress-v1`. Both profiles are implemented and security-verified. `IMPLEMENTED_RUNTIME_MODEL_PROVIDERS` is `["anthropic", "openai"]`. OpenAI production registry selection is sandbox-only. OpenAI is not qualified, production-admitted, or active.
 
 ```text
 trusted deterministic harness
@@ -751,14 +751,14 @@ The repository does not yet satisfy the whole web-application completion contrac
 
 The current product has substantial deterministic prioritization, deterministic next-best-action selection, bounded runtime drafting, verification, security, observability, and web UI capability.
 
-The current production-admittable provider implementation remains Anthropic-only. The OpenAI runtime adapter and `vercel-sandbox-openai-egress-v1` boundary are implemented but dormant. OpenAI qualification, production admission, and activation remain separate work.
+Anthropic and OpenAI now have production-capable provider implementations. The production registry resolves OpenAI only through `vercel-sandbox-openai-egress-v1`. Anthropic remains the current production provider. OpenAI qualification, production admission, and activation remain separate work.
 
 The remaining production-spine gaps include:
 
 - a fully wired production ingestion commit path;
 - durable runtime-to-web recommendation persistence and retrieval;
 - removal of mock recommendation dependence from the live representative path;
-- completion of the authorized multi-provider P4 implementation and qualification work; and
+- completion of the authorized multi-provider P4 qualification and admission work; and
 - one production-shaped end-to-end acceptance path that covers the daily spine.
 
 The following approved target capabilities are not current-spine implementation gaps because they are explicitly deferred: candidate-action selection, general tool orchestration, supervisor-worker fan-out, runtime provider routing, automatic cross-provider failover, multi-model voting, a second action ontology, and production caching.
@@ -829,7 +829,7 @@ Use the production spine as the priority order for current work:
 2. connect canonical data to the daily runtime;
 3. persist runtime recommendations durably;
 4. connect the live dashboard to persisted runtime recommendations and remove mocks from the production path;
-5. complete only the authorized P4 provider-neutral boundary, multi-provider adapters, constrained output, qualification, sandbox isolation, audit, fallback, and acceptance-profile work;
+5. complete the remaining authorized P4 qualification, admission, audit, fallback, and acceptance-profile work;
 6. complete protected side-effect approval and result evidence;
 7. complete durable feedback and outcome capture; and
 8. add one production-shaped end-to-end acceptance path for the complete daily spine.
