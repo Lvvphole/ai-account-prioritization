@@ -191,8 +191,12 @@ const parsePricing = (value: unknown, path: string): QualificationPricing | unde
   };
 };
 
-const parseCandidate = (value: unknown, index: number): QualificationCandidate => {
-  const path = `candidates[${index}]`;
+const parseCandidate = (
+  value: unknown,
+  index: number,
+  collection: string,
+): QualificationCandidate => {
+  const path = `${collection}[${index}]`;
   const raw = asRecord(value, path);
   const credentialEnv = nonEmptyString(raw.credentialEnv, `${path}.credentialEnv`);
   if (!/^[A-Z][A-Z0-9_]*$/.test(credentialEnv)) {
@@ -228,6 +232,19 @@ const parseCandidate = (value: unknown, index: number): QualificationCandidate =
   };
 };
 
+const parseCandidateList = (value: unknown, path: string): QualificationCandidate[] => {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${path} must contain at least one candidate.`);
+  }
+  const candidates = value.map((candidate, index) => parseCandidate(candidate, index, path));
+  const ids = new Set<string>();
+  for (const candidate of candidates) {
+    if (ids.has(candidate.id)) throw new Error(`Duplicate candidate id in ${path}: ${candidate.id}`);
+    ids.add(candidate.id);
+  }
+  return candidates;
+};
+
 export function parseModelQualificationConfig(value: unknown): ModelQualificationConfig {
   const raw = asRecord(value, "qualification config");
   exactString(
@@ -243,9 +260,6 @@ export function parseModelQualificationConfig(value: unknown): ModelQualificatio
 
   const budgetsRaw = asRecord(raw.budgets, "budgets");
   const thresholdsRaw = asRecord(raw.thresholds, "thresholds");
-  if (!Array.isArray(raw.candidates) || raw.candidates.length === 0) {
-    throw new Error("candidates must contain at least one candidate.");
-  }
   if (thresholdsRaw.maxFalseAcceptRate !== 0) {
     throw new Error("thresholds.maxFalseAcceptRate must be 0 for the mandatory safety boundary.");
   }
@@ -253,12 +267,7 @@ export function parseModelQualificationConfig(value: unknown): ModelQualificatio
     throw new Error("thresholds.requireCompleteTokenTelemetry must be boolean.");
   }
 
-  const candidates = raw.candidates.map(parseCandidate);
-  const ids = new Set<string>();
-  for (const candidate of candidates) {
-    if (ids.has(candidate.id)) throw new Error(`Duplicate candidate id: ${candidate.id}`);
-    ids.add(candidate.id);
-  }
+  const candidates = parseCandidateList(raw.candidates, "candidates");
 
   if (raw.fallback !== "template" && raw.fallback !== "hold") {
     throw new Error("fallback must be template or hold.");
@@ -326,6 +335,29 @@ export function parseModelQualificationConfig(value: unknown): ModelQualificatio
     },
     candidates,
   };
+}
+
+/**
+ * Parse the report-only candidate extension from the canonical P4 policy file.
+ * The integrated v2 parser intentionally ignores this extension, so an older v2
+ * admission binary cannot see or admit these candidates.
+ */
+export function parseQualificationOnlyModelConfig(value: unknown): ModelQualificationConfig {
+  const base = parseModelQualificationConfig(value);
+  const raw = asRecord(value, "qualification config");
+  const qualificationOnlyCandidates = parseCandidateList(
+    raw.qualificationOnlyCandidates,
+    "qualificationOnlyCandidates",
+  );
+  const integratedIds = new Set(base.candidates.map((candidate) => candidate.id));
+  for (const candidate of qualificationOnlyCandidates) {
+    if (integratedIds.has(candidate.id)) {
+      throw new Error(
+        `qualificationOnlyCandidates must not duplicate integrated candidate id: ${candidate.id}`,
+      );
+    }
+  }
+  return { ...base, candidates: qualificationOnlyCandidates };
 }
 
 const compareKeys = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);

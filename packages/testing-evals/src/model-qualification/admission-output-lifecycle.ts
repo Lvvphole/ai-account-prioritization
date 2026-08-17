@@ -1,8 +1,11 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-export interface QualificationOutputReservation {
+export interface QualificationReportOutputReservation {
   reportLockPath: string;
+}
+
+export interface QualificationOutputReservation extends QualificationReportOutputReservation {
   admissionLockPath: string;
 }
 
@@ -56,6 +59,22 @@ const validateReservationPathSeparation = (
   }
 };
 
+/** Reserve one immutable qualification report path before provider spend. */
+export function prepareQualificationReportOutput(
+  reportPath: string,
+): QualificationReportOutputReservation {
+  return {
+    reportLockPath: acquireOutputLock(reportPath, "Qualification report output"),
+  };
+}
+
+/** Release only the qualification-report sidecar reservation. */
+export function releaseQualificationReportOutput(
+  reservation: QualificationReportOutputReservation,
+): void {
+  rmSync(reservation.reportLockPath, { force: true });
+}
+
 /**
  * Reserve both qualification outputs before provider spend.
  *
@@ -75,12 +94,12 @@ export function prepareQualificationOutputPaths(
   }
   validateReservationPathSeparation(reportPath, admissionPath);
 
-  const reportLockPath = acquireOutputLock(reportPath, "Qualification report output");
+  const reportReservation = prepareQualificationReportOutput(reportPath);
   try {
     const admissionLockPath = acquireOutputLock(admissionPath, "Production admission output");
-    return { reportLockPath, admissionLockPath };
+    return { ...reportReservation, admissionLockPath };
   } catch (error) {
-    rmSync(reportLockPath, { force: true });
+    releaseQualificationReportOutput(reportReservation);
     throw error;
   }
 }
@@ -89,7 +108,7 @@ export function prepareQualificationOutputPaths(
 export function releaseQualificationOutputPaths(
   reservation: QualificationOutputReservation,
 ): void {
-  rmSync(reservation.reportLockPath, { force: true });
+  releaseQualificationReportOutput(reservation);
   rmSync(reservation.admissionLockPath, { force: true });
 }
 
