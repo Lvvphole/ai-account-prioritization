@@ -164,10 +164,21 @@ const injectedRuntimePolicy = (): RuntimeDraftingPolicy => {
   };
 };
 
+const firstAdmissionEligibleCandidate = (
+  candidates: ModelQualificationConfig["candidates"],
+) => candidates.find((candidate) => candidate.admissionMode === "eligible");
+
+const qualificationOnlyCandidateIds = (
+  candidates: ModelQualificationConfig["candidates"],
+): string[] =>
+  candidates
+    .filter((candidate) => candidate.admissionMode === "qualification_only")
+    .map((candidate) => candidate.id);
+
 describe("P4 locked one-process qualification and admission", () => {
-  it("admits the first configured qualified candidate", async () => {
+  it("admits the first configured admission-eligible qualified candidate", async () => {
     const config = lockedConfig();
-    const first = config.candidates[0]!;
+    const first = firstAdmissionEligibleCandidate(config.candidates)!;
 
     const result = await runLockedP4QualificationEpoch(
       config,
@@ -184,12 +195,12 @@ describe("P4 locked one-process qualification and admission", () => {
     expect(result.report.admissionSelection).toEqual({
       ...decision,
       selectedCandidateId: first.id,
-      nonAdmittableQualifiedCandidateIds: [],
+      nonAdmittableQualifiedCandidateIds: qualificationOnlyCandidateIds(config.candidates),
     });
     expect(productionModelAdmissionHash(result.admission!)).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("preserves candidate priority in the qualification policy identity", async () => {
+  it("preserves admission-eligible candidate priority in the qualification policy identity", async () => {
     const config = lockedConfig();
     const reversed = { ...config, candidates: [...config.candidates].reverse() };
     const fixedNow = () => "2026-08-09T18:00:00.000Z";
@@ -207,8 +218,12 @@ describe("P4 locked one-process qualification and admission", () => {
       fixedNow,
     );
 
-    expect(originalResult.selectedCandidateId).toBe(config.candidates[0]!.id);
-    expect(reversedResult.selectedCandidateId).toBe(reversed.candidates[0]!.id);
+    expect(originalResult.selectedCandidateId).toBe(
+      firstAdmissionEligibleCandidate(config.candidates)!.id,
+    );
+    expect(reversedResult.selectedCandidateId).toBe(
+      firstAdmissionEligibleCandidate(reversed.candidates)!.id,
+    );
     expect(originalResult.report.qualificationPolicyHash).not.toBe(
       reversedResult.report.qualificationPolicyHash,
     );
@@ -239,6 +254,7 @@ describe("P4 locked one-process qualification and admission", () => {
       id: "qualification-only-xai",
       provider: "xai" as const,
       modelId: "grok-qualification-test",
+      admissionMode: "qualification_only" as const,
       credentialEnv: "XAI_API_KEY",
     };
     const mixedConfig: ModelQualificationConfig = {
