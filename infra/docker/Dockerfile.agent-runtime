@@ -12,11 +12,12 @@ FROM base AS build
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 # Workspace deps must be built first (agent-runtime imports their dist):
-# shared-schemas, supabase-client, security, and sandbox-runtime.
+# shared-schemas, supabase-client, security, sandbox-runtime, and openai-agents-bridge.
 RUN pnpm --filter @repo/shared-schemas build \
   && pnpm --filter @repo/supabase-client build \
   && pnpm --filter @repo/security build \
   && pnpm --filter @repo/sandbox-runtime build \
+  && pnpm --filter @repo/openai-agents-bridge build \
   && pnpm --filter agent-runtime build
 
 FROM base AS runtime
