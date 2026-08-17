@@ -59,7 +59,7 @@ export function runtimeModelClientForProvider(
     case "google":
       throw new RuntimeModelError(
         "DRAFT_MODEL_CONFIG_ERROR",
-        `Runtime model provider ${provider} has no implemented production adapter yet.`,
+        `Runtime model provider ${provider} has no admitted production adapter yet.`,
       );
   }
 }
