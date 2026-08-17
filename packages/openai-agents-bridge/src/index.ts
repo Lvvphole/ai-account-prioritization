@@ -31,6 +31,11 @@ export interface OpenAIAgentsBridgeResult {
   usage: OpenAIAgentsBridgeUsage;
 }
 
+export interface OpenAIAgentsOutputConfiguration extends Record<string, unknown> {
+  outputType: JsonSchemaDefinition;
+  reasoning?: { effort: OpenAIAgentsReasoningEffort };
+}
+
 export type OpenAIAgentsBridgeErrorKind =
   | "timeout"
   | "http"
@@ -45,6 +50,30 @@ export class OpenAIAgentsBridgeError extends Error {
     super(message);
     this.name = "OpenAIAgentsBridgeError";
   }
+}
+
+/**
+ * Build the exact non-secret constrained-output configuration used by the
+ * OpenAI Agents SDK bridge. Runtime audit evidence uses this same function.
+ */
+export function buildOpenAIAgentsOutputConfiguration(
+  outputSchema: Record<string, unknown>,
+  reasoningEffort?: OpenAIAgentsReasoningEffort,
+): OpenAIAgentsOutputConfiguration {
+  const outputConfiguration: OpenAIAgentsOutputConfiguration = {
+    outputType: {
+      type: "json_schema",
+      name: "generated_draft",
+      strict: true,
+      schema: outputSchema as JsonSchemaDefinition["schema"],
+    },
+  };
+
+  if (reasoningEffort !== undefined) {
+    outputConfiguration.reasoning = { effort: reasoningEffort };
+  }
+
+  return outputConfiguration;
 }
 
 const cachedInputTokens = (
@@ -93,23 +122,19 @@ export async function runOpenAIAgentsBridge(
     modelProvider: provider,
     tracingDisabled: true,
   });
-  const outputType: JsonSchemaDefinition = {
-    type: "json_schema",
-    name: "generated_draft",
-    strict: true,
-    schema: request.outputSchema as JsonSchemaDefinition["schema"],
-  };
+  const outputConfiguration = buildOpenAIAgentsOutputConfiguration(
+    request.outputSchema,
+    request.reasoningEffort,
+  );
   const agent = new Agent({
     name: "bounded-runtime-drafting",
     instructions: request.system,
     model: request.model,
     modelSettings: {
       maxTokens: request.maxOutputTokens,
-      reasoning: request.reasoningEffort
-        ? { effort: request.reasoningEffort }
-        : undefined,
+      reasoning: outputConfiguration.reasoning,
     },
-    outputType,
+    outputType: outputConfiguration.outputType,
     tools: [],
   });
 
