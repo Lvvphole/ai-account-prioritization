@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
+    "@repo/openai-agents-bridge": "workspace:*",
     "@repo/sandbox-runtime": "workspace:*",
     "@repo/security": "workspace:*",
     "@repo/shared-schemas": "workspace:*",
