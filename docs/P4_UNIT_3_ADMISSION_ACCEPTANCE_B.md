@@ -73,6 +73,18 @@ The model does not certify these properties.
 
 A `QUALIFIED` result is evidence for the exact provider, model, reasoning profile, provider configuration, policy, corpus, budgets, and code revision that the report identifies. Do not infer provider equivalence from similar control names.
 
+### 5.1 Qualification-only evaluation
+
+Use `pnpm qualify:models:report` when the authorized goal is qualification evidence without production admission.
+
+This command reads `config/p4-qualification-policy.json`, runs the same canonical qualification evaluator, and writes only the immutable qualification report. It does not require admission decision metadata. It does not read `P4_PRODUCTION_MODEL_ADMISSION_OUTPUT`, and it cannot create a production admission artifact.
+
+Set `P4_QUALIFICATION_REPORT` to a new unused path when a specific report path is required. The command reserves that report path before provider spend and removes only its sidecar reservation after the epoch.
+
+A candidate that passes this command is `QUALIFIED` only. Qualification-only evidence does not create a staged admission and does not make a provider `ACTIVE`.
+
+Do not use `pnpm qualify:models` when the authorized goal excludes production admission. That command is the integrated qualification-and-admission path described in section 6.
+
 ## 6. Run the real qualification epoch
 
 Provide every provider credential required by the canonical policy through the environment. Do not commit credentials.

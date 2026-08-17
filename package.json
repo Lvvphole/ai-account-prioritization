@@ -15,6 +15,7 @@
     "test:evals": "turbo run test:evals",
     "test:acceptance:a": "bash scripts/verify-acceptance-a.sh",
     "test:acceptance:b": "bash scripts/verify-acceptance-b.sh",
+    "qualify:models:report": "pnpm build && pnpm exec tsx packages/testing-evals/src/model-qualification/qualification-report-cli.ts",
     "qualify:models": "pnpm build && pnpm exec tsx packages/testing-evals/src/model-qualification/qualification-cli.ts",
     "test:trajectory": "turbo run test:trajectory --filter=@repo/testing-evals",
     "test:judge": "turbo run test:judge",
