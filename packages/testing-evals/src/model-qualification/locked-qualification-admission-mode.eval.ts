@@ -6,7 +6,31 @@ import {
 } from "./qualification-contract";
 import { selectP4ProductionAdmissionCandidate } from "./locked-qualification";
 
-const rawConfig = () => ({
+const anthropicAdmissionEligible = {
+  id: "anthropic-admission-eligible",
+  provider: "anthropic",
+  modelId: "anthropic-test-model",
+  reasoningProfile: "provider_default",
+  structuredOutputProfile: "json_schema",
+  toolSchemaProfile: "not_applicable_current_spine",
+  samplingProfile: "provider_default",
+  admissionMode: "eligible",
+  credentialEnv: "ANTHROPIC_API_KEY",
+};
+
+const openAIQualificationOnly = {
+  id: "openai-qualification-only",
+  provider: "openai",
+  modelId: "openai-test-model",
+  reasoningProfile: "provider_default",
+  structuredOutputProfile: "json_schema",
+  toolSchemaProfile: "not_applicable_current_spine",
+  samplingProfile: "provider_default",
+  admissionMode: "qualification_only",
+  credentialEnv: "OPENAI_API_KEY",
+};
+
+const configMaterial = (candidates: unknown[]) => ({
   contractVersion: P4_MODEL_QUALIFICATION_CONTRACT_VERSION,
   corpusVersion: CURRENT_SPINE_QUALIFICATION_CORPUS_VERSION,
   k: 1,
@@ -27,44 +51,32 @@ const rawConfig = () => ({
     maxFalseAcceptRate: 0,
     requireCompleteTokenTelemetry: true,
   },
-  candidates: [
-    {
-      id: "anthropic-admission-eligible",
-      provider: "anthropic",
-      modelId: "anthropic-test-model",
-      reasoningProfile: "provider_default",
-      structuredOutputProfile: "json_schema",
-      toolSchemaProfile: "not_applicable_current_spine",
-      samplingProfile: "provider_default",
-      admissionMode: "eligible",
-      credentialEnv: "ANTHROPIC_API_KEY",
-    },
-    {
-      id: "openai-qualification-only",
+  candidates,
+});
+
+const config = () =>
+  parseModelQualificationConfig(
+    configMaterial([anthropicAdmissionEligible, openAIQualificationOnly]),
+  );
+
+describe("P4 production admission candidate selection", () => {
+  it("defaults a missing admission mode to qualification-only", () => {
+    const candidateWithoutAdmissionMode = {
+      id: "openai-without-admission-mode",
       provider: "openai",
       modelId: "openai-test-model",
       reasoningProfile: "provider_default",
       structuredOutputProfile: "json_schema",
       toolSchemaProfile: "not_applicable_current_spine",
       samplingProfile: "provider_default",
-      admissionMode: "qualification_only",
       credentialEnv: "OPENAI_API_KEY",
-    },
-  ],
-});
+    };
 
-const config = () => parseModelQualificationConfig(rawConfig());
-
-describe("P4 production admission candidate selection", () => {
-  it("defaults a missing admission mode to qualification-only", () => {
-    const raw = rawConfig();
-    const candidate = { ...raw.candidates[1] } as Record<string, unknown>;
-    delete candidate.admissionMode;
-    raw.candidates[1] = candidate as (typeof raw.candidates)[number];
-
-    expect(parseModelQualificationConfig(raw).candidates[1]?.admissionMode).toBe(
-      "qualification_only",
-    );
+    expect(
+      parseModelQualificationConfig(
+        configMaterial([candidateWithoutAdmissionMode]),
+      ).candidates[0]?.admissionMode,
+    ).toBe("qualification_only");
   });
 
   it("does not admit a qualification-only OpenAI candidate when it is the only qualified candidate", () => {
