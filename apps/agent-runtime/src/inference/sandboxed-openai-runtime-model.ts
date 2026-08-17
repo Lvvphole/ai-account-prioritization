@@ -16,7 +16,7 @@ export interface SandboxedOpenAIRuntimeModelClientOptions {
 }
 
 /**
- * Dormant OpenAI transport boundary. The Agents SDK receives only a placeholder
+ * Production OpenAI transport. The Agents SDK receives only a placeholder
  * credential. The sandbox network policy injects the real credential at trusted
  * egress. Sandbox failure never falls back to direct host fetch.
  */
@@ -44,3 +44,6 @@ export function createSandboxedOpenAIRuntimeModelClient(
     },
   };
 }
+
+export const sandboxedOpenAIRuntimeModelClient =
+  createSandboxedOpenAIRuntimeModelClient();
