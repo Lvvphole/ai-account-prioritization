@@ -527,7 +527,7 @@ implementation_state:
   anthropic_sandbox_profile: shipped
   openai_agents_sdk_integration: not_implemented
   openai_production_adapter: not_implemented
-  openai_sandbox_profile: not_implemented
+  openai_sandbox_profile: shipped
   production_ingestion_commit_spine: shipped
   durable_runtime_to_web_bridge: shipped
   live_dashboard_without_mock_recommendations: shipped
