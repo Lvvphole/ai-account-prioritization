@@ -3,9 +3,14 @@ import { Sandbox, type NetworkPolicy } from "@vercel/sandbox";
 
 const ANTHROPIC_API_ORIGIN = "https://api.anthropic.com";
 const ANTHROPIC_MESSAGES_PATH = "/v1/messages";
+const OPENAI_API_ORIGIN = "https://api.openai.com";
+const OPENAI_RESPONSES_PATH = "/v1/responses";
 const SANDBOX_REQUEST_PATH = "/tmp/runtime-model-request.json";
 const SANDBOX_RESPONSE_PATH = "/tmp/runtime-model-response.json";
-const SANDBOX_API_KEY_PLACEHOLDER = "sandbox-brokered-anthropic-key";
+const ANTHROPIC_SANDBOX_API_KEY_PLACEHOLDER =
+  "sandbox-brokered-anthropic-key";
+export const VERCEL_SANDBOX_OPENAI_API_KEY_PLACEHOLDER =
+  "sandbox-brokered-openai-key";
 const SANDBOX_RUNTIME = "node22";
 const MAX_SANDBOX_CLEANUP_RESERVE_MS = 250;
 
@@ -135,6 +140,13 @@ interface OperationSignals {
   callerSignal?: AbortSignal;
 }
 
+interface SandboxProviderProfile {
+  apiOrigin: string;
+  path: string;
+  sanitizeHeaders(headers: Headers, credential: string): void;
+  networkPolicyFor(credential: string): NetworkPolicy;
+}
+
 export const VERCEL_SANDBOX_RUNTIME_PROFILE = Object.freeze({
   id: "vercel-sandbox-anthropic-egress-v1",
   runtime: SANDBOX_RUNTIME,
@@ -142,6 +154,15 @@ export const VERCEL_SANDBOX_RUNTIME_PROFILE = Object.freeze({
   destination: "api.anthropic.com",
   method: "POST",
   path: ANTHROPIC_MESSAGES_PATH,
+});
+
+export const VERCEL_SANDBOX_OPENAI_RUNTIME_PROFILE = Object.freeze({
+  id: "vercel-sandbox-openai-egress-v1",
+  runtime: SANDBOX_RUNTIME,
+  persistent: false,
+  destination: "api.openai.com",
+  method: "POST",
+  path: OPENAI_RESPONSES_PATH,
 });
 
 const fixedError = (message: string): Error => {
@@ -277,58 +298,47 @@ const encodeBody = async (
   return null;
 };
 
-const buildHeaders = (
+const mergedHeadersFor = (
   input: Parameters<typeof fetch>[0],
   init: Parameters<typeof fetch>[1] | undefined,
-  credential: string,
-): [string, string][] => {
+): Headers => {
   const headers = new Headers(input instanceof Request ? input.headers : undefined);
   if (init?.headers) {
     new Headers(init.headers).forEach((value, key) => headers.set(key, value));
   }
+  return headers;
+};
 
-  if (headers.get("x-api-key") !== credential) {
-    throw fixedError("Sandbox runtime rejected an unexpected provider credential.");
-  }
-
-  headers.delete("authorization");
-  headers.set("x-api-key", SANDBOX_API_KEY_PLACEHOLDER);
-
+const headerPairsFor = (headers: Headers): [string, string][] => {
   const pairs: [string, string][] = [];
   headers.forEach((value, key) => pairs.push([key, value]));
   return pairs;
 };
 
-const buildRelayRequest = async (
-  input: Parameters<typeof fetch>[0],
-  init: Parameters<typeof fetch>[1] | undefined,
+const sanitizeAnthropicHeaders = (
+  headers: Headers,
   credential: string,
-): Promise<RelayRequest> => {
-  const rawUrl = input instanceof Request ? input.url : String(input);
-  const url = new URL(rawUrl);
-  const method = (
-    init?.method ?? (input instanceof Request ? input.method : "GET")
-  ).toUpperCase();
-
-  if (
-    url.origin !== ANTHROPIC_API_ORIGIN ||
-    url.pathname !== ANTHROPIC_MESSAGES_PATH ||
-    url.search !== "" ||
-    url.hash !== "" ||
-    method !== "POST"
-  ) {
-    throw fixedError("Sandbox runtime rejected an unauthorized provider request.");
+): void => {
+  if (headers.get("x-api-key") !== credential) {
+    throw fixedError("Sandbox runtime rejected an unexpected provider credential.");
   }
 
-  return {
-    url: `${ANTHROPIC_API_ORIGIN}${ANTHROPIC_MESSAGES_PATH}`,
-    method: "POST",
-    headers: buildHeaders(input, init, credential),
-    bodyBase64: await encodeBody(input, init),
-  };
+  headers.delete("authorization");
+  headers.set("x-api-key", ANTHROPIC_SANDBOX_API_KEY_PLACEHOLDER);
 };
 
-const networkPolicyFor = (credential: string): NetworkPolicy => ({
+const sanitizeOpenAIHeaders = (headers: Headers): void => {
+  const expectedAuthorization =
+    `Bearer ${VERCEL_SANDBOX_OPENAI_API_KEY_PLACEHOLDER}`;
+  if (headers.get("authorization") !== expectedAuthorization) {
+    throw fixedError("Sandbox runtime rejected an unexpected provider credential.");
+  }
+
+  headers.delete("x-api-key");
+  headers.set("authorization", expectedAuthorization);
+};
+
+const anthropicNetworkPolicyFor = (credential: string): NetworkPolicy => ({
   allow: {
     "api.anthropic.com": [
       {
@@ -338,7 +348,7 @@ const networkPolicyFor = (credential: string): NetworkPolicy => ({
           headers: [
             {
               key: { exact: "x-api-key" },
-              value: { exact: SANDBOX_API_KEY_PLACEHOLDER },
+              value: { exact: ANTHROPIC_SANDBOX_API_KEY_PLACEHOLDER },
             },
           ],
         },
@@ -347,6 +357,77 @@ const networkPolicyFor = (credential: string): NetworkPolicy => ({
     ],
   },
 });
+
+const openAINetworkPolicyFor = (credential: string): NetworkPolicy => ({
+  allow: {
+    "api.openai.com": [
+      {
+        match: {
+          method: ["POST"],
+          path: { exact: OPENAI_RESPONSES_PATH },
+          headers: [
+            {
+              key: { exact: "authorization" },
+              value: {
+                exact: `Bearer ${VERCEL_SANDBOX_OPENAI_API_KEY_PLACEHOLDER}`,
+              },
+            },
+          ],
+        },
+        transform: [
+          { headers: { authorization: `Bearer ${credential}` } },
+        ],
+      },
+    ],
+  },
+});
+
+const ANTHROPIC_PROVIDER_PROFILE: SandboxProviderProfile = {
+  apiOrigin: ANTHROPIC_API_ORIGIN,
+  path: ANTHROPIC_MESSAGES_PATH,
+  sanitizeHeaders: sanitizeAnthropicHeaders,
+  networkPolicyFor: anthropicNetworkPolicyFor,
+};
+
+const OPENAI_PROVIDER_PROFILE: SandboxProviderProfile = {
+  apiOrigin: OPENAI_API_ORIGIN,
+  path: OPENAI_RESPONSES_PATH,
+  sanitizeHeaders: sanitizeOpenAIHeaders,
+  networkPolicyFor: openAINetworkPolicyFor,
+};
+
+const buildRelayRequest = async (
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1] | undefined,
+  credential: string,
+  profile: SandboxProviderProfile,
+): Promise<RelayRequest> => {
+  const rawUrl = input instanceof Request ? input.url : String(input);
+  const url = new URL(rawUrl);
+  const method = (
+    init?.method ?? (input instanceof Request ? input.method : "GET")
+  ).toUpperCase();
+
+  if (
+    url.origin !== profile.apiOrigin ||
+    url.pathname !== profile.path ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    method !== "POST"
+  ) {
+    throw fixedError("Sandbox runtime rejected an unauthorized provider request.");
+  }
+
+  const headers = mergedHeadersFor(input, init);
+  profile.sanitizeHeaders(headers, credential);
+
+  return {
+    url: `${profile.apiOrigin}${profile.path}`,
+    method: "POST",
+    headers: headerPairsFor(headers),
+    bodyBase64: await encodeBody(input, init),
+  };
+};
 
 /**
  * Vercel Sandbox wraps control-plane fetches in retry logic. A repeated mutating
@@ -420,15 +501,10 @@ const operationFailureFor = (signals: OperationSignals): Error => {
   return fixedError("Sandbox runtime model transport failed.");
 };
 
-/**
- * Create the only production fetch transport admitted for the current Anthropic
- * runtime. The provider request executes inside an ephemeral Vercel Sandbox.
- * The real provider credential stays outside the VM and is injected by the
- * sandbox network policy at the egress boundary.
- */
-export function createVercelSandboxFetch(
+const createProviderVercelSandboxFetch = (
   options: VercelSandboxFetchOptions,
-): typeof fetch {
+  profile: SandboxProviderProfile,
+): typeof fetch => {
   if (
     !options.credential.trim() ||
     !Number.isSafeInteger(options.timeoutMs) ||
@@ -445,7 +521,12 @@ export function createVercelSandboxFetch(
   const operationTimeoutMs = options.timeoutMs - cleanupTimeoutMs;
 
   return async (input, init) => {
-    const request = await buildRelayRequest(input, init, options.credential);
+    const request = await buildRelayRequest(
+      input,
+      init,
+      options.credential,
+      profile,
+    );
     const operation = operationSignalsFor(input, init, operationTimeoutMs);
     let sandbox: SandboxInstance | undefined;
     let response: Response | undefined;
@@ -458,7 +539,7 @@ export function createVercelSandboxFetch(
         ports: [],
         timeout: options.timeoutMs,
         env: {},
-        networkPolicy: networkPolicyFor(options.credential),
+        networkPolicy: profile.networkPolicyFor(options.credential),
         signal: operation.signal,
         fetch: controlPlaneFetch,
         accessToken: options.accessToken,
@@ -521,4 +602,26 @@ export function createVercelSandboxFetch(
     if (!response) throw fixedError("Sandbox runtime model transport failed.");
     return response;
   };
+};
+
+/**
+ * Create the production Anthropic fetch transport. The provider request runs
+ * inside an ephemeral Vercel Sandbox. The trusted egress policy injects the
+ * real provider credential after the request leaves the VM.
+ */
+export function createVercelSandboxFetch(
+  options: VercelSandboxFetchOptions,
+): typeof fetch {
+  return createProviderVercelSandboxFetch(options, ANTHROPIC_PROVIDER_PROFILE);
+}
+
+/**
+ * Create the dormant OpenAI sandbox fetch transport. The transport admits only
+ * POST /v1/responses to api.openai.com and replaces the placeholder bearer
+ * credential at the trusted egress boundary.
+ */
+export function createOpenAIVercelSandboxFetch(
+  options: VercelSandboxFetchOptions,
+): typeof fetch {
+  return createProviderVercelSandboxFetch(options, OPENAI_PROVIDER_PROFILE);
 }
