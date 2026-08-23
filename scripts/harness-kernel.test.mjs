@@ -159,3 +159,228 @@ test("harness-kernel gate anchors the agent engineering standard contract", () =
     { id: "agent-standard-tests", command: "pnpm test:agent-standard" },
   ]);
 });
+
+// --- Verification-boundary regression tests -------------------------------------
+//
+// These lock the corrected verification boundary against defects that actually
+// escaped: a duplicate Tier-3 orchestration (`verify:complete`), a local hook that
+// falsely claimed completion authority, and Tier-3 evidence that did not identify the
+// candidate it verified. They assert repository content only — they cannot observe
+// GitHub branch-protection state, so a pass here is NOT evidence that the merge gate
+// is enforced. That requires the `main` ruleset to require "PR Production
+// Verification" with strict up-to-date-before-merge.
+
+const CANONICAL_TIER3_COMMAND = "pnpm verify:production";
+
+// These files document the very commands they are asserted against, so a naive
+// substring search matches prose explaining why a command is absent. Assert over
+// executable content only.
+function withoutComments(source) {
+  return source
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+}
+
+function markdownSection(source, heading) {
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => line.trim() === heading);
+  assert.notEqual(start, -1, `missing heading: ${heading}`);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => line.startsWith("## "));
+  return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+}
+
+test("verify:production is the only Tier-3 orchestration in package.json", () => {
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+
+  assert.equal(
+    pkg.scripts["verify:complete"],
+    undefined,
+    "verify:complete duplicated the canonical verifier and must not return",
+  );
+
+  // Any other script that chains several Tier-3 gates is a second Definition of Done.
+  const tier3Markers = [
+    "pnpm lint",
+    "pnpm build",
+    "pnpm typecheck",
+    "pnpm test",
+    "pnpm docker:build",
+  ];
+  for (const [name, command] of Object.entries(pkg.scripts)) {
+    if (name === "verify:production") continue;
+    const matched = tier3Markers.filter((marker) => command.includes(marker));
+    assert.ok(
+      matched.length < 3,
+      `script "${name}" chains Tier-3 gates (${matched.join(", ")}); ` +
+        `${CANONICAL_TIER3_COMMAND} is the only completion verifier`,
+    );
+  }
+});
+
+test("verify-production.sh retains its gates and enforces candidate identity", () => {
+  const script = withoutComments(readFileSync("scripts/verify-production.sh", "utf8"));
+
+  assert.match(script, /run_gate "Required files" check_files/);
+  assert.match(script, /pnpm test:acceptance:a/);
+  assert.match(script, /check_schema_drift/);
+
+  // Migrations reach Tier 3 through Acceptance A. Invoking them directly runs the
+  // same suite twice.
+  assert.doesNotMatch(
+    script,
+    /pnpm verify:migrations/,
+    "verify:migrations must reach Tier 3 via Acceptance A, not a direct call",
+  );
+
+  // A PASS must be evidence about one exact, unchanging, fully committed candidate.
+  assert.match(script, /git rev-parse HEAD/, "must record the full candidate SHA");
+  assert.doesNotMatch(
+    script,
+    /rev-parse --short HEAD/,
+    "an abbreviated SHA does not unambiguously identify the candidate",
+  );
+  assert.match(script, /run_gate "Candidate clean before verification"/);
+  assert.match(script, /run_gate "Candidate clean after verification"/);
+  assert.match(script, /run_gate "Candidate HEAD unchanged"/);
+});
+
+test("pre-push hook is a precheck and claims no completion authority", () => {
+  const raw = readFileSync(".githooks/pre-push", "utf8");
+  const hook = withoutComments(raw);
+
+  assert.match(hook, /pnpm scan:secrets/, "secrets must be caught before they leave the machine");
+  assert.match(hook, /pnpm lint/);
+  assert.match(hook, /pnpm typecheck/);
+
+  assert.doesNotMatch(
+    hook,
+    /pnpm verify:production/,
+    "the local hook must not invoke the canonical verifier",
+  );
+  assert.doesNotMatch(
+    hook,
+    /verify:complete/,
+    "the duplicate Tier-3 orchestration must not return",
+  );
+  assert.doesNotMatch(
+    hook,
+    /All verification gates passed/,
+    "the hook must not claim completion it did not verify",
+  );
+  assert.match(hook, /PRECHECK PASS/);
+  assert.match(hook, /Not Tier-3 completion/);
+});
+
+test("production verification runs the canonical gate on both pre-PR and PR candidates", () => {
+  const workflow = withoutComments(
+    readFileSync(".github/workflows/production-verification.yml", "utf8"),
+  );
+
+  // Distinct check names: GitHub matches required status checks by name, so two jobs
+  // sharing one name cannot be independently required.
+  assert.match(workflow, /name: Pre-PR Production Verification/);
+  assert.match(workflow, /name: PR Production Verification/);
+
+  // `on:` is workflow-scoped; without per-job guards both jobs run on both events.
+  assert.match(workflow, /if: github\.event_name == 'push'/);
+  assert.match(workflow, /if: github\.event_name == 'pull_request'/);
+
+  assert.match(workflow, /branches-ignore: \["main"\]/);
+  assert.match(workflow, /pull_request:\n {4}branches: \["main"\]/);
+
+  const canonicalInvocations = workflow.match(/pnpm verify:production/g) ?? [];
+  assert.equal(
+    canonicalInvocations.length,
+    2,
+    "both jobs must run the unmodified canonical Tier-3 command",
+  );
+});
+
+test("production verification enforces candidate identity rather than only recording it", () => {
+  const workflow = withoutComments(
+    readFileSync(".github/workflows/production-verification.yml", "utf8"),
+  );
+
+  const enforcementSteps = workflow.match(/name: Enforce candidate identity/g) ?? [];
+  assert.equal(
+    enforcementSteps.length,
+    2,
+    "both jobs must fail closed on a candidate mismatch",
+  );
+
+  // The push job proves the checkout is the pushed commit.
+  assert.match(workflow, /tested_sha" != "\$EXPECTED_SHA/);
+  // The PR job proves the integration candidate's second parent is the PR head.
+  assert.match(workflow, /HEAD\^2/);
+  assert.match(workflow, /merged_head" != "\$EXPECTED_HEAD_SHA/);
+  // merge_commit_sha can be stale or null while mergeability is still computing.
+  assert.doesNotMatch(
+    workflow,
+    /merge_commit_sha/,
+    "candidate identity must come from parentage, not an event field",
+  );
+});
+
+test("candidate context is event-specific and never fabricates a base for a push", () => {
+  const workflow = readFileSync(
+    ".github/workflows/production-verification.yml",
+    "utf8",
+  );
+  const [, pushJob = "", prJob = ""] = workflow.split(/^ {2}(?:pre_pr|pr):$/m);
+
+  for (const field of ["event: push", "branch:", "head_sha:", "tested_sha:"]) {
+    assert.ok(pushJob.includes(field), `push context must record ${field}`);
+  }
+  assert.ok(
+    !pushJob.includes("base_sha:"),
+    "a push preceding any PR has no base; recording one would fabricate evidence",
+  );
+
+  for (const field of ["event: pull_request", "head_sha:", "base_sha:", "tested_sha:"]) {
+    assert.ok(prJob.includes(field), `PR context must record ${field}`);
+  }
+
+  // tested_sha is derived from the checkout, not assumed from the event payload.
+  const derived = workflow.match(/tested_sha: \$\(git rev-parse HEAD\)/g) ?? [];
+  assert.equal(derived.length, 2, "tested_sha must be read from the checked-out repository");
+});
+
+test("CONTEXT.md references the canonical Definition of Done instead of restating it", () => {
+  const section = markdownSection(
+    readFileSync("docs/CONTEXT.md", "utf8"),
+    "## Definition of Done",
+  );
+
+  assert.match(section, /AGENTS\.md §13\.3/);
+  assert.match(section, /pnpm verify:production/);
+
+  // A second copy of the command list is the synchronization burden ADR-002 avoids.
+  const duplicated = ["pnpm build", "pnpm typecheck", "pnpm test:evals", "pnpm docker:build"];
+  const present = duplicated.filter((command) => section.includes(command));
+  assert.equal(
+    present.length,
+    0,
+    `the Definition of Done section must not restate the Tier-3 command list ` +
+      `(found: ${present.join(", ")})`,
+  );
+});
+
+test("harness-kernel contract covers the verification harness it asserts about", () => {
+  const contract = parseContract(readFileSync(".harness/contract.yaml", "utf8"));
+  const kernel = contract.contracts.find((item) => item.id === "harness-kernel");
+
+  assert.ok(kernel, "harness-kernel contract must exist");
+  for (const covered of [
+    "scripts/verify-production.sh",
+    ".githooks/**",
+    "docs/CONTEXT.md",
+    ".github/workflows/production-verification.yml",
+  ]) {
+    assert.ok(
+      kernel.paths.includes(covered),
+      `editing ${covered} must select the harness-kernel gates`,
+    );
+  }
+});

@@ -9,10 +9,37 @@ REPORT_DIR="verification-reports"
 mkdir -p "$REPORT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 REPORT="$REPORT_DIR/verification-$STAMP.md"
-COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# Full 40-character SHA: a Tier-3 PASS is evidence about one exact commit, and an
+# abbreviated SHA does not identify it unambiguously.
+START_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 
 overall=0
 rows=()
+
+# Candidate identity. A report headed "ALL GATES PASSED / Commit: X" produced from a
+# dirty tree did not verify X; it verified X plus uncommitted work. Cleanliness alone
+# is also insufficient — a run could start at HEAD A, create commit B, and still end
+# clean, straddling two candidates. Both conditions are gates, not annotations.
+# Generated reports under verification-reports/ are gitignored, so this script's own
+# output cannot trip these checks.
+check_tree_clean() {
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "FAIL: working tree is not clean; Tier-3 verification requires a committed candidate"
+    git status --short
+    return 1
+  fi
+  return 0
+}
+
+check_head_unchanged() {
+  local end_sha
+  end_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+  if [ "$end_sha" != "$START_SHA" ]; then
+    echo "FAIL: HEAD moved during verification ($START_SHA -> $end_sha)"
+    return 1
+  fi
+  return 0
+}
 
 run_gate() {
   local name="$1"
@@ -59,6 +86,10 @@ check_schema_drift() {
     apps/api-python/src/schemas/generated
 }
 
+# Runs first, ahead of install: `pnpm generate:schemas` below rewrites tracked
+# artifacts, so a later "clean before" check could not distinguish a dirty candidate
+# from this script's own effects.
+run_gate "Candidate clean before verification" check_tree_clean
 run_gate "Required files" check_files
 run_gate "Install (frozen lockfile)" pnpm install --frozen-lockfile
 # Scan before any step that can rewrite tracked files so the scan reflects the
@@ -97,6 +128,8 @@ fi
 run_gate "Docker compose config" pnpm docker:config
 run_gate "Docker image build" pnpm docker:build
 run_gate "Git diff check" git diff --check
+run_gate "Candidate clean after verification" check_tree_clean
+run_gate "Candidate HEAD unchanged" check_head_unchanged
 
 # `pnpm verify:production` invokes this script, so the Tier 3 list's
 # verify:production entry is satisfied by this execution rather than recursively
@@ -105,7 +138,7 @@ result="$([ $overall -eq 0 ] && echo '✅ ALL GATES PASSED' || echo '❌ FAILURE
 {
   echo "# Production verification report"
   echo
-  echo "- Commit: \`$COMMIT\`"
+  echo "- Candidate SHA: \`$START_SHA\`"
   echo "- Generated (UTC): $STAMP"
   echo "- Result: $result"
   echo

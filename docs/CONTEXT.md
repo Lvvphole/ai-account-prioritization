@@ -162,20 +162,24 @@ built-in client. Injected test clients record no sandbox profile.
 
 ## Definition of Done
 
+The canonical completion gate is defined by **AGENTS.md §13.3**, which is the
+higher-precedence root operating contract (AGENTS.md §1). It is not restated here:
+a second copy of the command list would drift from the authoritative one.
+
+Run it from the repository root:
+
 ```bash
-pnpm install --frozen-lockfile
-pnpm scan:secrets
-pnpm generate:schemas
-pnpm lint
-pnpm build
-pnpm typecheck
-pnpm test
-pnpm test:evals
-pnpm verify:security
-pnpm verify:observability
 pnpm verify:production
-git diff --check
 ```
+
+That script executes every required Tier-3 gate, refuses to run unless the candidate
+is a clean committed tree whose `HEAD` does not move during the run, and writes a
+dated report to `verification-reports/`.
+
+Completion verification also runs remotely before merge — see
+`.github/workflows/production-verification.yml`, which verifies the exact
+feature-branch commit on every non-`main` push and the PR integration candidate on
+every pull request into `main`.
 
 Runtime-generation changes additionally require evidence that:
 

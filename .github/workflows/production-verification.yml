@@ -1,0 +1,183 @@
+name: Production Verification
+
+# Canonical Tier-3 completion verification (AGENTS.md §13.3) run BEFORE merge.
+#
+# `deploy.yml` also runs `pnpm verify:production`, but only on push to main — that is
+# after merge. This workflow verifies the candidate twice before it can reach main:
+#
+#   1. Pre-PR Production Verification — the exact feature-branch commit, on every
+#      non-main push, so the candidate is fully verified before a PR is opened.
+#   2. PR Production Verification — the PR's integration candidate (GitHub's test
+#      merge commit), so a change that passes alone but conflicts behaviorally with
+#      current main is caught before merge.
+#
+# Both run the unmodified canonical command. There is no second Definition of Done.
+#
+# Neither job's PASS is authorization: it establishes technical eligibility only.
+# Opening a PR and merging remain gated by explicit human authorization and by the
+# main branch ruleset respectively (AGENTS.md §7).
+
+on:
+  push:
+    branches-ignore: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  # `on:` is workflow-scoped, so without these per-job event guards both jobs would
+  # run on both events and the implemented architecture would not be the specified one.
+  pre_pr:
+    name: Pre-PR Production Verification
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pre-pr-production-verification-${{ github.sha }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # Candidate identity is enforced, not merely recorded. The check is cheap,
+      # local and deterministic, so it fails closed before any gate runs.
+      - name: Enforce candidate identity
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tested_sha="$(git rev-parse HEAD)"
+          if [ "$tested_sha" != "$EXPECTED_SHA" ]; then
+            echo "FAIL: checkout is not the pushed candidate"
+            echo "  expected: $EXPECTED_SHA"
+            echo "  tested:   $tested_sha"
+            exit 1
+          fi
+          echo "Candidate identity confirmed: $tested_sha"
+
+      # A push that precedes any pull request has no base, so no base_sha is recorded.
+      # Inventing one would be exactly the fabricated-evidence failure this workflow
+      # exists to prevent. `tested_sha` is derived from the checkout, never assumed
+      # from the event payload.
+      - name: Record candidate context
+        env:
+          HEAD_SHA: ${{ github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p verification-reports
+          {
+            echo "# Candidate context"
+            echo
+            echo "- event: push"
+            echo "- branch: $BRANCH"
+            echo "- head_sha: $HEAD_SHA"
+            echo "- before_sha: $BEFORE_SHA"
+            echo "- tested_sha: $(git rev-parse HEAD)"
+          } > verification-reports/candidate-context.md
+          cat verification-reports/candidate-context.md
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Verify production (canonical Tier-3 gate)
+        run: pnpm verify:production
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pre-pr-verification-${{ github.sha }}
+          path: verification-reports/*
+          if-no-files-found: ignore
+
+  pr:
+    name: PR Production Verification
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pr-production-verification-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      # Default checkout for pull_request is refs/pull/N/merge — the integration
+      # candidate. Deliberately NOT head.sha: the pre-PR job already covered the
+      # isolated head, and a merge gate must test the merged result.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # refs/pull/N/merge is a merge of the base tip into the PR head, so HEAD^2 is
+      # the PR head. Asserting parentage proves the integration candidate genuinely
+      # contains the commit under review. Compared against parentage rather than
+      # merge_commit_sha, which can be stale or null while GitHub is still computing
+      # mergeability. Fails closed if the merge ref is unavailable.
+      - name: Enforce candidate identity
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          tested_sha="$(git rev-parse HEAD)"
+          if ! merged_head="$(git rev-parse --verify "HEAD^2" 2>/dev/null)"; then
+            echo "FAIL: HEAD is not a merge commit; the PR integration candidate is unavailable"
+            echo "  tested: $tested_sha"
+            exit 1
+          fi
+          if [ "$merged_head" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "FAIL: integration candidate does not contain the PR head"
+            echo "  expected head: $EXPECTED_HEAD_SHA"
+            echo "  merged head:   $merged_head"
+            exit 1
+          fi
+          echo "Candidate identity confirmed: merge $tested_sha contains head $merged_head"
+
+      - name: Record candidate context
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p verification-reports
+          {
+            echo "# Candidate context"
+            echo
+            echo "- event: pull_request"
+            echo "- head_sha: $HEAD_SHA"
+            echo "- base_sha: $BASE_SHA"
+            echo "- tested_sha: $(git rev-parse HEAD)"
+            echo "- merged_base_tip: $(git rev-parse HEAD^1)"
+          } > verification-reports/candidate-context.md
+          cat verification-reports/candidate-context.md
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Verify production (canonical Tier-3 gate)
+        run: pnpm verify:production
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr-verification-${{ github.event.pull_request.head.sha }}
+          path: verification-reports/*
+          if-no-files-found: ignore

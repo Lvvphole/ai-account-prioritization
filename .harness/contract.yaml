@@ -6,8 +6,12 @@
       "paths": [
         ".harness/**",
         ".github/workflows/harness-kernel.yml",
+        ".github/workflows/production-verification.yml",
+        ".githooks/**",
+        "docs/CONTEXT.md",
         "scripts/harness-kernel.mjs",
         "scripts/harness-kernel.test.mjs",
+        "scripts/verify-production.sh",
         "package.json"
       ],
       "gates": [

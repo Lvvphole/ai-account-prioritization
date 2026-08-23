@@ -37,7 +37,6 @@
     "scan:secrets": "bash scripts/scan-secrets.sh",
     "docker:config": "docker compose -f infra/compose.yaml config",
     "docker:build": "docker compose -f infra/compose.yaml build",
-    "verify:complete": "pnpm install --frozen-lockfile && pnpm scan:secrets && pnpm generate:schemas && git diff --exit-code -- packages/shared-schemas/generated apps/api-python/src/schemas/generated && pnpm lint && pnpm build && pnpm typecheck && pnpm test && pnpm test:evals && pnpm build:api-python && pnpm check:no-prisma && pnpm verify:security && pnpm verify:observability && pnpm verify:migrations && pnpm docker:config && pnpm docker:build && pnpm verify:production && git diff --check",
     "dev": "turbo run dev",
     "clean": "turbo run clean"
   },

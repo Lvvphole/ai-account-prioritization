@@ -1,20 +1,25 @@
-#!/bin/bash
-# Pre-push hook: Run full verification suite before pushing
-# This ensures all Tier 3 gates pass before code reaches the remote
+#!/usr/bin/env bash
+# Local pre-push PRECHECK. This is NOT Tier-3 completion verification.
+#
+# Canonical completion verification is `pnpm verify:production` (AGENTS.md §13.3).
+# It requires Docker and is executed remotely by the "Pre-PR Production Verification"
+# and "PR Production Verification" jobs in .github/workflows/production-verification.yml.
+# Those remote runs are authoritative; this hook is not.
+#
+# Scope is deliberately narrow: catch cheap, deterministic, local failures before they
+# consume a remote run. `scan:secrets` is included despite the speed goal because a
+# secret that reaches the remote is compromised even if later force-removed, so remote
+# detection would be too late. Do not add schema generation, Docker, Acceptance A, or
+# the full test suite here.
+set -euo pipefail
 
-set -e
+echo "==> Local pre-push precheck (not Tier-3 completion verification)"
 
-echo "Running verification suite before push..."
-echo "---"
+pnpm scan:secrets
+pnpm lint
+pnpm typecheck
 
-pnpm verify:complete
-
-if [ $? -eq 0 ]; then
-  echo "---"
-  echo "✓ All verification gates passed. Push proceeding."
-  exit 0
-else
-  echo "---"
-  echo "✗ Verification failed. Push blocked."
-  exit 1
-fi
+echo
+echo "PRECHECK PASS"
+echo "Not Tier-3 completion."
+echo "Remote production verification is authoritative."
