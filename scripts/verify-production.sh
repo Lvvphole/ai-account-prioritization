@@ -101,10 +101,46 @@ check_schema_drift() {
     apps/api-python/src/schemas/generated
 }
 
+# Defined before the gates run, because the candidate precondition below calls it
+# to abort early.
+emit_report_and_exit() {
+  local result
+  result="$([ $overall -eq 0 ] && echo '✅ ALL GATES PASSED' || echo '❌ FAILURES PRESENT')"
+  {
+    echo "# Production verification report"
+    echo
+    echo "- Candidate SHA: \`$START_SHA\`"
+    echo "- Generated (UTC): $STAMP"
+    echo "- Result: $result"
+    echo
+    echo "| Gate | Status |"
+    echo "| ---- | ------ |"
+    for r in "${rows[@]}"; do echo "$r"; done
+  } | tee "$REPORT"
+
+  echo
+  echo "Report written to $REPORT"
+  exit $overall
+}
+
 # Runs first, ahead of install: `pnpm generate:schemas` below rewrites tracked
 # artifacts, so a later "clean before" check could not distinguish a dirty candidate
 # from this script's own effects.
+#
+# This is a PRECONDITION, not just the first gate. Recording the failure and
+# continuing would run `generate:schemas` over a dirty tree and overwrite the
+# developer's uncommitted work — verified: a sentinel added to a tracked generated
+# file did not survive the run. AGENTS.md §7 requires pre-existing user changes be
+# preserved, and the documented contract is that Tier 3 *refuses* a dirty candidate,
+# not that it notes one and proceeds.
 run_gate "Candidate clean before verification" check_tree_clean
+if [ "$overall" -ne 0 ]; then
+  rows+=("| (remaining gates) | ⏭ not run; candidate precondition failed |")
+  echo
+  echo "Stopping before any gate that could modify the working tree."
+  emit_report_and_exit
+fi
+
 run_gate "Required files" check_files
 run_gate "Install (frozen lockfile)" pnpm install --frozen-lockfile
 # Scan before any step that can rewrite tracked files so the scan reflects the
@@ -149,19 +185,4 @@ run_gate "Candidate HEAD unchanged" check_head_unchanged
 # `pnpm verify:production` invokes this script, so the Tier 3 list's
 # verify:production entry is satisfied by this execution rather than recursively
 # invoking itself.
-result="$([ $overall -eq 0 ] && echo '✅ ALL GATES PASSED' || echo '❌ FAILURES PRESENT')"
-{
-  echo "# Production verification report"
-  echo
-  echo "- Candidate SHA: \`$START_SHA\`"
-  echo "- Generated (UTC): $STAMP"
-  echo "- Result: $result"
-  echo
-  echo "| Gate | Status |"
-  echo "| ---- | ------ |"
-  for r in "${rows[@]}"; do echo "$r"; done
-} | tee "$REPORT"
-
-echo
-echo "Report written to $REPORT"
-exit $overall
+emit_report_and_exit

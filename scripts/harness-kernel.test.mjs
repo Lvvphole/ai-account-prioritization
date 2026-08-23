@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -402,6 +408,54 @@ test("secret scan catches a secret added and later removed within the range", ()
   const range = scanSecrets(["--range", `${base}..${tip}`], repo);
   assert.notEqual(range.status, 0, "the removed commit still ships and must be caught");
   assert.match(range.stdout, /potential secret\(s\) in commit/);
+});
+
+// Regression: the clean-tree check was a recorded gate, not a precondition. On a
+// dirty tree it logged FAIL and the run continued into `pnpm generate:schemas`,
+// which rewrites tracked artifacts — verified by a sentinel added to a generated
+// file that did not survive the run. AGENTS.md §7 requires pre-existing user
+// changes be preserved, and the documented contract is that Tier 3 refuses a dirty
+// candidate rather than noting one and proceeding.
+test("verify-production refuses a dirty candidate before touching the tree", () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "verify-dirty-"));
+  git(repo, "init", "-q");
+  git(repo, "config", "user.email", "harness@example.invalid");
+  git(repo, "config", "user.name", "Harness Test");
+
+  mkdirSync(path.join(repo, "scripts"));
+  copyFileSync(
+    path.resolve("scripts/verify-production.sh"),
+    path.join(repo, "scripts/verify-production.sh"),
+  );
+  writeFileSync(path.join(repo, "tracked.txt"), "committed\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "base");
+
+  // Uncommitted work that must survive.
+  writeFileSync(path.join(repo, "tracked.txt"), "UNCOMMITTED_WORK\n");
+
+  const result = spawnSync("bash", ["scripts/verify-production.sh"], {
+    cwd: repo,
+    encoding: "utf8",
+  });
+
+  assert.notEqual(result.status, 0, "a dirty candidate must fail");
+  assert.match(result.stdout, /Candidate clean before verification/);
+  assert.match(result.stdout, /not run; candidate precondition failed/);
+
+  // The specific hazard: nothing that rewrites tracked files may run.
+  for (const destructive of ["Generate schemas", "Install (frozen lockfile)", "Build"]) {
+    assert.ok(
+      !result.stdout.includes(`==> ${destructive}`),
+      `${destructive} ran after the precondition failed and can modify the tree`,
+    );
+  }
+
+  assert.equal(
+    readFileSync(path.join(repo, "tracked.txt"), "utf8"),
+    "UNCOMMITTED_WORK\n",
+    "uncommitted work must be preserved",
+  );
 });
 
 test("the pre-push hook is installed by a versioned setup step", () => {
