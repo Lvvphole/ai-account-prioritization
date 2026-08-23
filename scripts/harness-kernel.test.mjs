@@ -250,7 +250,7 @@ test("pre-push hook is a precheck and claims no completion authority", () => {
   const raw = readFileSync(".githooks/pre-push", "utf8");
   const hook = withoutComments(raw);
 
-  assert.match(hook, /pnpm scan:secrets/, "secrets must be caught before they leave the machine");
+  assert.match(hook, /scan-secrets\.sh/, "secrets must be caught before they leave the machine");
   assert.match(hook, /pnpm lint/);
   assert.match(hook, /pnpm typecheck/);
 
@@ -271,6 +271,57 @@ test("pre-push hook is a precheck and claims no completion authority", () => {
   );
   assert.match(hook, /PRECHECK PASS/);
   assert.match(hook, /Not Tier-3 completion/);
+});
+
+// Regression: a tip-only secret scan passes while pushing a commit that added a
+// secret and a later commit that removed it — both commits still reach the remote.
+test("pre-push scans the outgoing commit range, not just the tip", () => {
+  const hook = withoutComments(readFileSync(".githooks/pre-push", "utf8"));
+
+  // Git supplies "<local ref> <local sha> <remote ref> <remote sha>" per ref on stdin.
+  assert.match(hook, /while read -r/, "the hook must consume the stdin ref pairs");
+  assert.match(hook, /--range/, "the scan must cover a commit range");
+
+  // New branch: the remote sha is all zeros and there is no range to diff against.
+  assert.match(hook, /--not --remotes=/, "a new branch must scan commits the remote lacks");
+  // A ref deletion pushes no content and must not be scanned as a range.
+  assert.match(hook, /ZERO/, "ref deletions must be recognized and skipped");
+});
+
+test("scan-secrets.sh supports range mode without changing its snapshot default", () => {
+  const script = readFileSync("scripts/scan-secrets.sh", "utf8");
+
+  assert.match(script, /--range/);
+  assert.match(script, /git rev-list/, "range mode must enumerate commits");
+  assert.match(script, /git ls-tree/, "range mode must read each commit's own tree");
+
+  // The pattern begins with `-----BEGIN`, so without -e git grep parses it as an
+  // option, exits 129, and matches nothing — a scanner that silently finds no secrets.
+  assert.match(
+    script,
+    /git grep [^\n]*-e "\$SECRET_RE"/,
+    "the pattern must be passed via -e or git grep treats it as a flag",
+  );
+
+  // Snapshot mode is what verify:production uses; it must stay tip-based.
+  assert.match(script, /git ls-files/, "the default snapshot path must remain");
+});
+
+test("the pre-push hook is installed by a versioned setup step", () => {
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const prepare = pkg.scripts.prepare;
+
+  assert.ok(prepare, "a fresh clone must get the hook without a manual git config");
+  assert.match(prepare, /core\.hooksPath/);
+  assert.match(prepare, /\.githooks/);
+
+  // infra/docker/Dockerfile.* run `pnpm install` with no .git in the build context.
+  // An unguarded `git config` there fails the docker:build Tier-3 gate.
+  assert.match(
+    prepare,
+    /\|\|\s*true/,
+    "install must not fail where there is no git repository",
+  );
 });
 
 test("production verification runs the canonical gate on both pre-PR and PR candidates", () => {

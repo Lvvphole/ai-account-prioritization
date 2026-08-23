@@ -7,15 +7,41 @@
 # Those remote runs are authoritative; this hook is not.
 #
 # Scope is deliberately narrow: catch cheap, deterministic, local failures before they
-# consume a remote run. `scan:secrets` is included despite the speed goal because a
-# secret that reaches the remote is compromised even if later force-removed, so remote
+# consume a remote run. Secret scanning is included despite the speed goal because a
+# secret that reaches the remote is compromised even if later removed, so remote
 # detection would be too late. Do not add schema generation, Docker, Acceptance A, or
 # the full test suite here.
+#
+# Git supplies "<local ref> <local sha> <remote ref> <remote sha>" per ref on stdin.
+# The scan covers every commit actually being pushed, not just the tip: a branch that
+# adds a secret in one commit and removes it in a later one would pass a tip-only scan
+# while uploading the secret-bearing commit.
 set -euo pipefail
+
+ZERO="0000000000000000000000000000000000000000"
+REMOTE_NAME="${1:-origin}"
 
 echo "==> Local pre-push precheck (not Tier-3 completion verification)"
 
-pnpm scan:secrets
+scanned_any=0
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  # Deleting a remote ref pushes no content.
+  [ "$local_sha" = "$ZERO" ] && continue
+
+  if [ "$remote_sha" = "$ZERO" ]; then
+    # New branch: scan commits the remote does not already have.
+    bash scripts/scan-secrets.sh --range "$local_sha" --not --remotes="$REMOTE_NAME"
+  else
+    bash scripts/scan-secrets.sh --range "$remote_sha..$local_sha"
+  fi
+  scanned_any=1
+done
+
+# Run by hand rather than by git: no ref pairs arrive, so fall back to the tip scan.
+if [ "$scanned_any" -eq 0 ]; then
+  bash scripts/scan-secrets.sh
+fi
+
 pnpm lint
 pnpm typecheck
 
