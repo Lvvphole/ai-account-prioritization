@@ -114,8 +114,13 @@ jobs:
       # Default checkout for pull_request is refs/pull/N/merge — the integration
       # candidate. Deliberately NOT head.sha: the pre-PR job already covered the
       # isolated head, and a merge gate must test the merged result.
+      #
+      # fetch-depth: 2 is required. The default depth of 1 fetches the merge commit
+      # but not its parents, so the HEAD^2 identity check below cannot resolve and
+      # the job fails closed. Depth 2 brings in both parents of the merge.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          fetch-depth: 2
           persist-credentials: false
 
       # refs/pull/N/merge is a merge of the base tip into the PR head, so HEAD^2 is

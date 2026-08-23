@@ -315,6 +315,16 @@ test("production verification enforces candidate identity rather than only recor
   // The PR job proves the integration candidate's second parent is the PR head.
   assert.match(workflow, /HEAD\^2/);
   assert.match(workflow, /merged_head" != "\$EXPECTED_HEAD_SHA/);
+
+  // Regression: run 32668512438 failed because actions/checkout defaults to
+  // fetch-depth 1, which fetches the merge commit without its parents, leaving
+  // HEAD^2 unresolvable. The HEAD^2 assertion is only meaningful at depth >= 2.
+  const [, , prJob = ""] = workflow.split(/^ {2}(?:pre_pr|pr):$/m);
+  assert.match(
+    prJob,
+    /fetch-depth: 2/,
+    "the PR job must fetch the merge commit's parents or HEAD^2 cannot resolve",
+  );
   // merge_commit_sha can be stale or null while mergeability is still computing.
   assert.doesNotMatch(
     workflow,
