@@ -294,6 +294,29 @@ test("pre-push scans the outgoing commit range, not just the tip", () => {
   assert.match(hook, /ZERO/, "ref deletions must be recognized and skipped");
 });
 
+// Regression: a single `scanned_any` flag conflated "no ref rows at all" (a manual
+// run) with "rows arrived but all were deletions". A deletion-only push therefore
+// took the manual-run fallback and scanned the working tree, then ran lint and
+// typecheck — so `git push --delete` could be blocked by unrelated local edits,
+// despite the push uploading nothing.
+test("pre-push skips content checks for a deletion-only push", () => {
+  const ZERO = "0".repeat(40);
+  const result = spawnSync("bash", [path.resolve(".githooks/pre-push"), "origin"], {
+    input: `refs/heads/gone ${ZERO} refs/heads/gone abc123def456789\n`,
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, "deleting a remote ref must not be blocked");
+  assert.match(result.stdout, /Deletion-only push/);
+
+  // The snapshot scan is the manual-run fallback; reaching it here is the defect.
+  assert.doesNotMatch(
+    result.stdout,
+    /Scanning tracked files/,
+    "a deletion-only push must not fall back to scanning the working tree",
+  );
+});
+
 test("scan-secrets.sh supports range mode without changing its snapshot default", () => {
   const script = readFileSync("scripts/scan-secrets.sh", "utf8");
 

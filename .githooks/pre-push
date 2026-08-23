@@ -23,10 +23,18 @@ REMOTE_NAME="${1:-origin}"
 
 echo "==> Local pre-push precheck (not Tier-3 completion verification)"
 
-scanned_any=0
+# Two separate questions. "Did git hand us any ref rows?" distinguishes a real push
+# from a manual invocation. "Did any row carry content?" distinguishes a deletion-only
+# push from one that uploads commits. Collapsing them into a single flag makes a
+# deletion-only push look like a manual run.
+rows_seen=0
+content_refs=0
 while read -r _local_ref local_sha _remote_ref remote_sha; do
-  # Deleting a remote ref pushes no content.
+  rows_seen=1
+
+  # Deleting a remote ref uploads no content.
   [ "$local_sha" = "$ZERO" ] && continue
+  content_refs=1
 
   if [ "$remote_sha" = "$ZERO" ]; then
     # New branch: scan commits the remote does not already have.
@@ -34,11 +42,24 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
   else
     bash scripts/scan-secrets.sh --range "$remote_sha..$local_sha"
   fi
-  scanned_any=1
 done
 
-# Run by hand rather than by git: no ref pairs arrive, so fall back to the tip scan.
-if [ "$scanned_any" -eq 0 ]; then
+# A push that only deletes refs sends nothing, so there is nothing to precheck — not
+# the history (none is uploaded) and not the working tree (unrelated to the operation).
+# Running the checks anyway would block `git push --delete` whenever the local tree
+# happens to be mid-edit, which has nothing to do with removing a remote branch.
+if [ "$rows_seen" -eq 1 ] && [ "$content_refs" -eq 0 ]; then
+  echo "==> Deletion-only push; no content is being sent, nothing to precheck"
+  echo
+  echo "PRECHECK PASS"
+  echo "Not Tier-3 completion."
+  echo "Remote production verification is authoritative."
+  exit 0
+fi
+
+# Run by hand rather than by git: no ref pairs arrived at all, so fall back to the
+# tip scan. Guarded on rows_seen, not on whether anything was scanned.
+if [ "$rows_seen" -eq 0 ]; then
   bash scripts/scan-secrets.sh
 fi
 
