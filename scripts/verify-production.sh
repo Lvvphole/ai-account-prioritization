@@ -22,8 +22,16 @@ rows=()
 # clean, straddling two candidates. Both conditions are gates, not annotations.
 # Generated reports under verification-reports/ are gitignored, so this script's own
 # output cannot trip these checks.
+# These gates fail closed: a git command that errors must not read as "clean" or
+# "unchanged". Capturing status separately keeps an unreadable tree distinguishable
+# from a genuinely clean one.
 check_tree_clean() {
-  if [ -n "$(git status --porcelain)" ]; then
+  local porcelain
+  if ! porcelain="$(git status --porcelain 2>/dev/null)"; then
+    echo "FAIL: cannot read working-tree status; refusing to certify a clean candidate"
+    return 1
+  fi
+  if [ -n "$porcelain" ]; then
     echo "FAIL: working tree is not clean; Tier-3 verification requires a committed candidate"
     git status --short
     return 1
@@ -33,7 +41,14 @@ check_tree_clean() {
 
 check_head_unchanged() {
   local end_sha
-  end_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+  if [ "$START_SHA" = "unknown" ]; then
+    echo "FAIL: the candidate SHA was never resolved; verification is not bound to a commit"
+    return 1
+  fi
+  if ! end_sha="$(git rev-parse HEAD 2>/dev/null)"; then
+    echo "FAIL: cannot read HEAD after verification"
+    return 1
+  fi
   if [ "$end_sha" != "$START_SHA" ]; then
     echo "FAIL: HEAD moved during verification ($START_SHA -> $end_sha)"
     return 1

@@ -307,6 +307,103 @@ test("scan-secrets.sh supports range mode without changing its snapshot default"
   assert.match(script, /git ls-files/, "the default snapshot path must remain");
 });
 
+// These execute the scanner rather than inspecting its source. The fail-open they
+// pin was invisible to content assertions: the script read correctly and still
+// reported PASSED without inspecting any history.
+function scanSecrets(args, cwd = process.cwd()) {
+  return spawnSync("bash", [path.resolve("scripts/scan-secrets.sh"), ...args], {
+    cwd,
+    encoding: "utf8",
+  });
+}
+
+// Assembled at runtime so this repository never contains a literal match for the
+// scanner's own AWS pattern. Written whole into a throwaway repo below, where it is
+// exactly what a real leak looks like. (AWS's published example key, not a credential.)
+const AWS_KEY_FIXTURE = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+
+test("secret scan fails closed when the outgoing range cannot be resolved", () => {
+  // A remote sha absent from a stale clone makes rev-list exit non-zero. Swallowing
+  // that error passes unscanned history through while printing "no outgoing commits".
+  const unresolvable = scanSecrets([
+    "--range",
+    "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef..HEAD",
+  ]);
+
+  assert.notEqual(
+    unresolvable.status,
+    0,
+    "an unresolvable range must block, not report a clean scan",
+  );
+  assert.match(unresolvable.stdout, /cannot resolve the outgoing commit range/);
+
+  // A range git resolves to nothing is a genuine pass and must stay one.
+  const empty = scanSecrets(["--range", "HEAD..HEAD"]);
+  assert.equal(empty.status, 0, "a legitimately empty range must still pass");
+  assert.match(empty.stdout, /No outgoing commits/);
+
+  // Missing arguments must not silently scan nothing either.
+  assert.notEqual(scanSecrets(["--range"]).status, 0);
+});
+
+// Regression: the snapshot scan reported PASSED unconditionally. SECRET_RE begins
+// with `-----BEGIN`, so grep parsed it as an option and exited with a usage error;
+// stderr was discarded and `|| true` masked the status, so the Tier-3 secret gate
+// matched nothing while looking green. Only executing it against a planted secret
+// distinguishes a working scanner from one that never matches.
+test("snapshot scan actually detects a planted secret", () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "secret-snapshot-"));
+  git(repo, "init", "-q");
+  git(repo, "config", "user.email", "harness@example.invalid");
+  git(repo, "config", "user.name", "Harness Test");
+
+  writeFileSync(path.join(repo, "app.txt"), "clean\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "base");
+  assert.equal(scanSecrets([], repo).status, 0, "a clean tree must pass");
+
+  writeFileSync(path.join(repo, "creds.txt"), `AWS_KEY=${AWS_KEY_FIXTURE}\n`);
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "leak");
+
+  const leaked = scanSecrets([], repo);
+  assert.notEqual(leaked.status, 0, "a tracked secret must fail the scan");
+  assert.match(leaked.stdout, /potential committed secret/);
+
+  // A real .env must be rejected while .env.example stays allowed.
+  writeFileSync(path.join(repo, ".env"), "TOKEN=abc\n");
+  git(repo, "add", "-f", ".env");
+  git(repo, "commit", "-qm", "env");
+  assert.match(scanSecrets([], repo).stdout, /committed \.env file/);
+});
+
+test("secret scan catches a secret added and later removed within the range", () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "secret-range-"));
+  git(repo, "init", "-q");
+  git(repo, "config", "user.email", "harness@example.invalid");
+  git(repo, "config", "user.name", "Harness Test");
+
+  writeFileSync(path.join(repo, "app.txt"), "clean\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "base");
+  const base = git(repo, "rev-parse", "HEAD");
+
+  // Introduced in one commit, deleted in the next: the tip is clean, the history is not.
+  writeFileSync(path.join(repo, "creds.txt"), `AWS_KEY=${AWS_KEY_FIXTURE}\n`);
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "add secret");
+  git(repo, "rm", "-q", "creds.txt");
+  git(repo, "commit", "-qm", "remove secret");
+  const tip = git(repo, "rev-parse", "HEAD");
+
+  const snapshot = scanSecrets([], repo);
+  assert.equal(snapshot.status, 0, "the tip is clean — this is why a tip scan is insufficient");
+
+  const range = scanSecrets(["--range", `${base}..${tip}`], repo);
+  assert.notEqual(range.status, 0, "the removed commit still ships and must be caught");
+  assert.match(range.stdout, /potential secret\(s\) in commit/);
+});
+
 test("the pre-push hook is installed by a versioned setup step", () => {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   const prepare = pkg.scripts.prepare;
