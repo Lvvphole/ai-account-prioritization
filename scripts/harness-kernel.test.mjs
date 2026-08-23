@@ -409,15 +409,54 @@ test("the pre-push hook is installed by a versioned setup step", () => {
   const prepare = pkg.scripts.prepare;
 
   assert.ok(prepare, "a fresh clone must get the hook without a manual git config");
-  assert.match(prepare, /core\.hooksPath/);
-  assert.match(prepare, /\.githooks/);
+  assert.match(prepare, /install-git-hooks\.sh/);
 
-  // infra/docker/Dockerfile.* run `pnpm install` with no .git in the build context.
-  // An unguarded `git config` there fails the docker:build Tier-3 gate.
-  assert.match(
+  const installer = readFileSync("scripts/install-git-hooks.sh", "utf8");
+  assert.match(installer, /core\.hooksPath/);
+  assert.match(installer, /\.githooks/);
+
+  // infra/docker/Dockerfile.* run `pnpm install` with no .git in the build context,
+  // so the missing-repository case must be tolerated or docker:build fails.
+  assert.match(installer, /rev-parse --git-dir/, "the no-repository case must be detected");
+
+  // ...but ONLY that case. A blanket `|| true` would report success while leaving
+  // core.hooksPath unset — pushes would then skip every precheck while the setup
+  // looked like it worked. Verified reachable: a stale .git/config.lock makes
+  // `git config` fail inside a real checkout.
+  assert.doesNotMatch(
     prepare,
     /\|\|\s*true/,
-    "install must not fail where there is no git repository",
+    "prepare must not swallow a real configuration failure",
+  );
+  assert.doesNotMatch(
+    installer,
+    /git config core\.hooksPath[^\n]*\|\|/,
+    "a failure to set core.hooksPath inside a checkout must surface",
+  );
+});
+
+test("installer fails closed inside a checkout but tolerates no repository", () => {
+  const run = (cwd) =>
+    spawnSync("bash", [path.resolve("scripts/install-git-hooks.sh")], {
+      cwd,
+      encoding: "utf8",
+    });
+
+  // No repository: the Docker build context. Must succeed and do nothing.
+  const bare = mkdtempSync(path.join(os.tmpdir(), "hooks-norepo-"));
+  assert.equal(run(bare).status, 0, "a missing repository must not fail the install");
+
+  const repo = mkdtempSync(path.join(os.tmpdir(), "hooks-repo-"));
+  git(repo, "init", "-q");
+  assert.equal(run(repo).status, 0, "a normal checkout must install the hooks");
+  assert.equal(git(repo, "config", "--get", "core.hooksPath"), ".githooks");
+
+  // A stale lock is a real failure and must propagate rather than report success.
+  writeFileSync(path.join(repo, ".git", "config.lock"), "");
+  assert.notEqual(
+    run(repo).status,
+    0,
+    "a configuration failure inside a checkout must surface, not be swallowed",
   );
 });
 
@@ -532,6 +571,11 @@ test("harness-kernel contract covers the verification harness it asserts about",
   assert.ok(kernel, "harness-kernel contract must exist");
   for (const covered of [
     "scripts/verify-production.sh",
+    // The behavioral scanner tests live in this contract's gate. Without the
+    // scanner itself listed, a PR touching only scan-secrets.sh selects no
+    // contract and harness:verify returns PASS having run none of them.
+    "scripts/scan-secrets.sh",
+    "scripts/install-git-hooks.sh",
     ".githooks/**",
     "docs/CONTEXT.md",
     ".github/workflows/production-verification.yml",
@@ -541,4 +585,11 @@ test("harness-kernel contract covers the verification harness it asserts about",
       `editing ${covered} must select the harness-kernel gates`,
     );
   }
+
+  // The point of the path list is selection, so assert selection, not membership.
+  const selected = selectAffectedContracts(contract, ["scripts/scan-secrets.sh"]);
+  assert.ok(
+    selected.some((item) => item.id === "harness-kernel"),
+    "a scanner-only change must select the gate that tests the scanner",
+  );
 });
