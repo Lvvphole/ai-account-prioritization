@@ -1,0 +1,20 @@
+#!/bin/bash
+# Pre-push hook: Run full verification suite before pushing
+# This ensures all Tier 3 gates pass before code reaches the remote
+
+set -e
+
+echo "Running verification suite before push..."
+echo "---"
+
+pnpm verify:complete
+
+if [ $? -eq 0 ]; then
+  echo "---"
+  echo "✓ All verification gates passed. Push proceeding."
+  exit 0
+else
+  echo "---"
+  echo "✗ Verification failed. Push blocked."
+  exit 1
+fi
