@@ -11,6 +11,7 @@
         "docs/CONTEXT.md",
         "scripts/harness-kernel.mjs",
         "scripts/harness-kernel.test.mjs",
+        "scripts/scan-secrets.metadata.test.mjs",
         "scripts/install-git-hooks.sh",
         "scripts/scan-secrets.sh",
         "scripts/verify-production.sh",

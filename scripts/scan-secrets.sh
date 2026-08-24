@@ -12,7 +12,9 @@ set -uo pipefail
 # tree, so the tip is the right subject. It is NOT sufficient before a push: a branch
 # that adds a secret in one commit and removes it in a later one passes a tip scan
 # while pushing both commits, secret included. The pre-push hook therefore uses range
-# mode over the commits actually being sent. Patterns live here once, in both modes.
+# mode over the commits actually being sent. Range mode scans each commit's tree and
+# commit metadata so secret-bearing commit objects cannot reach the remote. Patterns
+# live here once, in both modes.
 #
 # FAIL CLOSED. Every git query below feeds a pass/fail decision, so a git *error* must
 # never be read as "nothing found". Discarding a failure here turns the scanner into
@@ -64,11 +66,12 @@ scan_snapshot() {
   return 0
 }
 
-# Scans each commit's own tree, so a secret introduced and later deleted is still
-# caught. `git grep -e` is required: the pattern starts with `-----BEGIN` and would
-# otherwise be parsed as an option, making every scan error out and find nothing.
+# Scans each commit's own tree and metadata, so a secret introduced and later
+# deleted — or placed only in the commit message/author metadata — is still caught.
+# `git grep -e` is required: the pattern starts with `-----BEGIN` and would otherwise
+# be parsed as an option, making every tree scan error out and find nothing.
 scan_range() {
-  local commits commit tree committed_env matches grep_status
+  local commits commit metadata metadata_status tree committed_env matches grep_status
 
   # An unresolvable range — a remote sha absent from a stale clone, a bad argument —
   # must block the push. Treating it as an empty commit list would pass unscanned
@@ -88,6 +91,21 @@ scan_range() {
   echo "==> Scanning $(printf '%s\n' "$commits" | wc -l | tr -d ' ') outgoing commit(s) for secrets"
 
   for commit in $commits; do
+    # A pushed commit object includes metadata as well as its tree. Inspect the raw
+    # commit object so a credential in the subject/body or author/committer metadata
+    # cannot bypass a tree-only scan. Do not echo the matched material into logs.
+    if ! metadata="$(git cat-file commit "$commit" 2>/dev/null)"; then
+      report "cannot read commit metadata for ${commit:0:12}:" "git cat-file failed"
+    else
+      grep -qEI -e "$SECRET_RE" <<< "$metadata"
+      metadata_status=$?
+      if [ "$metadata_status" -eq 0 ]; then
+        report "potential secret(s) in commit metadata ${commit:0:12}:" "[redacted]"
+      elif [ "$metadata_status" -gt 1 ]; then
+        report "metadata secret scan errored on commit ${commit:0:12}:" "grep exited $metadata_status"
+      fi
+    fi
+
     if ! tree="$(git ls-tree -r --name-only "$commit" 2>/dev/null)"; then
       report "cannot read the tree of commit ${commit:0:12}:" "git ls-tree failed"
       continue

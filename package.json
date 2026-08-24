@@ -20,7 +20,7 @@
     "qualify:models": "pnpm build && pnpm exec tsx packages/testing-evals/src/model-qualification/qualification-cli.ts",
     "test:trajectory": "turbo run test:trajectory --filter=@repo/testing-evals",
     "test:judge": "turbo run test:judge",
-    "test:harness-kernel": "node --test scripts/harness-kernel.test.mjs",
+    "test:harness-kernel": "node --test scripts/harness-kernel.test.mjs scripts/scan-secrets.metadata.test.mjs",
     "harness:verify": "node scripts/harness-kernel.mjs",
     "agent-standard:validate": "node scripts/agent-standard.mjs validate",
     "agent-standard:render": "node scripts/agent-standard.mjs render",
