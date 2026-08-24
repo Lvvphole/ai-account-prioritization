@@ -289,7 +289,17 @@ test("pre-push scans the outgoing commit range, not just the tip", () => {
   assert.match(hook, /--range/, "the scan must cover a commit range");
 
   // New branch: the remote sha is all zeros and there is no range to diff against.
-  assert.match(hook, /--not --remotes=/, "a new branch must scan commits the remote lacks");
+  // This assertion previously required `--not --remotes=`, which pinned the defect —
+  // refs/remotes/* is a fetch-time cache and goes stale when a remote is repointed.
+  // What must hold is that the exclusion set comes from the remote itself.
+  assert.match(hook, /scan_new_ref/, "a new ref needs its own handling");
+  assert.match(hook, /git ls-remote/, "the exclusion set must come from the live remote");
+  assert.doesNotMatch(
+    hook,
+    /--remotes=/,
+    "local remote-tracking refs must not define what the remote already has",
+  );
+
   // A ref deletion pushes no content and must not be scanned as a range.
   assert.match(hook, /ZERO/, "ref deletions must be recognized and skipped");
 });
@@ -314,6 +324,58 @@ test("pre-push skips content checks for a deletion-only push", () => {
     result.stdout,
     /Scanning tracked files/,
     "a deletion-only push must not fall back to scanning the working tree",
+  );
+});
+
+// Regression: for a new ref the hook excluded `--remotes=<remote>`, i.e. local
+// refs/remotes/* — a cache from the last fetch that survives `git remote set-url`.
+// After a remote is repointed those refs describe a different repository, so the
+// exclusion hid commits the new remote had never seen. Verified end to end: a secret
+// pushed to repo A, origin repointed to empty repo B, new branch pushed — the scan
+// reported "no outgoing commits" and B received the secret-bearing commit.
+test("pre-push does not trust stale remote-tracking refs for a new ref", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "stale-remote-"));
+  const repoA = path.join(root, "A.git");
+  const repoB = path.join(root, "B.git");
+  const work = path.join(root, "work");
+
+  spawnSync("git", ["init", "-q", "--bare", repoA]);
+  spawnSync("git", ["init", "-q", "--bare", repoB]);
+  spawnSync("git", ["clone", "-q", repoA, work]);
+  git(work, "config", "user.email", "harness@example.invalid");
+  git(work, "config", "user.name", "Harness Test");
+
+  mkdirSync(path.join(work, "scripts"));
+  copyFileSync(
+    path.resolve("scripts/scan-secrets.sh"),
+    path.join(work, "scripts/scan-secrets.sh"),
+  );
+
+  writeFileSync(path.join(work, "f.txt"), "base\n");
+  git(work, "add", ".");
+  git(work, "commit", "-qm", "base");
+  writeFileSync(path.join(work, "creds.txt"), `AWS_KEY=${AWS_KEY_FIXTURE}\n`);
+  git(work, "add", ".");
+  git(work, "commit", "-qm", "secret");
+  git(work, "push", "-q", "origin", "HEAD:refs/heads/main");
+
+  // origin/main now records the secret commit. Repoint origin elsewhere; the
+  // remote-tracking ref is stale but still present.
+  git(work, "remote", "set-url", "origin", repoB);
+  const tip = git(work, "rev-parse", "HEAD");
+
+  const result = spawnSync("bash", [path.resolve(".githooks/pre-push"), "origin"], {
+    cwd: work,
+    input: `refs/heads/newbranch ${tip} refs/heads/newbranch ${"0".repeat(40)}\n`,
+    encoding: "utf8",
+  });
+
+  assert.notEqual(result.status, 0, "the secret must not reach the repointed remote");
+  assert.match(result.stdout, /potential secret\(s\) in commit/);
+  assert.doesNotMatch(
+    result.stdout,
+    /No outgoing commits/,
+    "stale remote-tracking refs must not empty the scan set",
   );
 });
 

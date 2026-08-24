@@ -21,6 +21,44 @@ set -euo pipefail
 ZERO="0000000000000000000000000000000000000000"
 REMOTE_NAME="${1:-origin}"
 
+# A ref the remote does not have yet: git will upload everything reachable from the
+# tip that the remote lacks, so the scan must cover the same set.
+#
+# refs/remotes/<remote>/* cannot define that set. Those are a local cache from the
+# last fetch, and they survive `git remote set-url` — so after a remote is repointed
+# they describe a different repository entirely, and excluding them hides commits the
+# new remote has never seen. Verified: a secret pushed to repo A, origin repointed to
+# empty repo B, then a new branch pushed — the scan reported "no outgoing commits"
+# and B received the secret.
+#
+# So ask the remote what it actually advertises. Anything we cannot establish is not
+# excluded: an unreachable remote, or an advertised commit absent locally, only
+# widens the scan, never narrows it.
+scan_new_ref() {
+  local local_sha="$1" remote="$2"
+  local listing sha _rest
+  local -a exclusions=()
+
+  if listing="$(git ls-remote --heads --tags "$remote" 2>/dev/null)"; then
+    while read -r sha _rest; do
+      [ -n "${sha:-}" ] || continue
+      # Only objects present locally can be exclusions; a missing one would make
+      # rev-list fail, and omitting it is safe.
+      if git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+        exclusions+=("$sha")
+      fi
+    done <<< "$listing"
+  else
+    echo "==> Cannot list refs on '$remote'; scanning all history reachable from the new ref"
+  fi
+
+  if [ "${#exclusions[@]}" -gt 0 ]; then
+    bash scripts/scan-secrets.sh --range "$local_sha" --not "${exclusions[@]}"
+  else
+    bash scripts/scan-secrets.sh --range "$local_sha"
+  fi
+}
+
 echo "==> Local pre-push precheck (not Tier-3 completion verification)"
 
 # Two separate questions. "Did git hand us any ref rows?" distinguishes a real push
@@ -37,8 +75,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
   content_refs=1
 
   if [ "$remote_sha" = "$ZERO" ]; then
-    # New branch: scan commits the remote does not already have.
-    bash scripts/scan-secrets.sh --range "$local_sha" --not --remotes="$REMOTE_NAME"
+    scan_new_ref "$local_sha" "$REMOTE_NAME"
   else
     bash scripts/scan-secrets.sh --range "$remote_sha..$local_sha"
   fi
