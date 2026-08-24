@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "prepare": "bash scripts/install-git-hooks.sh",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "eslint --max-warnings=0 .",

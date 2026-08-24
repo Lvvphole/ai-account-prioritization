@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,6 +7,8 @@ import test from "node:test";
 
 const root = process.cwd();
 const scanner = path.resolve(root, "scripts/scan-secrets.sh");
+const hook = path.resolve(root, ".githooks/pre-push");
+const installer = path.resolve(root, "scripts/install-git-hooks.sh");
 const AWS_FIXTURE = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
 const PRIVATE_KEY_FIXTURE = ["-----BEGIN ", "RSA PRIVATE KEY-----"].join("");
 const JWT_FIXTURE = [
@@ -159,5 +161,81 @@ test("scanner rejects prohibited .env entries", () => {
     const result = scan(repo);
     assert.notEqual(result.status, 0);
     assert.match(result.stdout, /prohibited \.env entry/);
+  });
+});
+
+function installHookFixture(repo) {
+  mkdirSync(path.join(repo, "scripts"), { recursive: true });
+  mkdirSync(path.join(repo, ".githooks"), { recursive: true });
+  copyFileSync(scanner, path.join(repo, "scripts", "scan-secrets.sh"));
+  copyFileSync(hook, path.join(repo, ".githooks", "pre-push"));
+}
+
+test("pre-push scans new and existing outgoing object ranges", () => {
+  withRepo("verification-hook-", (repo) => {
+    installHookFixture(repo);
+    commitFile(repo, "secret.txt", `${AWS_FIXTURE}\n`, "old secret");
+    git(repo, "rm", "-q", "secret.txt");
+    git(repo, "commit", "-qm", "remove old secret");
+    const remoteBase = git(repo, "rev-parse", "HEAD");
+    const cleanTip = commitFile(repo, "app.txt", "clean update\n", "clean update");
+
+    const existing = run("bash", [path.join(repo, ".githooks", "pre-push")], {
+      cwd: repo,
+      input: `refs/heads/main ${cleanTip} refs/heads/main ${remoteBase}\n`,
+    });
+    assert.equal(existing.status, 0, existing.stdout + existing.stderr);
+
+    const newRef = run("bash", [path.join(repo, ".githooks", "pre-push")], {
+      cwd: repo,
+      input: `refs/heads/new ${cleanTip} refs/heads/new ${"0".repeat(40)}\n`,
+    });
+    assert.notEqual(newRef.status, 0, "new ref must include reachable secret history");
+    assert.equal(newRef.stdout.includes(AWS_FIXTURE), false);
+  });
+});
+
+test("pre-push ignores deletions but still scans mixed content pushes", () => {
+  withRepo("verification-hook-delete-", (repo) => {
+    installHookFixture(repo);
+    const remote = git(repo, "rev-parse", "HEAD");
+    const deletion = `refs/heads/gone ${"0".repeat(40)} refs/heads/gone ${remote}\n`;
+    const deletionOnly = run("bash", [path.join(repo, ".githooks", "pre-push")], {
+      cwd: repo,
+      input: deletion,
+    });
+    assert.equal(deletionOnly.status, 0, deletionOnly.stdout + deletionOnly.stderr);
+
+    const secretTip = commitFile(repo, "secret.txt", `${AWS_FIXTURE}\n`, "secret");
+    const mixed = run("bash", [path.join(repo, ".githooks", "pre-push")], {
+      cwd: repo,
+      input:
+        deletion +
+        `refs/heads/main ${secretTip} refs/heads/main ${remote}\n`,
+    });
+    assert.notEqual(mixed.status, 0, "content row in a mixed push must still be scanned");
+  });
+});
+
+test("hook installer tolerates no repository and propagates real Git config failures", () => {
+  const nonRepo = mkdtempSync(path.join(os.tmpdir(), "verification-no-repo-"));
+  try {
+    assert.equal(run("bash", [installer], { cwd: nonRepo }).status, 0);
+  } finally {
+    rmSync(nonRepo, { recursive: true, force: true });
+  }
+
+  withRepo("verification-installer-", (repo) => {
+    const installed = run("bash", [installer], { cwd: repo });
+    assert.equal(installed.status, 0, installed.stderr);
+    assert.equal(git(repo, "config", "--get", "core.hooksPath"), ".githooks");
+
+    writeFileSync(path.join(repo, ".git", "config.lock"), "locked\n");
+    try {
+      const blocked = run("bash", [installer], { cwd: repo });
+      assert.notEqual(blocked.status, 0, "Git config failure must propagate");
+    } finally {
+      rmSync(path.join(repo, ".git", "config.lock"), { force: true });
+    }
   });
 });
