@@ -166,6 +166,7 @@ test("verification-layer changes select the verification-layer contract", () => 
     "scripts/scan-secrets.sh",
     "eslint.config.mjs",
     ".github/workflows/production-verification.yml",
+    ".github/workflows/deploy.yml",
     "pnpm-lock.yaml",
   ];
 
