@@ -49,6 +49,26 @@ test("range scan rejects a secret carried only in commit metadata", () => {
   );
 });
 
+test("range scan redacts secrets found in commit trees", () => {
+  const repo = initRepo("secret-tree-redaction-");
+  const base = git(repo, "rev-parse", "HEAD");
+
+  writeFileSync(path.join(repo, "creds.txt"), `AWS_KEY=${AWS_KEY_FIXTURE}\n`);
+  git(repo, "add", "creds.txt");
+  git(repo, "commit", "-qm", "tree leak");
+  const tip = git(repo, "rev-parse", "HEAD");
+
+  const result = scan(repo, `${base}..${tip}`);
+
+  assert.notEqual(result.status, 0, "a secret-bearing commit tree must block the push");
+  assert.match(result.stdout, /potential secret\(s\) in commit\/tree object/);
+  assert.match(result.stdout, /creds\.txt/, "safe path diagnostics must remain available");
+  assert.ok(
+    !result.stdout.includes(AWS_KEY_FIXTURE),
+    "commit-tree matches must not copy the detected secret into logs",
+  );
+});
+
 test("range scan rejects annotated-tag metadata, including a tag-only update", () => {
   const repo = initRepo("secret-tag-metadata-");
   const target = git(repo, "rev-parse", "HEAD");
