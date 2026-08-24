@@ -10,6 +10,7 @@ const scanner = path.resolve(root, "scripts/scan-secrets.sh");
 const hook = path.resolve(root, ".githooks/pre-push");
 const installer = path.resolve(root, "scripts/install-git-hooks.sh");
 const verifier = path.resolve(root, "scripts/verify-production.sh");
+const deployWorkflow = path.resolve(root, ".github/workflows/deploy.yml");
 const AWS_FIXTURE = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
 const PRIVATE_KEY_FIXTURE = ["-----BEGIN ", "RSA PRIVATE KEY-----"].join("");
 const JWT_FIXTURE = [
@@ -182,6 +183,28 @@ test("scanner rejects prohibited .env entries", () => {
   });
 });
 
+test("scanner checks every tree entry when allowed and prohibited paths share one blob", () => {
+  withRepo("verification-env-alias-", (repo) => {
+    const base = git(repo, "rev-parse", "HEAD");
+    const content = "TOKEN=placeholder\n";
+    writeFileSync(path.join(repo, ".env.example"), content);
+    writeFileSync(path.join(repo, ".env.production"), content);
+    git(repo, "add", "-f", ".env.example", ".env.production");
+    git(repo, "commit", "-qm", "shared env blob");
+    const tip = git(repo, "rev-parse", "HEAD");
+
+    assert.equal(
+      git(repo, "rev-parse", "HEAD:.env.example"),
+      git(repo, "rev-parse", "HEAD:.env.production"),
+      "fixture must use one blob through two path names",
+    );
+
+    const result = scan(repo, `${base}..${tip}`);
+    assert.notEqual(result.status, 0, "the prohibited path must block the selected range");
+    assert.match(result.stdout, /prohibited \.env entry/);
+  });
+});
+
 function installHookFixture(repo) {
   mkdirSync(path.join(repo, "scripts"), { recursive: true });
   mkdirSync(path.join(repo, ".githooks"), { recursive: true });
@@ -256,6 +279,23 @@ test("hook installer tolerates no repository and propagates real Git config fail
       rmSync(path.join(repo, ".git", "config.lock"), { force: true });
     }
   });
+});
+
+test("production deployment gate supplies full Git history to production verification", () => {
+  const workflow = readFileSync(deployWorkflow, "utf8");
+  const gateStart = workflow.indexOf("  gate:\n");
+  const deployStart = workflow.indexOf("\n  deploy:\n", gateStart);
+
+  assert.notEqual(gateStart, -1, "deployment workflow must contain the production gate");
+  assert.notEqual(deployStart, -1, "deployment workflow must contain the deploy job");
+
+  const gate = workflow.slice(gateStart, deployStart);
+  assert.match(gate, /pnpm verify:production/, "gate must run the canonical verifier");
+  assert.match(
+    gate,
+    /fetch-depth:\s*0/,
+    "production verification requires complete Git history for the secret scanner",
+  );
 });
 
 test("production verification refuses a dirty candidate before mutating gates", () => {
