@@ -41,6 +41,7 @@
       "paths": [
         ".githooks/**",
         ".github/workflows/production-verification.yml",
+        ".github/workflows/deploy.yml",
         ".github/workflows/security.yml",
         "eslint.config.mjs",
         "packages/config-eslint/**",
