@@ -105,7 +105,10 @@ scan_tree_object() {
     return 0
   fi
 
-  [ -n "$matches" ] && report "potential secret(s) in outgoing tree ${tree_sha:0:12}:" "$matches"
+  # Keep the historical "in commit" wording so existing behavioral regressions
+  # assert the security property rather than a presentation string. The subject is
+  # explicitly named as a commit/tree object because direct tree refs are also valid.
+  [ -n "$matches" ] && report "potential secret(s) in commit/tree object ${tree_sha:0:12}:" "$matches"
 }
 
 scan_blob_object() {
