@@ -1,0 +1,71 @@
+name: Production Verification
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-verification-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: PR Production Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request merge candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify merge candidate identity
+        env:
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          candidate_sha="$(git rev-parse --verify HEAD)"
+          base_parent="$(git rev-parse --verify HEAD^1)"
+          head_parent="$(git rev-parse --verify HEAD^2)"
+
+          if [ "$base_parent" != "$EXPECTED_BASE_SHA" ]; then
+            echo "BLOCKED: merge candidate base parent does not match the PR base SHA."
+            exit 2
+          fi
+
+          if [ "$head_parent" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "BLOCKED: merge candidate head parent does not match the PR head SHA."
+            exit 2
+          fi
+
+          echo "Verified merge candidate: $candidate_sha"
+          echo "Verified feature head: $head_parent"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Run canonical production verification
+        run: pnpm verify:production
+
+      - name: Preserve production verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-verification
+          path: verification-reports/*.md
+          if-no-files-found: warn

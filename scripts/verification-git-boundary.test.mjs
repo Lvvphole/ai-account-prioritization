@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -9,6 +9,7 @@ const root = process.cwd();
 const scanner = path.resolve(root, "scripts/scan-secrets.sh");
 const hook = path.resolve(root, ".githooks/pre-push");
 const installer = path.resolve(root, "scripts/install-git-hooks.sh");
+const verifier = path.resolve(root, "scripts/verify-production.sh");
 const AWS_FIXTURE = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
 const PRIVATE_KEY_FIXTURE = ["-----BEGIN ", "RSA PRIVATE KEY-----"].join("");
 const JWT_FIXTURE = [
@@ -75,6 +76,23 @@ test("scanner accepts clean history and .env.example", () => {
     git(repo, "commit", "-qm", "example env");
     assert.equal(scan(repo).status, 0);
   });
+});
+
+test("scanner refuses shallow history", () => {
+  const source = initRepo("verification-shallow-source-");
+  const cloneParent = mkdtempSync(path.join(os.tmpdir(), "verification-shallow-clone-"));
+  const clone = path.join(cloneParent, "repo");
+  try {
+    commitFile(source, "second.txt", "second\n", "second");
+    const result = run("git", ["clone", "-q", "--depth", "1", `file://${source}`, clone]);
+    assert.equal(result.status, 0, result.stderr);
+    const scanned = scan(clone);
+    assert.notEqual(scanned.status, 0);
+    assert.match(scanned.stdout, /repository history is shallow/);
+  } finally {
+    rmSync(source, { recursive: true, force: true });
+    rmSync(cloneParent, { recursive: true, force: true });
+  }
 });
 
 test("scanner fails closed when a revision cannot be resolved", () => {
@@ -237,5 +255,19 @@ test("hook installer tolerates no repository and propagates real Git config fail
     } finally {
       rmSync(path.join(repo, ".git", "config.lock"), { force: true });
     }
+  });
+});
+
+test("production verification refuses a dirty candidate before mutating gates", () => {
+  withRepo("verification-dirty-candidate-", (repo) => {
+    mkdirSync(path.join(repo, "scripts"), { recursive: true });
+    copyFileSync(verifier, path.join(repo, "scripts", "verify-production.sh"));
+    writeFileSync(path.join(repo, "app.txt"), "uncommitted\n");
+
+    const result = run("bash", ["scripts/verify-production.sh"], { cwd: repo });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /Candidate clean before verification: FAIL/);
+    assert.doesNotMatch(result.stdout, /==> Install \(frozen lockfile\)/);
+    assert.equal(readFileSync(path.join(repo, "app.txt"), "utf8"), "uncommitted\n");
   });
 });

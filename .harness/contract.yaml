@@ -37,6 +37,28 @@
       ]
     },
     {
+      "id": "verification-layer",
+      "paths": [
+        ".githooks/**",
+        ".github/workflows/production-verification.yml",
+        ".github/workflows/security.yml",
+        "eslint.config.mjs",
+        "packages/config-eslint/**",
+        "scripts/install-git-hooks.sh",
+        "scripts/scan-secrets.sh",
+        "scripts/verify-production.sh",
+        "scripts/verification-*.test.mjs",
+        "package.json",
+        "pnpm-lock.yaml"
+      ],
+      "gates": [
+        {
+          "id": "verification-layer-tests",
+          "command": "pnpm test:verification-layer"
+        }
+      ]
+    },
+    {
       "id": "runtime-contract",
       "paths": [
         "apps/agent-runtime/**",
