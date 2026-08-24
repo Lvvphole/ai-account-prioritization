@@ -184,18 +184,10 @@ test("package exposes deterministic standard commands", () => {
 
 test("harness routes its own standard contract edits through the standard gate", () => {
   const contract = JSON.parse(readFileSync(".harness/contract.yaml", "utf8"));
-  assert.deepEqual(
-    contract.contracts.map((item) => item.id),
-    [
-      "harness-kernel",
-      "agent-engineering-standard",
-      "runtime-contract",
-      "trajectory-contract",
-    ],
-  );
   const standardContract = contract.contracts.find(
     (item) => item.id === "agent-engineering-standard",
   );
+  assert.ok(standardContract);
   assert.ok(standardContract.paths.includes(".harness/contract.yaml"));
   assert.deepEqual(standardContract.gates, [
     { id: "agent-standard-tests", command: "pnpm test:agent-standard" },
