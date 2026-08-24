@@ -11,7 +11,7 @@
     "prepare": "bash scripts/install-git-hooks.sh",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
+    "lint": "eslint --max-warnings=0 .",
     "test": "turbo run test",
     "test:evals": "turbo run test:evals",
     "test:acceptance:a": "bash scripts/verify-acceptance-a.sh",
@@ -42,6 +42,8 @@
     "clean": "turbo run clean"
   },
   "devDependencies": {
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "turbo": "^2.3.3",

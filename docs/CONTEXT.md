@@ -181,9 +181,10 @@ Completion verification also runs remotely before merge — see
 feature-branch commit on every non-`main` push and the PR integration candidate on
 every pull request into `main`.
 
-A local pre-push precheck lives in `.githooks/pre-push`. It scans the outgoing
-commits for secrets and runs lint and typecheck; it is explicitly **not** completion
-verification. `pnpm install` installs it by pointing `core.hooksPath` at `.githooks`,
+A local pre-push precheck lives in `.githooks/pre-push`. It is bypassable
+(`git push --no-verify`) and non-authoritative. It scans the outgoing commits for
+secrets (existing ref: the pushed range; new ref: all reachable history) and runs lint
+and typecheck. `pnpm install` installs it by pointing `core.hooksPath` at `.githooks`,
 so a fresh clone needs no manual step. To install it by hand:
 
 ```bash

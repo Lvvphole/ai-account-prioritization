@@ -284,23 +284,16 @@ test("pre-push hook is a precheck and claims no completion authority", () => {
 test("pre-push scans the outgoing commit range, not just the tip", () => {
   const hook = withoutComments(readFileSync(".githooks/pre-push", "utf8"));
 
-  // Git supplies "<local ref> <local sha> <remote ref> <remote sha>" per ref on stdin.
   assert.match(hook, /while read -r/, "the hook must consume the stdin ref pairs");
   assert.match(hook, /--range/, "the scan must cover a commit range");
 
-  // New branch: the remote sha is all zeros and there is no range to diff against.
-  // This assertion previously required `--not --remotes=`, which pinned the defect —
-  // refs/remotes/* is a fetch-time cache and goes stale when a remote is repointed.
-  // What must hold is that the exclusion set comes from the remote itself.
-  assert.match(hook, /scan_new_ref/, "a new ref needs its own handling");
-  assert.match(hook, /git ls-remote/, "the exclusion set must come from the live remote");
+  // D9 reduction: no remote-state derivation machinery remains.
   assert.doesNotMatch(
     hook,
-    /--remotes=/,
-    "local remote-tracking refs must not define what the remote already has",
+    /ls-remote|--remotes=/,
+    "the hook must not query or trust remote state for the scan set",
   );
 
-  // A ref deletion pushes no content and must not be scanned as a range.
   assert.match(hook, /ZERO/, "ref deletions must be recognized and skipped");
 });
 
@@ -377,6 +370,50 @@ test("pre-push does not trust stale remote-tracking refs for a new ref", () => {
     /No outgoing commits/,
     "stale remote-tracking refs must not empty the scan set",
   );
+});
+
+// Round-7 regression: when remote.origin.pushurl differs from the fetch URL, git
+// passes the push destination as hook $2 but `git ls-remote origin` resolves the
+// fetch URL. The old hook queried the wrong remote for new-ref exclusions.
+// D9 reduction removes remote querying entirely, making this class of defect impossible.
+test("pre-push catches secrets when pushurl differs from fetch url (round-7)", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "pushurl-differ-"));
+  const repoA = path.join(root, "A.git");
+  const repoB = path.join(root, "B.git");
+  const work = path.join(root, "work");
+
+  spawnSync("git", ["init", "-q", "--bare", repoA]);
+  spawnSync("git", ["init", "-q", "--bare", repoB]);
+  spawnSync("git", ["clone", "-q", repoA, work]);
+  git(work, "config", "user.email", "harness@example.invalid");
+  git(work, "config", "user.name", "Harness Test");
+
+  mkdirSync(path.join(work, "scripts"));
+  copyFileSync(
+    path.resolve("scripts/scan-secrets.sh"),
+    path.join(work, "scripts/scan-secrets.sh"),
+  );
+
+  writeFileSync(path.join(work, "f.txt"), "base\n");
+  git(work, "add", ".");
+  git(work, "commit", "-qm", "base");
+  writeFileSync(path.join(work, "creds.txt"), `AWS_KEY=${AWS_KEY_FIXTURE}\n`);
+  git(work, "add", ".");
+  git(work, "commit", "-qm", "secret");
+  git(work, "push", "-q", "origin", "HEAD:refs/heads/main");
+
+  // Set pushurl to empty repo B while fetch URL stays at repo A.
+  git(work, "config", "remote.origin.pushurl", repoB);
+  const tip = git(work, "rev-parse", "HEAD");
+
+  const result = spawnSync("bash", [path.resolve(".githooks/pre-push"), "origin"], {
+    cwd: work,
+    input: `refs/heads/newbranch ${tip} refs/heads/newbranch ${"0".repeat(40)}\n`,
+    encoding: "utf8",
+  });
+
+  assert.notEqual(result.status, 0, "the secret must be caught when pushurl differs from fetch url");
+  assert.match(result.stdout, /potential secret\(s\) in commit/);
 });
 
 test("scan-secrets.sh supports range mode without changing its snapshot default", () => {
@@ -731,4 +768,108 @@ test("harness-kernel contract covers the verification harness it asserts about",
     selected.some((item) => item.id === "harness-kernel"),
     "a scanner-only change must select the gate that tests the scanner",
   );
+});
+
+// --- Lint primitive regression tests (B1/B2) ------------------------------------
+
+test("lint config changes select the harness-kernel contract", () => {
+  const contract = parseContract(readFileSync(".harness/contract.yaml", "utf8"));
+
+  const eslintConfig = selectAffectedContracts(contract, ["eslint.config.mjs"]);
+  assert.ok(
+    eslintConfig.some((c) => c.id === "harness-kernel"),
+    "editing eslint.config.mjs must select harness-kernel",
+  );
+
+  const sharedConfig = selectAffectedContracts(contract, [
+    "packages/config-eslint/index.js",
+  ]);
+  assert.ok(
+    sharedConfig.some((c) => c.id === "harness-kernel"),
+    "editing packages/config-eslint/index.js must select harness-kernel",
+  );
+});
+
+test("root lint is a direct eslint invocation, not routed through turbo", () => {
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const lintScript = pkg.scripts.lint;
+
+  assert.ok(lintScript, "root package.json must define a lint script");
+  assert.doesNotMatch(
+    lintScript,
+    /turbo/,
+    "lint must not route through turbo (zero-task success path)",
+  );
+  assert.match(
+    lintScript,
+    /^eslint\b/,
+    "lint must be a direct eslint invocation",
+  );
+});
+
+test("root lint uses eslint . with no manually maintained directory allowlist", () => {
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+
+  assert.equal(
+    pkg.scripts.lint,
+    "eslint --max-warnings=0 .",
+    "lint must scope via the flat config, not a hand-written directory list",
+  );
+});
+
+test("eslint config ignores generated and build paths", () => {
+  const config = readFileSync("eslint.config.mjs", "utf8");
+  const base = readFileSync("packages/config-eslint/index.js", "utf8");
+  const combined = config + "\n" + base;
+
+  for (const pattern of ["dist", ".next", "generated", "node_modules", "eval-results"]) {
+    assert.match(
+      combined,
+      new RegExp(pattern.replace(".", "\\.")),
+      `the lint config must ignore ${pattern}`,
+    );
+  }
+});
+
+test("root lint config uses the TypeScript parser without expanding the rule set", () => {
+  const config = readFileSync("eslint.config.mjs", "utf8");
+
+  assert.match(config, /@typescript-eslint\/parser/, "TS parser must be configured");
+  assert.doesNotMatch(
+    config,
+    /tseslint\.configs\.recommended|typescript-eslint.*recommended/,
+    "must not import a recommended TypeScript rule set beyond the existing lint policy",
+  );
+});
+
+test("root lint executes real work on a clean repository", () => {
+  const result = spawnSync("pnpm", ["lint"], { encoding: "utf8", timeout: 120_000 });
+
+  assert.equal(result.status, 0, `clean repo must pass lint: ${result.stderr}`);
+});
+
+test("root lint catches a planted debugger violation in a temporary fixture", () => {
+  const fixture = path.resolve("__lint_test_debugger__.ts");
+  try {
+    writeFileSync(fixture, "debugger;\n");
+    const result = spawnSync("pnpm", ["lint"], { encoding: "utf8", timeout: 120_000 });
+    assert.notEqual(result.status, 0, "a debugger statement must fail lint");
+  } finally {
+    try { spawnSync("rm", ["-f", fixture]); } catch {}
+  }
+});
+
+test("root lint parses valid TypeScript syntax (proves parser is active)", () => {
+  const fixture = path.resolve("__lint_test_tsparse__.ts");
+  try {
+    writeFileSync(fixture, "export type Foo = { bar: string };\n");
+    const result = spawnSync("pnpm", ["lint"], { encoding: "utf8", timeout: 120_000 });
+    assert.equal(
+      result.status,
+      0,
+      `valid TypeScript must parse without error: ${result.stderr}`,
+    );
+  } finally {
+    try { spawnSync("rm", ["-f", fixture]); } catch {}
+  }
 });

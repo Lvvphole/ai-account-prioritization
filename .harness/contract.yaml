@@ -14,6 +14,8 @@
         "scripts/install-git-hooks.sh",
         "scripts/scan-secrets.sh",
         "scripts/verify-production.sh",
+        "eslint.config.mjs",
+        "packages/config-eslint/**",
         "package.json"
       ],
       "gates": [
