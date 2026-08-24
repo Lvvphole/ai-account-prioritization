@@ -27,25 +27,30 @@ if [ "$shallow" = "true" ]; then
   exit 1
 fi
 
-if ! objects="$(git rev-list --objects "${revisions[@]}" 2>/dev/null)"; then
+# Object IDs define the content boundary. Path annotations from rev-list are not a
+# complete path inventory because one blob can be reachable through many names.
+if ! object_ids="$(git rev-list --objects --no-object-names "${revisions[@]}" 2>/dev/null)"; then
   echo "FAIL: cannot resolve the selected Git object set."
   exit 1
 fi
 
-if [ -z "$objects" ]; then
+if [ -z "$object_ids" ]; then
   echo "PASSED: selected Git object set is empty."
   exit 0
 fi
 
-object_ids="$(printf '%s\n' "$objects" | awk '{print $1}')"
 if ! object_types="$(printf '%s\n' "$object_ids" | git cat-file --batch-check='%(objectname) %(objecttype)' 2>/dev/null)"; then
   echo "FAIL: cannot classify the selected Git objects."
   exit 1
 fi
 
+tree_ids=()
 while read -r object_id object_type; do
   case "$object_type" in
-    blob|tree|commit|tag) ;;
+    blob|commit|tag) ;;
+    tree)
+      tree_ids+=("$object_id")
+      ;;
     *)
       echo "FAIL: selected Git object ${object_id:0:12} has an unreadable or unsupported type."
       exit 1
@@ -53,21 +58,34 @@ while read -r object_id object_type; do
   esac
 done <<< "$object_types"
 
+# Each selected tree object owns its immediate entry names. Inspecting every tree
+# entry preserves path identity even when different paths share the same blob.
 env_found=0
-while IFS= read -r line; do
-  object_id="${line%% *}"
-  [ "$line" = "$object_id" ] && continue
-  path="${line#* }"
-  base="${path##*/}"
-  case "$base" in
-    .env|.env.*)
-      if [ "$base" != ".env.example" ]; then
-        env_found=1
-        break
-      fi
-      ;;
-  esac
-done <<< "$objects"
+if [ "${#tree_ids[@]}" -gt 0 ]; then
+  if ! tree_entries_file="$(mktemp)"; then
+    echo "FAIL: cannot create temporary storage for tree path verification."
+    exit 1
+  fi
+  trap 'rm -f "$tree_entries_file"' EXIT
+
+  for tree_id in "${tree_ids[@]}"; do
+    if ! git ls-tree -z --name-only "$tree_id" >"$tree_entries_file" 2>/dev/null; then
+      echo "FAIL: cannot inspect the selected Git tree paths."
+      exit 1
+    fi
+
+    while IFS= read -r -d '' entry_name; do
+      case "$entry_name" in
+        .env|.env.*)
+          if [ "$entry_name" != ".env.example" ]; then
+            env_found=1
+            break 2
+          fi
+          ;;
+      esac
+    done <"$tree_entries_file"
+  done
+fi
 
 if [ "$env_found" -ne 0 ]; then
   echo "FAIL: selected Git objects contain a prohibited .env entry."
