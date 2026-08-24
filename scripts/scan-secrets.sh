@@ -6,15 +6,14 @@ set -uo pipefail
 #
 # Two modes:
 #   scan-secrets.sh                            snapshot: tracked files at the current tip.
-#   scan-secrets.sh --range <rev-list args>    history: every commit the range names.
+#   scan-secrets.sh --range <rev-list args>    history: every outgoing Git object named by the range.
 #
 # The snapshot mode is what `verify:production` uses — Tier 3 verifies one committed
 # tree, so the tip is the right subject. It is NOT sufficient before a push: a branch
 # that adds a secret in one commit and removes it in a later one passes a tip scan
 # while pushing both commits, secret included. The pre-push hook therefore uses range
-# mode over the commits actually being sent. Range mode scans each commit's tree and
-# commit metadata so secret-bearing commit objects cannot reach the remote. Patterns
-# live here once, in both modes.
+# mode over the objects actually being sent. Range mode covers commit metadata,
+# annotated-tag metadata, changed commit trees, and direct tree/blob tag targets.
 #
 # FAIL CLOSED. Every git query below feeds a pass/fail decision, so a git *error* must
 # never be read as "nothing found". Discarding a failure here turns the scanner into
@@ -54,28 +53,86 @@ scan_snapshot() {
     report "committed .env file(s) (only .env.example is allowed):" "$committed_env"
 
   # `-e` is required, not stylistic: SECRET_RE starts with `-----BEGIN`, so without
-  # it grep parses the pattern as an option, exits with a usage error, and — with
-  # stderr discarded — this scan reported PASSED while matching nothing at all.
+  # it grep parses the pattern as an option. Print only filenames: echoing the
+  # matching line would copy the detected secret into verification logs.
   #
   # xargs returns 123 whenever any grep child exits 1, which is the normal no-match
   # case, so a grep error cannot be distinguished here. The guard that is available
   # — that the file list resolved — is applied above.
-  matches="$(printf '%s\n' "$files" | grep -vE 'pnpm-lock\.yaml$' | xargs -r grep -nEI -e "$SECRET_RE" 2>/dev/null || true)"
-  [ -n "$matches" ] && report "potential committed secret(s):" "$matches"
+  matches="$(printf '%s\n' "$files" | grep -vE 'pnpm-lock\.yaml$' | xargs -r grep -lEI -e "$SECRET_RE" 2>/dev/null || true)"
+  [ -n "$matches" ] && report "potential committed secret(s) in tracked file(s):" "$matches"
 
   return 0
 }
 
-# Scans each commit's own tree and metadata, so a secret introduced and later
-# deleted — or placed only in the commit message/author metadata — is still caught.
-# `git grep -e` is required: the pattern starts with `-----BEGIN` and would otherwise
-# be parsed as an option, making every tree scan error out and find nothing.
-scan_range() {
-  local commits commit metadata metadata_status tree committed_env matches grep_status
+scan_metadata_object() {
+  local object_type="$1" object_sha="$2" label="$3"
+  local metadata status
 
-  # An unresolvable range — a remote sha absent from a stale clone, a bad argument —
-  # must block the push. Treating it as an empty commit list would pass unscanned
-  # history through while printing "no outgoing commits".
+  if ! metadata="$(git cat-file "$object_type" "$object_sha" 2>/dev/null)"; then
+    report "cannot read ${label} ${object_sha:0:12}:" "git cat-file failed"
+    return 0
+  fi
+
+  grep -qEI -e "$SECRET_RE" <<< "$metadata"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    report "potential secret(s) in ${label} ${object_sha:0:12}:" "[redacted]"
+  elif [ "$status" -gt 1 ]; then
+    report "${label} secret scan errored on ${object_sha:0:12}:" "grep exited $status"
+  fi
+}
+
+scan_tree_object() {
+  local tree_sha="$1"
+  local tree committed_env matches grep_status
+
+  if ! tree="$(git ls-tree -r --name-only "$tree_sha" 2>/dev/null)"; then
+    report "cannot read outgoing tree ${tree_sha:0:12}:" "git ls-tree failed"
+    return 0
+  fi
+
+  committed_env="$(select_env_files "$tree")"
+  [ -n "$committed_env" ] &&
+    report "committed .env file(s) in outgoing tree ${tree_sha:0:12} (only .env.example is allowed):" "$committed_env"
+
+  # `-l` reports only paths, never the matching secret value. A root tree object is
+  # scanned once; nested trees are already covered by that recursive tree scan.
+  matches="$(git grep -lEI -e "$SECRET_RE" "$tree_sha" -- . ':(exclude)pnpm-lock.yaml' 2>/dev/null)"
+  grep_status=$?
+  if [ "$grep_status" -gt 1 ]; then
+    report "secret scan errored on outgoing tree ${tree_sha:0:12}:" "git grep exited $grep_status"
+    return 0
+  fi
+
+  [ -n "$matches" ] && report "potential secret(s) in outgoing tree ${tree_sha:0:12}:" "$matches"
+}
+
+scan_blob_object() {
+  local blob_sha="$1"
+  local blob status
+
+  if ! blob="$(git cat-file blob "$blob_sha" 2>/dev/null)"; then
+    report "cannot read outgoing blob ${blob_sha:0:12}:" "git cat-file blob failed"
+    return 0
+  fi
+
+  grep -qEI -e "$SECRET_RE" <<< "$blob"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    report "potential secret(s) in outgoing blob ${blob_sha:0:12}:" "[redacted]"
+  elif [ "$status" -gt 1 ]; then
+    report "blob secret scan errored on ${blob_sha:0:12}:" "grep exited $status"
+  fi
+}
+
+# Scans the outgoing Git object graph, not only commit trees. `git rev-list` peels an
+# annotated tag to its commit and omits the tag object from default output; `--objects`
+# retains tag objects and direct tree/blob tag targets so metadata or content carried
+# only by a tag cannot bypass the pre-push boundary.
+scan_range() {
+  local commits objects line object path object_type commit_count
+
   if ! commits="$(git rev-list "$@" 2>/dev/null)"; then
     echo "FAIL: cannot resolve the outgoing commit range; refusing to pass unscanned history:"
     git rev-list "$@" 2>&1 | head -3
@@ -83,49 +140,61 @@ scan_range() {
     return 0
   fi
 
-  if [ -z "$commits" ]; then
+  if ! objects="$(git rev-list --objects "$@" 2>/dev/null)"; then
+    echo "FAIL: cannot resolve the outgoing object range; refusing to pass unscanned objects:"
+    git rev-list --objects "$@" 2>&1 | head -3
+    fail=1
+    return 0
+  fi
+
+  if [ -z "$objects" ]; then
     echo "==> No outgoing commits to scan"
     return 0
   fi
 
-  echo "==> Scanning $(printf '%s\n' "$commits" | wc -l | tr -d ' ') outgoing commit(s) for secrets"
+  commit_count="$(printf '%s\n' "$commits" | awk 'NF {count++} END {print count+0}')"
+  if [ "$commit_count" -gt 0 ]; then
+    echo "==> Scanning $commit_count outgoing commit(s) and their Git objects for secrets"
+  else
+    echo "==> No outgoing commits; scanning outgoing non-commit Git objects for secrets"
+  fi
 
-  for commit in $commits; do
-    # A pushed commit object includes metadata as well as its tree. Inspect the raw
-    # commit object so a credential in the subject/body or author/committer metadata
-    # cannot bypass a tree-only scan. Do not echo the matched material into logs.
-    if ! metadata="$(git cat-file commit "$commit" 2>/dev/null)"; then
-      report "cannot read commit metadata for ${commit:0:12}:" "git cat-file failed"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    object="${line%% *}"
+    if [ "$line" = "$object" ]; then
+      path=""
     else
-      grep -qEI -e "$SECRET_RE" <<< "$metadata"
-      metadata_status=$?
-      if [ "$metadata_status" -eq 0 ]; then
-        report "potential secret(s) in commit metadata ${commit:0:12}:" "[redacted]"
-      elif [ "$metadata_status" -gt 1 ]; then
-        report "metadata secret scan errored on commit ${commit:0:12}:" "grep exited $metadata_status"
-      fi
+      path="${line#* }"
     fi
 
-    if ! tree="$(git ls-tree -r --name-only "$commit" 2>/dev/null)"; then
-      report "cannot read the tree of commit ${commit:0:12}:" "git ls-tree failed"
+    if ! object_type="$(git cat-file -t "$object" 2>/dev/null)"; then
+      report "cannot identify outgoing object ${object:0:12}:" "git cat-file -t failed"
       continue
     fi
 
-    committed_env="$(select_env_files "$tree")"
-    [ -n "$committed_env" ] &&
-      report "committed .env file(s) in ${commit:0:12} (only .env.example is allowed):" "$committed_env"
-
-    # git grep: 0 = matches found, 1 = no matches, anything higher = error.
-    # Only exit 1 is a clean result; an error must not read as "no secrets".
-    matches="$(git grep -nEI -e "$SECRET_RE" "$commit" -- . ':(exclude)pnpm-lock.yaml' 2>/dev/null)"
-    grep_status=$?
-    if [ "$grep_status" -gt 1 ]; then
-      report "secret scan errored on commit ${commit:0:12}:" "git grep exited $grep_status"
-      continue
-    fi
-
-    [ -n "$matches" ] && report "potential secret(s) in commit ${commit:0:12}:" "$matches"
-  done
+    case "$object_type" in
+      commit)
+        scan_metadata_object commit "$object" "commit metadata"
+        ;;
+      tag)
+        scan_metadata_object tag "$object" "annotated tag metadata"
+        ;;
+      tree)
+        # rev-list names nested trees by path; an unnamed tree is a root reachable
+        # from an outgoing revision and one recursive scan covers its descendants.
+        [ -z "$path" ] && scan_tree_object "$object"
+        ;;
+      blob)
+        # Named blobs are covered by their root-tree scan. An unnamed blob is a
+        # direct ref/tag target and has no tree path through which git grep can see it.
+        [ -z "$path" ] && scan_blob_object "$object"
+        ;;
+      *)
+        report "unsupported outgoing Git object type for ${object:0:12}:" "$object_type"
+        ;;
+    esac
+  done <<< "$objects"
 
   return 0
 }
