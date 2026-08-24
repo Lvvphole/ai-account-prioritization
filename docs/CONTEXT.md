@@ -162,33 +162,13 @@ built-in client. Injected test clients record no sandbox profile.
 
 ## Definition of Done
 
-```bash
-pnpm install --frozen-lockfile
-pnpm scan:secrets
-pnpm generate:schemas
-pnpm lint
-pnpm build
-pnpm typecheck
-pnpm test
-pnpm test:evals
-pnpm verify:security
-pnpm verify:observability
-pnpm verify:production
-git diff --check
-```
+`AGENTS.md` section 13 is the authoritative Definition of Done and Tier-3 command
+set. `pnpm verify:production` is the canonical machine verifier for that contract.
 
-Runtime-generation changes additionally require evidence that:
+`PR Production Verification` runs the canonical verifier against the exact pull
+request merge candidate. The local pre-push hook scans outgoing Git objects for
+detected secrets. The hook is bypassable and does not have completion authority.
 
-- model work cannot widen software-owned authority;
-- output schema failures fail closed;
-- every accepted factual claim that requires evidence is grounded;
-- prompt injection cannot alter authority or control flow;
-- timeout, token, attempt, and fallback policies are enforced;
-- human approval and deterministic publication authority remain intact;
-- the async judge is not coupled into the live runtime;
-- multiple implemented or qualified providers do not create runtime routing;
-- provider failure cannot trigger automatic cross-provider failover; and
-- current P4 changes do not introduce any deferred Position B capability.
-
-No unstaged or unrelated changes, no schema-generation drift, no failed gates,
-no weakened approval or RLS controls, and no direct push to `main`.
+The `main` ruleset supplies merge authority. It must require `PR Production
+Verification` and strict up-to-date-before-merge behavior before the automated
+verification layer can be accepted as complete.

@@ -8,11 +8,13 @@
     "node": ">=22"
   },
   "scripts": {
+    "prepare": "bash scripts/install-git-hooks.sh",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
+    "lint": "eslint --max-warnings=0 .",
     "test": "turbo run test",
     "test:evals": "turbo run test:evals",
+    "test:verification-layer": "node --test scripts/verification-lint.test.mjs scripts/verification-git-boundary.test.mjs",
     "test:acceptance:a": "bash scripts/verify-acceptance-a.sh",
     "test:acceptance:b": "bash scripts/verify-acceptance-b.sh",
     "qualify:models:report": "pnpm build && pnpm exec tsx packages/testing-evals/src/model-qualification/qualification-report-cli.ts",
@@ -41,6 +43,8 @@
     "clean": "turbo run clean"
   },
   "devDependencies": {
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "turbo": "^2.3.3",

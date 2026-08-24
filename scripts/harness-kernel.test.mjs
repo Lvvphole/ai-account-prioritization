@@ -159,3 +159,22 @@ test("harness-kernel gate anchors the agent engineering standard contract", () =
     { id: "agent-standard-tests", command: "pnpm test:agent-standard" },
   ]);
 });
+
+test("verification-layer changes select the verification-layer contract", () => {
+  const contract = parseContract(readFileSync(".harness/contract.yaml", "utf8"));
+  const paths = [
+    "scripts/scan-secrets.sh",
+    "eslint.config.mjs",
+    ".github/workflows/production-verification.yml",
+    ".github/workflows/deploy.yml",
+    "pnpm-lock.yaml",
+  ];
+
+  for (const changedPath of paths) {
+    const selected = selectAffectedContracts(contract, [changedPath]);
+    assert.ok(
+      selected.some((item) => item.id === "verification-layer"),
+      `${changedPath} must select verification-layer`,
+    );
+  }
+});
