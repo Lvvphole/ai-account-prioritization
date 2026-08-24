@@ -110,21 +110,25 @@ The sections below are for contributors who need to run, test, or change the app
 
 ```text
 apps/
-  agent-runtime/   Recommendation runtime
-  web/             Next.js sales, manager, account, and admin workspace
-  api-python/      FastAPI support service
+  agent-runtime/        Recommendation runtime
+  web/                  Next.js sales, manager, account, and admin workspace
+  api-python/           FastAPI support service
 packages/
-  shared-schemas/  Zod schemas and JSON Schema generation
-  supabase-client/ Typed Supabase clients and generated database types
-  security/        Access, approval, PII, and security policy
-  observability/   PII-safe events and telemetry
-  testing-evals/   Deterministic and asynchronous evaluations
-  config-*/        Shared TypeScript and ESLint configuration
-infra/             Docker Compose and service Dockerfiles
-supabase/          Migrations, Row Level Security policies, seed, and configuration
-scripts/           Build and verification helpers
-docs/              Product, architecture, context, and decision records
-.github/workflows/ CI, evaluation, security, and deployment workflows
+  shared-schemas/       Zod schemas and JSON Schema generation
+  supabase-client/      Typed Supabase clients and generated database types
+  security/             Access, approval, PII, and security policy
+  observability/        PII-safe events and telemetry
+  testing-evals/        Deterministic and asynchronous evaluations
+  openai-agents-bridge/ OpenAI Agents SDK bridge for the bounded drafting/synthesis path
+  sandbox-runtime/      Vercel Sandbox provider-egress boundary for runtime model calls
+  config-*/             Shared TypeScript and ESLint configuration
+infra/                  Docker Compose and service Dockerfiles
+supabase/               Migrations, Row Level Security policies, seed, and configuration
+scripts/                Build and verification helpers
+config/                 Model qualification and other versioned runtime policy
+verification-reports/   Generated Tier-3 verification reports (pnpm verify:production)
+docs/                   Product, architecture, context, and decision records
+.github/workflows/      CI, evaluation, security, harness, and deployment workflows
 ```
 
 ## Configuration
@@ -185,7 +189,8 @@ These runtime-generation checks are planned and are not currently shipped. The L
 - Build images with `pnpm docker:build`.
 - Deploy `apps/web` on Vercel with Root Directory `apps/web`.
 - Apply `supabase/migrations` before production traffic.
-- Use `ci.yml`, `evals.yml`, `security.yml`, and `deploy.yml` as promotion gates.
+- Use `ci.yml`, `evals.yml`, `security.yml`, `migration-lint.yml`, `harness-kernel.yml`,
+  `production-verification.yml`, and `deploy.yml` as promotion gates.
 - Do not enable runtime AI drafting until its implementation-specific checks pass.
 
 ## Contributing
