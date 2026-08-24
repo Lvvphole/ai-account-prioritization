@@ -8,5 +8,8 @@ export default [
     languageOptions: {
       parser: tsParser,
     },
+    linterOptions: {
+      reportUnusedDisableDirectives: "off",
+    },
   },
 ];
