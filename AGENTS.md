@@ -153,6 +153,34 @@ The skill renders only the applicable reusable engineering rules from
 cannot override this root contract, repository ADRs/specifications, or verifier
 outcomes. Do not read the full rule registry during ordinary tasks.
 
+### 2.3 Project Skills Router — progressive disclosure
+
+Project skills under `.claude/skills/<skill-name>/SKILL.md` are subordinate
+workflows. They never replace or override this root contract, routed authorities,
+repository verification, or human approval and merge authority.
+
+- Do not scan or preload `.claude/skills/`. Select from skill metadata, then read
+  only the matching `SKILL.md`.
+- Use `scout-agent` when the user asks to scout, survey, recon, map, orient in, or
+  determine the next repository step. Scout **must remain deterministic and
+  read-only**. It observes and reports only, then stops after its Scout Report.
+- Use `plan` when the user invokes `/plan`, supplies a Scout handoff, or requests
+  an implementation plan. It requires a user-selected or Scout-selected path. It
+  stops at `PLAN_READY` or `PLAN_BLOCKED` and does not implement.
+- Load only a reference explicitly linked by the selected skill when the current
+  step requires it.
+- Do not invoke a skill from inside another skill. Do not re-invoke an unchanged
+  skill in the same task. Do not use a skill to bypass a stop condition. New
+  material evidence or explicit user direction is required to re-enter a
+  completed workflow.
+- The `engineering-standard` requirement in section 2.2 remains independently
+  applicable. A project skill cannot substitute for it.
+- A skill cannot grant write, review, `PASS`, completion, publication,
+  deployment, merge-readiness, or merge authority.
+- CI can verify skill structure or behavior. CI configuration is evidence and
+  enforcement only. It cannot define skill authority or replace `AGENTS.md` or
+  an authority routed by `AGENTS.md`.
+
 ## 3. Approved target runtime architecture
 
 The approved Position B target runtime shape is:
